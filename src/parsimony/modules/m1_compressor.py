@@ -163,19 +163,42 @@ class Tier2Deduper:
         if len(sentences) < 3:
             return NoOp("not_applicable", "fewer than 3 sentences")
 
+        use_embeddings = getattr(d, "has_embedder", False)
+        if use_embeddings:
+            # One batched call for every sentence, not one call per comparison.
+            vectors = d.embed(list(sentences))
+            threshold = cfg.compression.dedup_threshold
+            scorer = "cosine"
+        else:
+            vectors = None
+            threshold = cfg.compression.dedup_threshold_lexical
+            scorer = "jaccard"
+
         kept: list[str] = []
+        kept_idx: list[int] = []
         dropped = 0
-        for sent in sentences:
+        for i, sent in enumerate(sentences):
             if sent.startswith("```"):
                 kept.append(sent)
+                kept_idx.append(i)
                 continue
             if d.token_count(sent) < cfg.compression.min_sentence_tokens:
                 kept.append(sent)
+                kept_idx.append(i)
                 continue
-            if any(jaccard(sent, k) >= cfg.compression.dedup_threshold for k in kept):
+
+            if vectors is not None:
+                duplicate = any(
+                    float(vectors[i] @ vectors[j]) >= threshold for j in kept_idx
+                )
+            else:
+                duplicate = any(jaccard(sent, k) >= threshold for k in kept)
+
+            if duplicate:
                 dropped += 1
                 continue
             kept.append(sent)
+            kept_idx.append(i)
 
         if not dropped:
             return NoOp("no_yield", "no near-duplicate sentences")
@@ -183,8 +206,14 @@ class Tier2Deduper:
         return ContextPatch(
             kind=TransformKind.REWRITE,
             fields={"query": " ".join(kept)},
-            rationale=f"removed {dropped} near-duplicate sentence(s)",
-            evidence={"tier": 2, "dropped_sentences": dropped, "kept": len(kept)},
+            rationale=f"removed {dropped} near-duplicate sentence(s) [{scorer}]",
+            evidence={
+                "tier": 2,
+                "dropped_sentences": dropped,
+                "kept": len(kept),
+                "scorer": scorer,
+                "threshold": threshold,
+            },
         )
 
 

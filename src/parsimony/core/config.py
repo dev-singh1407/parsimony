@@ -48,11 +48,13 @@ class CompressionConfig:
     tier1_enabled: bool = True  # lossless normalisation
     tier2_enabled: bool = True  # extractive redundancy removal
     tier3_enabled: bool = False  # tokenizer-aware rewriting — Sprint 3
-    # Calibrated for the LEXICAL (Jaccard) similarity used until embeddings land
-    # in Sprint 2. Cosine over MiniLM runs much hotter for the same sentence
-    # pair, so this value MUST be re-calibrated when the scorer changes — which
-    # is itself a row in the per-model calibration table (Contribution 6).
-    dedup_threshold: float = 0.62
+    # Two thresholds, because a similarity threshold is meaningless without the
+    # scorer it was calibrated against. Cosine runs far hotter than Jaccard for
+    # the same sentence pair. Keeping both explicit is the calibration-table
+    # argument (Contribution 6) applied to our own stack rather than asserted
+    # about someone else's.
+    dedup_threshold: float = 0.80  # cosine under hashing-v1 (see CacheConfig note)
+    dedup_threshold_lexical: float = 0.62  # Jaccard fallback
     min_sentence_tokens: int = 4
     retokenise_window: int = 32
     max_ratio: float = 3.0
@@ -61,9 +63,21 @@ class CompressionConfig:
 @dataclass(frozen=True, slots=True)
 class CacheConfig:
     exact_tier: bool = True
-    semantic_tier: bool = False  # needs embeddings — Sprint 2
-    tau_hi: float = 0.92
-    tau_lo: float = 0.78
+    semantic_tier: bool = True
+    # CALIBRATED FOR hashing-v1, NOT INHERITED FROM THE LITERATURE.
+    #
+    # Measured on our own pairs, this encoder puts the adversarial negation pair
+    # ("is X safe" / "is X NOT safe") at cosine 0.924 — higher than every
+    # genuine paraphrase in the set. Any tau_hi at or below that auto-accepts a
+    # cache hit that returns the opposite answer, without the verifier ever
+    # running. The published "safe" thresholds (0.85-0.92) do exactly that here.
+    #
+    # So tau_hi sits above the adversarial band and the verify zone is wide.
+    # The consequence is deliberate: almost nothing auto-accepts on similarity
+    # alone, and the cheap invariant verifier does the discriminating work. That
+    # is the finding, not a workaround — see ADR-024.
+    tau_hi: float = 0.97
+    tau_lo: float = 0.75
     jaccard_min: float = 0.55
     chain_depth: int = 2
     top_k: int = 5
@@ -124,7 +138,10 @@ class ParsimonyConfig:
     router: RouterConfig = field(default_factory=RouterConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     tokenizer_id: str = "Qwen/Qwen2.5-1.5B-Instruct"
-    embedder_id: str = "all-MiniLM-L6-v2"
+    # Lexical embedder by default — no PyTorch. "all-MiniLM-L6-v2" swaps in
+    # behind the same protocol once the models extra is installed; every
+    # similarity threshold must then be recalibrated (see infra/embedding.py).
+    embedder_id: str = "hashing-v1"
     system_prompt: str = "You are a concise, accurate assistant."
     seed: int = 0
     label: str = ""

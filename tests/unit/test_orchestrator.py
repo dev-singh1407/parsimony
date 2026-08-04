@@ -177,18 +177,42 @@ class TestStageOrdering:
         assert raw_names.index("m2_cache") < raw_names.index("m1_tier1")
         assert comp_names.index("m2_cache") > comp_names.index("m1_tier1")
 
+    @staticmethod
+    def _exact_only(mode):
+        """Isolate the ordering effect from the semantic tier.
+
+        With the semantic tier on, BOTH arms catch a politeness-only paraphrase
+        (it lands in the verify zone at cosine ~0.83 and the verifier passes),
+        so the ordering effect on TRUE hits is masked. Turning the semantic tier
+        off makes the compression contribution observable on its own — which is
+        the comparison Gap 3 is actually about.
+        """
+        cfg = replace(full_stack(), cache=replace(full_stack().cache, semantic_tier=False))
+        return with_cache_lookup(cfg, mode)
+
     def test_compressed_lookup_collapses_politeness_only_paraphrases(self, make_pipeline):
-        """The Gap 3 effect, as a regression test: with the cache behind the
-        compressor, 'Explain X.' and 'Please explain X.' become one key."""
-        p = make_pipeline(with_cache_lookup(full_stack(), "COMPRESSED"))
+        """Gap 3, exact tier only: with the cache behind the compressor,
+        'Explain X.' and 'Please explain X.' become one key."""
+        p = make_pipeline(self._exact_only("COMPRESSED"))
         p.run("Explain recursion.")
-        second = p.run("Please explain recursion.")
-        assert second.row.cache_hit
+        assert p.run("Please explain recursion.").row.cache_hit
 
     def test_raw_lookup_does_not(self, make_pipeline):
-        p = make_pipeline(with_cache_lookup(full_stack(), "RAW"))
+        p = make_pipeline(self._exact_only("RAW"))
         p.run("Explain recursion.")
         assert not p.run("Please explain recursion.").row.cache_hit
+
+    def test_the_semantic_tier_subsumes_that_effect(self, make_pipeline):
+        """With the semantic tier enabled the RAW arm hits too.
+
+        Worth asserting because it is a finding, not an implementation detail:
+        once a semantic cache exists, upstream normalisation stops mattering for
+        TRUE hits, and the live Gap 3 question becomes what compression does to
+        FALSE hits.
+        """
+        p = make_pipeline(with_cache_lookup(full_stack(), "RAW"))
+        p.run("Explain recursion.")
+        assert p.run("Please explain recursion.").row.cache_hit
 
     def test_boot_fails_on_an_impossible_order(self):
         reg = StageRegistry()

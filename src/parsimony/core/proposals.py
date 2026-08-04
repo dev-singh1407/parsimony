@@ -46,6 +46,11 @@ class ShortCircuit:
 class NoOp:
     reason: Literal["disabled", "not_applicable", "no_yield", "error"]
     detail: str = ""
+    # A no-op still carries evidence. The cache's rejected candidates and their
+    # scores are recorded on a MISS, which is what turns the entire
+    # similarity-threshold sweep into an offline groupby instead of N
+    # CPU-bound runs (docs/06-contracts.md 6).
+    evidence: Mapping[str, Any] = field(default_factory=dict)
 
 
 Proposal = Union[ContextPatch, ShortCircuit, NoOp]

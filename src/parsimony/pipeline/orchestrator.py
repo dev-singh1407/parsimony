@@ -27,6 +27,7 @@ from parsimony.core.types import (
     Turn,
 )
 from parsimony.infra.derived import DerivedCache
+from parsimony.infra.embedding import get_embedder
 from parsimony.infra.ids import ulid
 from parsimony.infra.nlp import RegexInvariantExtractor, RegexPiiDetector
 from parsimony.infra.providers import MockProvider
@@ -66,6 +67,7 @@ class Pipeline:
         gate: FidelityGate | None = None,
         sink=None,
         blobs=None,
+        embedder=None,
         run_id: str | None = None,
         pass_kind: str = "quality",
         corpus_hash: str | None = None,
@@ -73,7 +75,11 @@ class Pipeline:
         self.cfg = cfg
         self.tokenizer = tokenizer or get_tokenizer(cfg.tokenizer_id)
         self.provider = provider or MockProvider()
-        self.cache = cache if cache is not None else SemanticCache(cfg.cache.ttl_seconds)
+        self.embedder = embedder if embedder is not None else get_embedder(cfg.embedder_id)
+        self.cache = (
+            cache if cache is not None else SemanticCache(cfg.cache.ttl_seconds, self.embedder)
+        )
+        self.cache.attach_embedder(self.embedder)
         self.registry = registry or default_registry(self.cache)
         self.gate = gate or FidelityGate()
         self.sink = sink
@@ -117,7 +123,7 @@ class Pipeline:
             config_hash=self.cfg.config_hash,
             corpus_hash=self.corpus_hash,
         )
-        return replace(ctx, derived=DerivedCache(self.tokenizer))
+        return replace(ctx, derived=DerivedCache(self.tokenizer, self.embedder))
 
     # -- the loop ----------------------------------------------------------
 
@@ -135,7 +141,9 @@ class Pipeline:
         traces: list[StageTrace] = []
         tokens_per_stage: dict[str, int] = {}
         gate_events: list[GateEvent] = []
-        cache_key: str | None = None
+        cache_stage = None
+        cache_lookup_ctx: RequestContext | None = None
+        cache_evidence: dict[str, Any] = {}
         cache_consulted = False
         short: ShortCircuit | None = None
 
@@ -157,8 +165,13 @@ class Pipeline:
                 )
                 continue
 
-            if hasattr(stage, "key_for"):
-                cache_key = stage.key_for(ctx, self.cfg)
+            is_cache = hasattr(stage, "remember")
+            if is_cache:
+                # Snapshot the context as the cache saw it: by the time the
+                # response is ready, M1 may have rewritten the query, and the
+                # write must use the same key the lookup used.
+                cache_stage = stage
+                cache_lookup_ctx = ctx
                 cache_consulted = True
 
             try:
@@ -177,6 +190,9 @@ class Pipeline:
                 )
                 continue
 
+            if is_cache:
+                cache_evidence = dict(getattr(proposal, "evidence", {}) or {})
+
             if isinstance(proposal, ShortCircuit):
                 traces.append(
                     _trace(stage, StageOutcome.SHORT_CIRCUIT, before_tokens, 0, t0,
@@ -188,7 +204,7 @@ class Pipeline:
             if isinstance(proposal, NoOp):
                 traces.append(
                     _trace(stage, StageOutcome.NOOP, before_tokens, before_tokens, t0,
-                           proposal.detail or proposal.reason)
+                           proposal.detail or proposal.reason, proposal.evidence)
                 )
                 continue
 
@@ -245,11 +261,11 @@ class Pipeline:
             tokens_out = self.tokenizer.count(response)
             route = RouteTier.MODEL_SMALL
 
-            if cache_key is not None and self.cfg.enables("M2"):
+            if cache_stage is not None and cache_lookup_ctx is not None:
                 # Redaction at the write boundary (ADR-013): the model saw the
                 # user's real text; the cache — the one component with memory —
                 # never does.
-                self.cache.store(cache_key, ctx.query, self._pii.redact(response))
+                cache_stage.remember(cache_lookup_ctx, self.cfg, self._pii.redact(response))
 
         total_ns = time.perf_counter_ns() - t_start
 
@@ -277,7 +293,12 @@ class Pipeline:
             route_tier=route.name,
             cache_consulted=cache_consulted,
             cache_hit=route in (RouteTier.CACHE_EXACT, RouteTier.CACHE_SEMANTIC),
-            cache_zone="accept" if route is RouteTier.CACHE_EXACT else ("miss" if cache_consulted else None),
+            # Persisted even on a miss: the rejected candidates and their scores
+            # are what make the threshold sweep an offline re-analysis of one
+            # run rather than one CPU-bound run per threshold.
+            cache_zone=cache_evidence.get("zone") if cache_consulted else None,
+            cache_top_k=tuple(tuple(x) for x in cache_evidence.get("top_k", ())),
+            cache_verifier=cache_evidence.get("verifier"),
             gate_fired=bool(gate_events),
             gate_events=tuple(gate_events),
             prefix_tokens_survived=prefix_survived,

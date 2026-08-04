@@ -374,3 +374,42 @@ touch the timing pass.
 **Justification.** CPU latency distributions are right-skewed with a long tail — thermal throttling and
 scheduler effects produce occasional large outliers. A symmetric t-interval on a skewed distribution
 understates the upper tail, which is precisely the region that matters for a latency claim.
+
+---
+
+### ADR-024 — There is no safe `tau_hi` on similarity alone; the verifier does the work
+
+**Context.** Measured on our own sentence pairs under the default encoder (`hashing-v1`):
+
+| cosine | pair |
+|---|---|
+| **0.924** | "Is it safe to mix bleach and vinegar?" / "Is it **not** safe to mix bleach and vinegar?" |
+| 0.869 | "capital of **Australia**" / "capital of **Austria**" |
+| 0.850 | "capital of France" / "capital **city** of France" |
+| 0.833 | "Explain recursion." / "**Please** explain recursion." |
+| 0.653 | "What causes rain?" / "What causes rainfall to occur?" |
+| −0.026 | unrelated pair |
+
+**The adversarial negation pair is the most similar pair in the set** — above every genuine paraphrase. The
+thresholds quoted as safe across the caching literature (0.85–0.92) would auto-accept it as a hit and return
+the opposite answer, with the verifier never running.
+
+**Decision.** `tau_hi = 0.97`, `tau_lo = 0.75`. Almost nothing auto-accepts on similarity alone; the wide
+verify zone routes borderline matches to the cheap invariant check (numbers, entities, negations, lexical
+overlap).
+
+**Justification.** This is not a workaround for a weak encoder — it is the mechanism the three-zone design
+exists for, and the measurement says the discriminating signal is simply not in the vector geometry.
+Modifiers and negations are *low-magnitude* edits in any bag-of-features space while being *total* inversions
+of meaning. A stronger encoder narrows the gap but does not close it: MiniLM also places negation pairs high,
+which is precisely why the key-collision attack literature exists.
+
+**Consequences.**
+
+- Directly substantiates Gap 5: published safe settings do **not** transfer, and here they fail in the
+  dangerous direction rather than merely the inefficient one.
+- Every threshold in the system is now annotated with the scorer it was calibrated against. Swapping the
+  encoder invalidates them — which is Contribution 6 (a calibration table, not a universal number)
+  demonstrated on our own stack rather than asserted about someone else's.
+- The verify zone carrying most traffic makes verifier cost a first-class concern, and is why it must stay
+  a set comparison rather than a second neural pass.

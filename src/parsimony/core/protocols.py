@@ -123,8 +123,15 @@ class Derived(Protocol):
 
     def sentences(self, text: str) -> tuple[str, ...]: ...
 
-    def query_embedding(self) -> "np.ndarray": ...
+    def embed(self, texts: list[str]) -> "np.ndarray":
+        """Memoised and batched.
 
-    def turn_embeddings(self) -> "np.ndarray": ...
+        Keyed on the text itself rather than on 'the query' or 'the turns',
+        because modules rewrite those mid-pipeline: a binding captured at
+        ingestion would be stale by the time M1 has run. Text-keyed memoisation
+        stays correct under rewriting and still collapses the four passes the
+        naive design would make.
+        """
+        ...
 
     def stats(self) -> dict[str, int]: ...
