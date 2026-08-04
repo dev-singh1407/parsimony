@@ -1,0 +1,221 @@
+"""Configuration is experiment identity (ADR-008).
+
+Every threshold in the system lives here and nowhere else. A float literal
+inside modules/ is a bug: it makes M7's output un-loadable and the per-model
+calibration table un-assemblable.
+
+config_hash is written into every ledger row. An ablation cell *is* a config
+hash, which gives exact reproduction, drift detection, and a join key for the
+ANOVA that cannot silently mismatch.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import itertools
+import json
+from dataclasses import asdict, dataclass, field, replace
+from typing import Any, Iterator, Literal
+
+from parsimony.core.errors import ConfigError
+from parsimony.core.types import Mode
+
+# Stage names, in the recommended execution order (docs/00-architecture.md 5).
+# Deviations from the report's figure 3.4 are ADR-016 (deterministic tier first).
+DEFAULT_STAGE_ORDER: tuple[str, ...] = (
+    "m6a_deterministic",
+    "m2_cache",
+    "m3_history",
+    "m1_tier1",
+    "m1_tier2",
+    "m1_tier3",
+    "m4_assembler",
+    "m5_budgeter",
+    "m6b_router",
+)
+
+# Declared but not yet implemented. The registry skips these and records
+# "not_implemented" in the trace, so the roadmap is visible in every run rather
+# than silently absent.
+PLANNED_STAGES: frozenset[str] = frozenset({"m3_history", "m4_assembler", "m6b_router"})
+
+# The four factorial axes (report 4.6).
+FACTORIAL_MODULES: tuple[str, ...] = ("M1", "M2", "M3", "M5")
+
+
+@dataclass(frozen=True, slots=True)
+class CompressionConfig:
+    tier1_enabled: bool = True  # lossless normalisation
+    tier2_enabled: bool = True  # extractive redundancy removal
+    tier3_enabled: bool = False  # tokenizer-aware rewriting — Sprint 3
+    # Calibrated for the LEXICAL (Jaccard) similarity used until embeddings land
+    # in Sprint 2. Cosine over MiniLM runs much hotter for the same sentence
+    # pair, so this value MUST be re-calibrated when the scorer changes — which
+    # is itself a row in the per-model calibration table (Contribution 6).
+    dedup_threshold: float = 0.62
+    min_sentence_tokens: int = 4
+    retokenise_window: int = 32
+    max_ratio: float = 3.0
+
+
+@dataclass(frozen=True, slots=True)
+class CacheConfig:
+    exact_tier: bool = True
+    semantic_tier: bool = False  # needs embeddings — Sprint 2
+    tau_hi: float = 0.92
+    tau_lo: float = 0.78
+    jaccard_min: float = 0.55
+    chain_depth: int = 2
+    top_k: int = 5
+    ttl_seconds: int = 86_400
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryConfig:
+    strategy: Literal["recency", "relevance", "mmr", "summary"] = "recency"
+    arrangement: Literal["chronological", "position_aware"] = "chronological"
+    max_turns: int = 6
+    token_budget: int = 1024
+    summarise_async: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class BudgetConfig:
+    early_stop: bool = True
+    novelty_window: int = 48
+    novelty_threshold: float = 0.25
+    per_class: dict[str, int] = field(
+        default_factory=lambda: {
+            "arithmetic": 48,
+            "factual": 128,
+            "follow_up": 160,
+            "summarisation": 256,
+            "code": 512,
+            "reasoning": 640,
+        }
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class RouterConfig:
+    deterministic_tier: bool = True
+    escalation_tier: bool = False
+    escalation_complexity: float = 0.75
+
+
+@dataclass(frozen=True, slots=True)
+class ModelConfig:
+    name: str = "mock-1b"
+    quantisation: str = "none"
+    digest: str = "mock"
+    judge_name: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ParsimonyConfig:
+    mode: Mode = Mode.SERVE
+    enabled_modules: frozenset[str] = frozenset({"M1", "M2", "M3", "M5", "M6"})
+    stage_order: tuple[str, ...] = DEFAULT_STAGE_ORDER
+    cache_lookup_on: Literal["RAW", "COMPRESSED", "BOTH"] = "RAW"
+    compression: CompressionConfig = field(default_factory=CompressionConfig)
+    cache: CacheConfig = field(default_factory=CacheConfig)
+    history: HistoryConfig = field(default_factory=HistoryConfig)
+    budget: BudgetConfig = field(default_factory=BudgetConfig)
+    router: RouterConfig = field(default_factory=RouterConfig)
+    model: ModelConfig = field(default_factory=ModelConfig)
+    tokenizer_id: str = "Qwen/Qwen2.5-1.5B-Instruct"
+    embedder_id: str = "all-MiniLM-L6-v2"
+    system_prompt: str = "You are a concise, accurate assistant."
+    seed: int = 0
+    label: str = ""
+
+    def __post_init__(self) -> None:
+        if self.cache_lookup_on not in ("RAW", "COMPRESSED", "BOTH"):
+            raise ConfigError(f"invalid cache_lookup_on: {self.cache_lookup_on!r}")
+        if not self.stage_order:
+            raise ConfigError("stage_order must not be empty")
+        dupes = [s for s in set(self.stage_order) if self.stage_order.count(s) > 1]
+        if dupes:
+            raise ConfigError(f"duplicate stages in stage_order: {sorted(dupes)}")
+
+    def enables(self, module_id: str) -> bool:
+        return module_id in self.enabled_modules
+
+    def canonical(self) -> dict[str, Any]:
+        """Deterministic, JSON-safe view. Excludes cosmetic fields."""
+        raw = asdict(self)
+        raw.pop("label", None)
+        return _canonicalise(raw)
+
+    @property
+    def config_hash(self) -> str:
+        blob = json.dumps(self.canonical(), sort_keys=True, separators=(",", ":"))
+        return hashlib.blake2b(blob.encode("utf-8"), digest_size=8).hexdigest()
+
+    def with_modules(self, modules: frozenset[str], label: str = "") -> ParsimonyConfig:
+        return replace(self, enabled_modules=modules, label=label)
+
+
+def _canonicalise(obj: Any) -> Any:
+    if isinstance(obj, dict):
+        return {k: _canonicalise(v) for k, v in sorted(obj.items())}
+    if isinstance(obj, (frozenset, set)):
+        return sorted(_canonicalise(v) for v in obj)
+    if isinstance(obj, (list, tuple)):
+        return [_canonicalise(v) for v in obj]
+    if isinstance(obj, Mode):
+        return obj.value
+    return obj
+
+
+# --------------------------------------------------------------------------
+# Presets
+# --------------------------------------------------------------------------
+
+
+def baseline() -> ParsimonyConfig:
+    """Everything off. Every later claim is a difference against this."""
+    return ParsimonyConfig(enabled_modules=frozenset(), label="baseline")
+
+
+def full_stack() -> ParsimonyConfig:
+    return ParsimonyConfig(
+        enabled_modules=frozenset({"M1", "M2", "M3", "M5", "M6"}), label="full"
+    )
+
+
+def with_cache_lookup(cfg: ParsimonyConfig, mode: str) -> ParsimonyConfig:
+    """Move the cache lookup before or after compression.
+
+    This is ADR-002 doing its job. Gap 3 asks whether compressing a query before
+    it reaches the semantic cache raises or lowers the false-hit rate; that
+    question is unanswerable if the order is fixed in code. Here it is one
+    config value, and the two arms are otherwise byte-identical pipelines.
+    """
+    order = [s for s in cfg.stage_order if s != "m2_cache"]
+    if mode == "COMPRESSED":
+        last_m1 = max(
+            (i for i, s in enumerate(order) if s.startswith("m1_")), default=len(order) - 1
+        )
+        order.insert(last_m1 + 1, "m2_cache")
+    else:  # RAW (and the first leg of BOTH)
+        after = order.index("m6a_deterministic") + 1 if "m6a_deterministic" in order else 0
+        order.insert(after, "m2_cache")
+    return replace(cfg, stage_order=tuple(order), cache_lookup_on=mode)
+
+
+def factorial_cells(
+    base: ParsimonyConfig | None = None,
+    axes: tuple[str, ...] = FACTORIAL_MODULES,
+    always_on: frozenset[str] = frozenset({"M6"}),
+) -> Iterator[ParsimonyConfig]:
+    """Enumerate the 2^len(axes) ablation cells.
+
+    M6 is on in every cell by default: it is studied on top of the winning
+    configuration (report 4.6), not as a factorial axis.
+    """
+    base = base or ParsimonyConfig()
+    for bits in itertools.product([False, True], repeat=len(axes)):
+        on = frozenset(m for m, b in zip(axes, bits) if b) | always_on
+        label = "+".join(m for m, b in zip(axes, bits) if b) or "baseline"
+        yield base.with_modules(on, label=label)

@@ -1,0 +1,364 @@
+"""The orchestrator.
+
+Modules propose; this commits (ADR-001). Five things fall out of one loop, none
+of which any module has to implement: ablation, instrumentation, fidelity
+gating, timing, and revert. Revert is simply not assigning.
+
+Keep this small. Every line of coordination logic added here is a line that
+cannot live in a module, and the ablation depends on modules being independent.
+"""
+
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass, replace
+from typing import Any
+
+from parsimony.core.config import ParsimonyConfig
+from parsimony.core.errors import LedgerError, ModuleError, ProviderError
+from parsimony.core.ledger import GateEvent, LedgerRow, StageOutcome, StageTrace
+from parsimony.core.proposals import ContextPatch, NoOp, ShortCircuit
+from parsimony.core.types import (
+    GenParams,
+    Invariants,
+    Mode,
+    RequestContext,
+    RouteTier,
+    Turn,
+)
+from parsimony.infra.derived import DerivedCache
+from parsimony.infra.ids import ulid
+from parsimony.infra.nlp import RegexInvariantExtractor, RegexPiiDetector
+from parsimony.infra.providers import MockProvider
+from parsimony.infra.storage import MemoryBlobStore, sha256
+from parsimony.infra.tokenization import get_tokenizer
+from parsimony.modules.m2_cache import SemanticCache
+from parsimony.modules.m5_budgeter import OutputBudgeter
+from parsimony.modules.m8_fidelity import FidelityGate
+from parsimony.pipeline.assembly import assemble, prefix_survival
+from parsimony.pipeline.registry import PlannedStage, StageRegistry, default_registry
+
+DEFAULT_NUM_PREDICT = 256
+
+
+@dataclass(frozen=True, slots=True)
+class Outcome:
+    response: str
+    row: LedgerRow
+    ctx: RequestContext
+    traces: tuple[StageTrace, ...]
+    generated: bool
+
+    @property
+    def served_by(self) -> str:
+        return self.row.route_tier
+
+
+class Pipeline:
+    def __init__(
+        self,
+        cfg: ParsimonyConfig,
+        *,
+        provider=None,
+        tokenizer=None,
+        cache: SemanticCache | None = None,
+        registry: StageRegistry | None = None,
+        gate: FidelityGate | None = None,
+        sink=None,
+        blobs=None,
+        run_id: str | None = None,
+        pass_kind: str = "quality",
+        corpus_hash: str | None = None,
+    ) -> None:
+        self.cfg = cfg
+        self.tokenizer = tokenizer or get_tokenizer(cfg.tokenizer_id)
+        self.provider = provider or MockProvider()
+        self.cache = cache if cache is not None else SemanticCache(cfg.cache.ttl_seconds)
+        self.registry = registry or default_registry(self.cache)
+        self.gate = gate or FidelityGate()
+        self.sink = sink
+        self.blobs = blobs or MemoryBlobStore()
+        self.run_id = run_id or ulid()
+        self.pass_kind = pass_kind
+        self.corpus_hash = corpus_hash
+        self._extractor = RegexInvariantExtractor()
+        self._pii = RegexPiiDetector()
+        self._last_prompt_ids: dict[str, list[int]] = {}
+
+        # Fail fast: a misconfigured order costs one second here rather than six
+        # unattended CPU-hours in the sweep.
+        self.registry.validate(cfg)
+
+    # -- ingestion + preprocessing -----------------------------------------
+
+    def build_context(
+        self,
+        query: str,
+        history: tuple[Turn, ...] = (),
+        conversation_id: str | None = None,
+        turn_index: int = 0,
+    ) -> RequestContext:
+        history = tuple(
+            t.with_tokens(self.tokenizer.count(t.content)) if not t.token_count else t
+            for t in history
+        )
+        payload = "\n".join([t.content for t in history] + [query])
+        invariants: Invariants = self._extractor.extract(payload)
+        ctx = RequestContext(
+            request_id=ulid(),
+            conversation_id=conversation_id or ulid(),
+            original_query=query,
+            original_history=history,
+            invariants=invariants,
+            query=query,
+            history=history,
+            system_prompt=self.cfg.system_prompt,
+            turn_index=turn_index,
+            config_hash=self.cfg.config_hash,
+            corpus_hash=self.corpus_hash,
+        )
+        return replace(ctx, derived=DerivedCache(self.tokenizer))
+
+    # -- the loop ----------------------------------------------------------
+
+    def run(
+        self,
+        query: str,
+        history: tuple[Turn, ...] = (),
+        conversation_id: str | None = None,
+        turn_index: int = 0,
+    ) -> Outcome:
+        t_start = time.perf_counter_ns()
+        ctx = self.build_context(query, history, conversation_id, turn_index)
+        original_ctx = ctx
+
+        traces: list[StageTrace] = []
+        tokens_per_stage: dict[str, int] = {}
+        gate_events: list[GateEvent] = []
+        cache_key: str | None = None
+        cache_consulted = False
+        short: ShortCircuit | None = None
+
+        for stage in self.registry.ordered(self.cfg):
+            t0 = time.perf_counter_ns()
+            before_tokens = ctx.derived.token_count(ctx.text_payload())
+
+            if isinstance(stage, PlannedStage):
+                traces.append(
+                    _trace(stage, StageOutcome.NOT_IMPLEMENTED, before_tokens,
+                           before_tokens, t0, "scheduled for a later sprint")
+                )
+                continue
+
+            if not self.cfg.enables(stage.module_id):
+                traces.append(
+                    _trace(stage, StageOutcome.SKIPPED, before_tokens, before_tokens,
+                           t0, "module disabled")
+                )
+                continue
+
+            if hasattr(stage, "key_for"):
+                cache_key = stage.key_for(ctx, self.cfg)
+                cache_consulted = True
+
+            try:
+                if not stage.applies_to(ctx, self.cfg):
+                    reason = getattr(stage, "skip_reason", None)
+                    traces.append(
+                        _trace(stage, StageOutcome.SKIPPED, before_tokens, before_tokens, t0,
+                               reason(ctx, self.cfg) if reason else "not applicable")
+                    )
+                    continue
+                proposal = stage.propose(ctx, self.cfg)
+            except Exception as exc:  # a module must never fail the request
+                traces.append(
+                    _trace(stage, StageOutcome.ERROR, before_tokens, before_tokens, t0,
+                           f"{type(exc).__name__}: {exc}")
+                )
+                continue
+
+            if isinstance(proposal, ShortCircuit):
+                traces.append(
+                    _trace(stage, StageOutcome.SHORT_CIRCUIT, before_tokens, 0, t0,
+                           proposal.rationale, proposal.evidence)
+                )
+                short = proposal
+                break
+
+            if isinstance(proposal, NoOp):
+                traces.append(
+                    _trace(stage, StageOutcome.NOOP, before_tokens, before_tokens, t0,
+                           proposal.detail or proposal.reason)
+                )
+                continue
+
+            assert isinstance(proposal, ContextPatch)
+            candidate = replace(ctx, **dict(proposal.fields))
+            verdict = self.gate.check(ctx, candidate, proposal.kind, stage.module_id)
+
+            if verdict.passed:
+                after_tokens = ctx.derived.token_count(candidate.text_payload())
+                traces.append(
+                    _trace(stage, StageOutcome.APPLIED, before_tokens, after_tokens, t0,
+                           proposal.rationale, proposal.evidence)
+                )
+                tokens_per_stage[stage.name] = after_tokens
+                ctx = candidate  # commit
+            else:
+                gate_events.extend(verdict.events)
+                traces.append(
+                    _trace(stage, StageOutcome.REVERTED, before_tokens, before_tokens, t0,
+                           verdict.detail, {}, tuple(verdict.events))
+                )
+                # revert == do nothing
+
+        # -- generation or short circuit ------------------------------------
+
+        baseline_prompt = assemble(original_ctx, self.tokenizer)
+        tokens_in_original = baseline_prompt.total_token_count
+
+        if short is not None:
+            response = short.response
+            route = short.served_by
+            tokens_in_final = 0
+            tokens_out = 0
+            ttft = tpot = None
+            gen_ns = 0
+            prompt_text = ""
+            prefix_survived, prefix_ratio = None, None
+            early_stopped = False
+        else:
+            final_prompt = assemble(ctx, self.tokenizer)
+            prompt_text = final_prompt.full_text
+            tokens_in_final = final_prompt.total_token_count
+
+            current_ids = self.tokenizer.encode(prompt_text)
+            survived, ratio = prefix_survival(
+                self._last_prompt_ids.get(ctx.conversation_id), current_ids
+            )
+            prefix_survived, prefix_ratio = survived, ratio
+            self._last_prompt_ids[ctx.conversation_id] = current_ids
+
+            g0 = time.perf_counter_ns()
+            response, ttft, tpot, early_stopped = self._generate(prompt_text, ctx)
+            gen_ns = time.perf_counter_ns() - g0
+            tokens_out = self.tokenizer.count(response)
+            route = RouteTier.MODEL_SMALL
+
+            if cache_key is not None and self.cfg.enables("M2"):
+                # Redaction at the write boundary (ADR-013): the model saw the
+                # user's real text; the cache — the one component with memory —
+                # never does.
+                self.cache.store(cache_key, ctx.query, self._pii.redact(response))
+
+        total_ns = time.perf_counter_ns() - t_start
+
+        row = LedgerRow(
+            request_id=ctx.request_id,
+            conversation_id=ctx.conversation_id,
+            turn_index=ctx.turn_index,
+            config_hash=self.cfg.config_hash,
+            config_label=self.cfg.label,
+            run_id=self.run_id,
+            corpus_hash=self.corpus_hash,
+            seed=self.cfg.seed,
+            pass_kind=self.pass_kind,
+            created_at=time.time(),
+            model_name=self.provider.model_name,
+            model_quantisation=self.provider.quantisation,
+            model_digest=self.provider.model_digest,
+            tokenizer_id=self.tokenizer.id,
+            embedder_id=self.cfg.embedder_id,
+            tokens_in_original=tokens_in_original,
+            tokens_in_final=tokens_in_final,
+            tokens_per_module=tokens_per_stage,
+            tokens_out=tokens_out,
+            tokens_out_budget=ctx.output_budget,
+            route_tier=route.name,
+            cache_consulted=cache_consulted,
+            cache_hit=route in (RouteTier.CACHE_EXACT, RouteTier.CACHE_SEMANTIC),
+            cache_zone="accept" if route is RouteTier.CACHE_EXACT else ("miss" if cache_consulted else None),
+            gate_fired=bool(gate_events),
+            gate_events=tuple(gate_events),
+            prefix_tokens_survived=prefix_survived,
+            prefix_ratio=prefix_ratio,
+            ttft_ns=ttft,
+            tpot_ns=tpot,
+            total_ns=total_ns,
+            middleware_ns=total_ns - gen_ns,
+            per_stage_ns={t.name: t.duration_ns for t in traces},
+            generation_memoised=False,
+            early_stopped=early_stopped,
+            prompt_sha256=self.blobs.put(prompt_text) if prompt_text else "",
+            response_sha256=self.blobs.put(self._pii.redact(response)),
+            traces=tuple(traces),
+        )
+
+        self._emit(row)
+        return Outcome(response, row, ctx, tuple(traces), short is None)
+
+    # -- helpers -----------------------------------------------------------
+
+    def _generate(self, prompt: str, ctx: RequestContext):
+        params = GenParams(
+            num_predict=ctx.output_budget or DEFAULT_NUM_PREDICT,
+            temperature=0.0,
+            seed=self.cfg.seed,
+        )
+        stopper = OutputBudgeter.stopper(self.cfg)
+        pieces: list[str] = []
+        first = last = None
+        early_stopped = False
+        t0 = time.perf_counter_ns()
+        try:
+            for event in self.provider.generate(prompt, params):
+                if first is None:
+                    first = event.emitted_at_ns
+                last = event.emitted_at_ns
+                pieces.append(event.text)
+                if stopper is not None and stopper.observe(event.text):
+                    early_stopped = True
+                    break
+        except Exception as exc:
+            raise ProviderError(f"generation failed: {exc}") from exc
+
+        text = "".join(pieces)
+        ttft = (first - t0) if first is not None else None
+        tpot = None
+        if first is not None and last is not None and len(pieces) > 1:
+            tpot = (last - first) // (len(pieces) - 1)
+        return text, ttft, tpot, early_stopped
+
+    def _emit(self, row: LedgerRow) -> None:
+        if self.sink is None:
+            return
+        try:
+            self.sink.write(row)
+        except Exception as exc:
+            # Opposite priorities by mode (ADR-005): in an experiment the ledger
+            # IS the result, so losing a row is fatal.
+            if self.cfg.mode is Mode.EXPERIMENT:
+                raise LedgerError(f"ledger write failed: {exc}") from exc
+
+
+def _trace(
+    stage,
+    outcome: StageOutcome,
+    before: int,
+    after: int,
+    t0: int,
+    rationale: str = "",
+    evidence: dict[str, Any] | None = None,
+    gate_events: tuple[GateEvent, ...] = (),
+) -> StageTrace:
+    return StageTrace(
+        module_id=getattr(stage, "module_id", "--"),
+        name=stage.name,
+        outcome=outcome,
+        tokens_before=before,
+        tokens_after=after,
+        duration_ns=time.perf_counter_ns() - t0,
+        rationale=rationale,
+        evidence=dict(evidence or {}),
+        gate_events=gate_events,
+    )

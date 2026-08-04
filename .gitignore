@@ -1,0 +1,28 @@
+# Environments live OUTSIDE OneDrive (see docs/08-setup.md) but guard anyway:
+# a .venv inside a synced folder is ~3000 files of sync churn.
+.venv/
+venv/
+env/
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Run artefacts — regenerable, and large. Never sync these.
+runs/
+blobs/
+*.db
+*.sqlite3
+.parsimony_cache/
+
+# Models and tokenizer caches (can be GBs)
+models/
+*.gguf
+
+.DS_Store
+Thumbs.db
