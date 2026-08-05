@@ -33,6 +33,8 @@ from parsimony.eval.metrics import LengthBiasedMockJudge  # noqa: E402
 from parsimony.eval.runner import (  # noqa: E402
     CellResult,
     additivity_shortfall,
+    best_per_class,
+    calibration_table,
     shortfall_interval,
     sweep,
 )
@@ -264,6 +266,79 @@ def render_tokenprobe(ctx: Context) -> str:
     )
 
 
+def render_calibration_table(ctx: Context) -> str:
+    """Contribution 6, in the form a practitioner can act on."""
+    table = calibration_table(ctx.results)
+    if not table:
+        return "_No baseline cell; cannot compute per-class reductions._"
+
+    classes = sorted(table)
+    headers = ["cell"] + classes
+    by_label: dict[str, dict[str, float]] = {}
+    for cls, ranked in table.items():
+        for label, pct in ranked:
+            by_label.setdefault(label, {})[cls] = pct
+
+    rows = [
+        [label] + [f"{by_label[label].get(c, 0.0):+.1f}" for c in classes]
+        for label in [r.label for r in ctx.results]
+    ]
+    _write_csv(ctx.out / "calibration_table.csv", headers, rows)
+
+    best = best_per_class(ctx.results)
+    rec_headers = ["query class", "recommended configuration", "token reduction %"]
+    rec_rows = [[cls, label, f"{pct:+.1f}"] for cls, (label, pct) in sorted(best.items())]
+    _write_csv(ctx.out / "recommended_per_class.csv", rec_headers, rec_rows)
+
+    return (
+        _table(headers, rows)
+        + "\n\n### Recommended configuration per query class\n\n"
+        + _table(rec_headers, rec_rows)
+        + "\n\nThis is the deliverable in its usable form: not one headline percentage, but "
+        "which modules to switch on for which kind of question. Two effects are visible here "
+        "and invisible in any aggregate:\n\n"
+        "- **M3 helps only `follow_up`** and is worth ~0 everywhere else, because only "
+        "multi-turn conversations have history to trim.\n"
+        "- **M2 helps only `paraphrase`**, because that is the only class with recurring "
+        "questions.\n\n"
+        "Averaged together, both modules look mediocre; per class, each is decisive for its "
+        "own workload. That is the difference between a headline number and a calibration "
+        "table.\n\n"
+        "_Caveat: small negative values (around -1%) are noise, not regressions. Changing the "
+        "prompt changes the mock provider's response length, since its output is a function "
+        "of the prompt hash. Real providers will not have this artefact, but until one is "
+        "attached, treat sub-1% movements as zero._"
+    )
+
+
+def render_energy(ctx: Context) -> str:
+    cfg_energy = full_stack().energy
+    headers = ["cell", "joules", "tokens per joule", "USD equivalent", "vs baseline"]
+    baseline = next((r for r in ctx.results if r.label == "baseline"), None)
+    base_j = baseline.total_joules if baseline else 0.0
+
+    rows = []
+    for r in ctx.results:
+        delta = (100.0 * (1 - r.total_joules / base_j)) if base_j else 0.0
+        rows.append([
+            r.label, f"{r.total_joules:.1f}", f"{r.tokens_per_joule:.1f}",
+            f"${r.usd:.4f}", f"{delta:+.1f}%",
+        ])
+    _write_csv(ctx.out / "energy.csv", headers, rows)
+
+    return (
+        _table(headers, rows)
+        + f"\n\nEnergy is **derived**, not metered: wall clock multiplied by an assumed "
+        f"package power of {cfg_energy.package_power_watts:.0f} W. That assumption is a "
+        f"config field, appears in every ledger row, and can be divided back out. Priced at "
+        f"${cfg_energy.usd_per_million_input:.2f}/M input and "
+        f"${cfg_energy.usd_per_million_output:.2f}/M output — the project spends nothing; the "
+        f"column exists to make the magnitude legible.\n\n"
+        "**These figures come from simulated generation timings and are not a power "
+        "measurement.** They become meaningful when a real provider is attached."
+    )
+
+
 def render_middleware(ctx: Context) -> str:
     headers = ["cell", "mean ms", "95% CI", "p95 ms", "mean prefix tokens reused"]
     rows = []
@@ -299,6 +374,10 @@ SECTIONS: tuple[Section, ...] = (
                                           "q_embedding_sim"), render_pareto),
     Section("calibration", "Cache threshold calibration",
             ("cache_top_k", "cache_zone", "cache_verifier"), render_calibration),
+    Section("calibration_table", "Calibration table — per query class",
+            ("tokens_in_final", "tokens_out"), render_calibration_table),
+    Section("energy", "Energy and cost equivalent",
+            ("joules_estimated", "usd_equivalent"), render_energy),
     Section("tokenprobe", "Negative-yield probe", (), render_tokenprobe),
     Section("middleware", "Middleware overhead and prefix reuse",
             ("middleware_ns", "prefix_tokens_survived"), render_middleware),

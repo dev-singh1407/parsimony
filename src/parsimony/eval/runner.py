@@ -50,6 +50,14 @@ class CellResult:
     gold_correct: int = 0
     gold_total: int = 0
 
+    joules: list[float] = field(default_factory=list)
+    usd: float = 0.0
+    # Per query class, so the deliverable can be a calibration table -- which
+    # modules to switch on for which kind of question -- rather than one
+    # aggregate percentage (Contribution 6).
+    per_class_tokens: dict[str, int] = field(default_factory=dict)
+    per_class_requests: dict[str, int] = field(default_factory=dict)
+
     responses: dict[tuple[str, int], str] = field(default_factory=dict)
     # Per-conversation totals: the resampling unit for the bootstrap. Requests
     # within a conversation are not independent (later turns carry earlier
@@ -102,8 +110,24 @@ class CellResult:
     def gold_accuracy(self) -> float:
         return 100.0 * self.gold_correct / self.gold_total if self.gold_total else 0.0
 
-    def observe(self, outcome: Outcome) -> None:
+    @property
+    def total_joules(self) -> float:
+        return sum(self.joules)
+
+    @property
+    def tokens_per_joule(self) -> float:
+        return self.total_tokens / self.total_joules if self.total_joules else 0.0
+
+    def observe(self, outcome: Outcome, cls: str = "unknown") -> None:
         row = outcome.row
+        self.per_class_tokens[cls] = (
+            self.per_class_tokens.get(cls, 0) + row.tokens_in_final + row.tokens_out
+        )
+        self.per_class_requests[cls] = self.per_class_requests.get(cls, 0) + 1
+        if row.joules_estimated is not None:
+            self.joules.append(row.joules_estimated)
+        if row.usd_equivalent is not None:
+            self.usd += row.usd_equivalent
         self.responses[(row.conversation_id, row.turn_index)] = outcome.response
         self.per_conversation[row.conversation_id] = (
             self.per_conversation.get(row.conversation_id, 0)
@@ -184,7 +208,7 @@ def run_cell(
     result = CellResult(label=cfg.label or "unlabelled", config_hash=cfg.config_hash)
     for conv in corpus.conversations:
         for outcome in run_conversation(pipeline, conv):
-            result.observe(outcome)
+            result.observe(outcome, conv.cls)
 
     if reference is not None:
         _score_against(result, reference, corpus, pipeline.embedder, judge)
@@ -322,6 +346,35 @@ def additivity_shortfall(
         "stacked_label": full.label,
         "n_solo_modules": len(solo),
     }
+
+
+def calibration_table(results: Sequence[CellResult]) -> dict[str, list[tuple[str, float]]]:
+    """Per query class, every configuration ranked by token reduction.
+
+    This is Contribution 6 in its practitioner-facing form: not one headline
+    percentage, but "for THIS kind of question, switch these modules on". A
+    module that helps summarisation and does nothing for arithmetic should be
+    visible as exactly that, and an aggregate number hides it.
+    """
+    baseline = next((r for r in results if r.label == "baseline"), None)
+    if baseline is None:
+        return {}
+
+    table: dict[str, list[tuple[str, float]]] = {}
+    for cls, base_total in sorted(baseline.per_class_tokens.items()):
+        if not base_total:
+            continue
+        ranked = [
+            (r.label, 100.0 * (1 - r.per_class_tokens.get(cls, 0) / base_total))
+            for r in results
+        ]
+        table[cls] = sorted(ranked, key=lambda x: -x[1])
+    return table
+
+
+def best_per_class(results: Sequence[CellResult]) -> dict[str, tuple[str, float]]:
+    """The single recommended configuration for each query class."""
+    return {cls: ranked[0] for cls, ranked in calibration_table(results).items() if ranked}
 
 
 def shortfall_interval(

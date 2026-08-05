@@ -334,6 +334,17 @@ class Pipeline:
             per_stage_ns={t.name: t.duration_ns for t in traces},
             generation_memoised=memoised,
             early_stopped=early_stopped,
+            # Derived from wall clock and the configured package power, not
+            # metered. Meaningless on a memoised row, so left None there rather
+            # than reporting the energy cost of a dictionary lookup.
+            joules_estimated=(
+                None if memoised
+                else (total_ns / 1e9) * self.cfg.energy.package_power_watts
+            ),
+            usd_equivalent=(
+                tokens_in_final / 1e6 * self.cfg.energy.usd_per_million_input
+                + tokens_out / 1e6 * self.cfg.energy.usd_per_million_output
+            ),
             prompt_sha256=self.blobs.put(prompt_text) if prompt_text else "",
             response_sha256=self.blobs.put(self._pii.redact(response)),
             traces=tuple(traces),

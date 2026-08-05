@@ -109,8 +109,9 @@ class LedgerRow:
     generation_memoised: bool = False  # True disqualifies this row from latency analysis
     early_stopped: bool = False  # M5's streaming stop rule fired
 
-    # energy
+    # energy and cost (report 4.5)
     joules_estimated: float | None = None
+    usd_equivalent: float | None = None
 
     # content (hashes; text lives in the blob store)
     prompt_sha256: str = ""

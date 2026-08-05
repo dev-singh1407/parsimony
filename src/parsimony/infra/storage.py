@@ -123,6 +123,8 @@ _COLUMNS: tuple[tuple[str, str], ...] = (
     ("middleware_ns", "INTEGER"),
     ("generation_memoised", "INTEGER"),
     ("early_stopped", "INTEGER"),
+    ("joules_estimated", "REAL"),
+    ("usd_equivalent", "REAL"),
     ("prompt_sha256", "TEXT"),
     ("response_sha256", "TEXT"),
     ("q_exact_match", "INTEGER"),

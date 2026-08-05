@@ -138,6 +138,25 @@ class RouterConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class EnergyConfig:
+    """Report 4.5 asks for joules per query, tokens per joule and a
+    dollar-equivalent column.
+
+    Energy is DERIVED from wall clock and an assumed package power, not
+    measured with a power meter. The assumption is a config field rather than a
+    buried constant precisely so that it is visible in every ledger row and can
+    be corrected without touching code. A reader can divide it back out.
+
+    Prices are per million tokens at commercial rates for a small hosted model.
+    The project spends nothing; the column exists to make the magnitude legible.
+    """
+
+    package_power_watts: float = 15.0  # i5-class laptop package under sustained load
+    usd_per_million_input: float = 0.15
+    usd_per_million_output: float = 0.60
+
+
+@dataclass(frozen=True, slots=True)
 class ModelConfig:
     name: str = "mock-1b"
     quantisation: str = "none"
@@ -156,6 +175,7 @@ class ParsimonyConfig:
     history: HistoryConfig = field(default_factory=HistoryConfig)
     budget: BudgetConfig = field(default_factory=BudgetConfig)
     router: RouterConfig = field(default_factory=RouterConfig)
+    energy: EnergyConfig = field(default_factory=EnergyConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     tokenizer_id: str = "Qwen/Qwen2.5-1.5B-Instruct"
     # Lexical embedder by default — no PyTorch. "all-MiniLM-L6-v2" swaps in
