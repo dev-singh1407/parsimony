@@ -3,8 +3,15 @@
 **Token-Efficient LLM Interaction on CPU-Only Hardware**
 A stacked, self-improving optimisation layer for small language models.
 
-VIT University · B.Tech BCSE497J Project I · Arrsh Tripathi (23BCI0191), Alok Singh (23BCI0158),
-Dev Singh (23BCE0794) · Guide: Dr Sathya K
+VIT University · B.Tech BCSE497J Project I · Guide: Dr Sathya K
+
+## Team
+
+| Name | Reg. no | GitHub |
+|---|---|---|
+| Arrsh Tripathi | 23BCI0191 | [@Arrsh14](https://github.com/Arrsh14) |
+| Alok Singh | 23BCI0158 | [@heyxalok](https://github.com/heyxalok) |
+| Dev Singh | 23BCE0794 | [@dev-singh1407](https://github.com/dev-singh1407) |
 
 ---
 
@@ -100,6 +107,13 @@ code, and why the ledger schema is treated as part of the architecture.
 2. **Stage order is data, not code** — Gap 3 (compression × cache interaction) is unanswerable otherwise.
 3. **Every decision auditable to a ledger row** — retrofitted instrumentation is always wrong.
 4. **Middleware overhead under 120 ms** — a stack costing more than it saves is a null result.
+
+## Licence
+
+Code: **MIT** — see [LICENSE](LICENSE). Corpus: **CC BY 4.0** — see [corpus/LICENSE](corpus/LICENSE).
+
+Every dependency is open source and every model weight is openly licensed; the project has no paid component
+of any kind. Authorship and citation details are in [AUTHORS.md](AUTHORS.md).
 
 ## Next actions
 

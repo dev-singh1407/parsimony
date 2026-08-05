@@ -1,0 +1,36 @@
+# Corpus licence
+
+The Parsimony evaluation corpus in this directory —
+
+- `conversations.jsonl` — 151 conversations across six query classes
+- `adversarial_pairs.jsonl` — 66 near-duplicate pairs (45 adversarial, 21 control)
+- `gold.jsonl` — 40 questions with human-written reference answers
+- `MANIFEST.sha256` — the freeze hashes
+
+— is licensed under **Creative Commons Attribution 4.0 International
+(CC BY 4.0)**.
+
+Full licence text: https://creativecommons.org/licenses/by/4.0/legalcode
+Human-readable summary: https://creativecommons.org/licenses/by/4.0/
+
+## What this means
+
+You may share and adapt this corpus for any purpose, including commercially,
+provided you give appropriate credit and indicate if changes were made.
+
+## Attribution
+
+> Parsimony evaluation corpus. Arrsh Tripathi, Alok Singh and Dev Singh,
+> Vellore Institute of Technology, 2026. CC BY 4.0.
+
+## Provenance
+
+Every conversation, adversarial pair and gold answer in this corpus was written
+by the authors. No text was scraped, and no third-party dataset is included or
+required. The corpus contains no personal data, real or synthetic-realistic.
+
+The corpus is **frozen**: `MANIFEST.sha256` records the content hashes, and that
+hash is written into every row of the experiment ledger. Any post-freeze edit
+changes the hash and makes the affected results visibly incomparable, which is
+the point — a self-authored corpus is only defensible if it can be shown to
+predate the results (see `docs/03-decision-log.md`, ADR-015).
