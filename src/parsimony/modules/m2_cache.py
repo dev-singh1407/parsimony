@@ -30,7 +30,12 @@ from parsimony.core.config import ParsimonyConfig
 from parsimony.core.proposals import NoOp, Proposal, ShortCircuit
 from parsimony.core.types import Invariants, RequestContext, RouteTier
 from parsimony.infra.embedding import ExactIndex
-from parsimony.infra.nlp import RegexInvariantExtractor, shingles
+from parsimony.infra.nlp import (
+    RegexInvariantExtractor,
+    morphological_negations,
+    operative_modifiers,
+    shingles,
+)
 
 _WS_RE = re.compile(r"\s+")
 _VOLATILE_RE = re.compile(
@@ -79,6 +84,7 @@ class VerifierResult:
     entity_agree: bool
     number_agree: bool
     negation_agree: bool
+    modifier_agree: bool = True
 
     def as_dict(self) -> dict[str, float]:
         return {
@@ -86,11 +92,14 @@ class VerifierResult:
             "entity_agree": float(self.entity_agree),
             "number_agree": float(self.number_agree),
             "negation_agree": float(self.negation_agree),
+            "modifier_agree": float(self.modifier_agree),
         }
 
     def failure(self) -> str:
         if not self.negation_agree:
             return "negation mismatch"
+        if not self.modifier_agree:
+            return "operative modifier mismatch"
         if not self.number_agree:
             return "number mismatch"
         if not self.entity_agree:
@@ -98,27 +107,46 @@ class VerifierResult:
         return f"lexical overlap {self.jaccard:.2f} below floor"
 
 
-def verify_match(a: Invariants, b: Invariants, qa: str, qb: str, jaccard_min: float) -> VerifierResult:
+def verify_match(
+    a: Invariants, b: Invariants, qa: str, qb: str, jaccard_min: float
+) -> VerifierResult:
     """Settle a borderline match without a second neural pass.
 
-    Negation is checked first in reporting because it is the failure the
-    caching literature does not test for and the one the adversarial subset is
-    built around: 'is X safe' and 'is X not safe' are near-identical vectors
-    with opposite answers.
+    Four agreement checks plus a lexical floor. The modifier check was added
+    after measurement: with only number, entity and negation checks, 78% of
+    modifier-swapped adversarial pairs produced false hits. "minimum" against
+    "maximum" changes no number, no entity and no negation particle, and leaves
+    lexical overlap high — nothing else in the verifier could see it.
+
+    Negation additionally covers morphological forms ("possible"/"impossible"),
+    which a particle-based check misses because no separate negation token
+    exists.
     """
     sa, sb = shingles(qa), shingles(qb)
     jac = len(sa & sb) / len(sa | sb) if (sa or sb) else 0.0
+
+    neg_a = a.negations | morphological_negations(qa, qb)
+    neg_b = b.negations | morphological_negations(qb, qa)
+    mod_a, mod_b = operative_modifiers(qa), operative_modifiers(qb)
+
+    negation_agree = neg_a == neg_b
+    modifier_agree = mod_a == mod_b
+    number_agree = a.numbers == b.numbers
+    entity_agree = a.entities == b.entities
+
     return VerifierResult(
         passed=(
-            a.negations == b.negations
-            and a.numbers == b.numbers
-            and a.entities == b.entities
+            negation_agree
+            and modifier_agree
+            and number_agree
+            and entity_agree
             and jac >= jaccard_min
         ),
         jaccard=jac,
-        entity_agree=a.entities == b.entities,
-        number_agree=a.numbers == b.numbers,
-        negation_agree=a.negations == b.negations,
+        entity_agree=entity_agree,
+        number_agree=number_agree,
+        negation_agree=negation_agree,
+        modifier_agree=modifier_agree,
     )
 
 

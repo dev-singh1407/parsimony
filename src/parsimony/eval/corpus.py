@@ -60,6 +60,66 @@ class Corpus:
         return Corpus(tuple(picked[:n]), self.corpus_hash, self.path)
 
 
+@dataclass(frozen=True, slots=True)
+class AdversarialPair:
+    pair_id: str
+    operative: str
+    a: str
+    b: str
+    answers_differ: bool
+    notes: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class GoldItem:
+    gold_id: str
+    question: str
+    gold_answer: str
+    match: str
+    tolerance: float = 0.0
+    acceptable_variants: tuple[str, ...] = ()
+
+
+def load_adversarial(path: Path | str | None = None) -> tuple[AdversarialPair, ...]:
+    p = Path(path) if path else DEFAULT_CORPUS.parent / "adversarial_pairs.jsonl"
+    out = []
+    for line in p.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        o = json.loads(line)
+        out.append(
+            AdversarialPair(
+                pair_id=o["pair_id"],
+                operative=o["operative"],
+                a=o["a"],
+                b=o["b"],
+                answers_differ=bool(o["answers_differ"]),
+                notes=o.get("notes", ""),
+            )
+        )
+    return tuple(out)
+
+
+def load_gold(path: Path | str | None = None) -> tuple[GoldItem, ...]:
+    p = Path(path) if path else DEFAULT_CORPUS.parent / "gold.jsonl"
+    out = []
+    for line in p.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        o = json.loads(line)
+        out.append(
+            GoldItem(
+                gold_id=o["gold_id"],
+                question=o["question"],
+                gold_answer=o["gold_answer"],
+                match=o.get("match", "exact"),
+                tolerance=float(o.get("tolerance", 0.0)),
+                acceptable_variants=tuple(o.get("acceptable_variants", ())),
+            )
+        )
+    return tuple(out)
+
+
 def load_corpus(path: Path | str | None = None) -> Corpus:
     p = Path(path) if path else DEFAULT_CORPUS
     if not p.exists():

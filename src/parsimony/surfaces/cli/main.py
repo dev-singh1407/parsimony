@@ -236,6 +236,69 @@ def gap3(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
 
 
 @app.command()
+def calibrate(
+    verifier: bool = typer.Option(True, "--verifier/--no-verifier",
+                                  help="Three-zone verifier vs a single threshold."),
+    compression: bool = typer.Option(False, "--compression/--no-compression",
+                                     help="Normalise before the cache sees the query (gap 3)."),
+) -> None:
+    """Sweep the cache similarity threshold against the adversarial subset."""
+    from parsimony.eval.calibration import by_operative, sweep_thresholds
+    from parsimony.eval.corpus import load_adversarial
+    from parsimony.infra.embedding import get_embedder
+
+    base = full_stack()
+    pairs = load_adversarial()
+    embedder = get_embedder(base.embedder_id)
+    points = sweep_thresholds(base, pairs=pairs, embedder=embedder,
+                              verifier_on=verifier, compression_on=compression)
+
+    n_adv = sum(1 for p in pairs if p.answers_differ)
+    n_ctl = len(pairs) - n_adv
+    table = Table(
+        title=f"Threshold sweep — {n_adv} adversarial pairs, {n_ctl} controls "
+              f"| verifier {'on' if verifier else 'OFF'} "
+              f"| compression {'on' if compression else 'off'}",
+        header_style="bold",
+    )
+    table.add_column("tau_hi", justify="right")
+    table.add_column("false hits", justify="right")
+    table.add_column("false-hit rate", justify="right")
+    table.add_column("true hits", justify="right")
+    table.add_column("true-hit rate", justify="right")
+    table.add_column("safe?", justify="center")
+
+    for p in points:
+        colour = "green" if p.is_safe else "red"
+        table.add_row(
+            f"{p.tau_hi:.2f}",
+            f"{p.false_hits}/{p.adversarial_total}",
+            f"[{colour}]{p.false_hit_rate:.1f}%[/{colour}]",
+            f"{p.true_hits}/{p.control_total}",
+            f"{p.true_hit_rate:.1f}%",
+            "[green]yes[/green]" if p.is_safe else "[red]no[/red]",
+        )
+    console.print(table)
+
+    breakdown = by_operative(pairs, base, embedder, verifier_on=verifier)
+    bt = Table(title=f"False hits by operative token (tau_hi={base.cache.tau_hi})",
+               header_style="bold")
+    bt.add_column("operative")
+    bt.add_column("false hits", justify="right")
+    bt.add_column("rate", justify="right")
+    for op, (hits, total) in breakdown.items():
+        rate = 100.0 * hits / total if total else 0.0
+        bt.add_row(op, f"{hits}/{total}",
+                   f"[{'red' if rate else 'green'}]{rate:.0f}%[/{'red' if rate else 'green'}]")
+    console.print(bt)
+    console.print(
+        "[dim]Control pairs matter as much as adversarial ones: a policy that rejects "
+        "everything\nscores a perfect 0% false-hit rate, so the sweep would recommend "
+        "switching the cache off.[/dim]"
+    )
+
+
+@app.command()
 def tokenprobe(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
     """When does shortening text fail to reduce tokens? (M1 tier 3 evidence)"""
     from parsimony.eval.tokenizer_probe import run_probe

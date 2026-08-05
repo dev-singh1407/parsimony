@@ -1,0 +1,50 @@
+{"pair_id":"adv_neg_01","operative":"negation","a":"Is it safe to mix bleach and vinegar?","b":"Is it not safe to mix bleach and vinegar?","answers_differ":true,"notes":"the canonical false hit: near-identical vectors, opposite answers"}
+{"pair_id":"adv_neg_02","operative":"negation","a":"Should I water succulents daily?","b":"Should I never water succulents daily?","answers_differ":true,"notes":"inserted never"}
+{"pair_id":"adv_neg_03","operative":"negation","a":"Can you run Docker on Windows?","b":"Can you not run Docker on Windows?","answers_differ":true,"notes":"inserted not"}
+{"pair_id":"adv_neg_04","operative":"negation","a":"Is Python a compiled language?","b":"Is Python not a compiled language?","answers_differ":true,"notes":"polarity flip"}
+{"pair_id":"adv_neg_05","operative":"negation","a":"Does aspirin thin the blood?","b":"Does aspirin fail to thin the blood?","answers_differ":true,"notes":"negation by verb choice, not by a particle"}
+{"pair_id":"adv_neg_06","operative":"negation","a":"Are electric cars cheaper to run?","b":"Are electric cars cheaper to run without subsidies?","answers_differ":true,"notes":"without introduces an exclusion"}
+{"pair_id":"adv_neg_07","operative":"negation","a":"Can I use this library commercially?","b":"Can I use this library non commercially?","answers_differ":true,"notes":"prefix negation"}
+{"pair_id":"adv_neg_08","operative":"negation","a":"Is the deposit refundable?","b":"Is the deposit non refundable?","answers_differ":true,"notes":"prefix negation on the key term"}
+{"pair_id":"adv_neg_09","operative":"negation","a":"Should I commit the .env file?","b":"Should I never commit the .env file?","answers_differ":false,"notes":"CONTROL: negation present but the correct answer is the same; a verifier that rejects on any negation mismatch loses a legitimate hit here"}
+{"pair_id":"adv_neg_10","operative":"negation","a":"Does this API require authentication?","b":"Does this API require no authentication?","answers_differ":true,"notes":"no as determiner"}
+{"pair_id":"adv_neg_11","operative":"negation","a":"Is it possible to cancel the subscription?","b":"Is it impossible to cancel the subscription?","answers_differ":true,"notes":"morphological negation, no separate token"}
+{"pair_id":"adv_neg_12","operative":"negation","a":"Do I have to declare this income?","b":"Do I not have to declare this income?","answers_differ":true,"notes":"polarity flip in a modal"}
+{"pair_id":"adv_neg_13","operative":"negation","a":"Can I take ibuprofen with food?","b":"Can I take ibuprofen without food?","answers_differ":true,"notes":"with/without swap"}
+{"pair_id":"adv_neg_14","operative":"negation","a":"Is this covered by the warranty?","b":"Is this excluded from the warranty?","answers_differ":true,"notes":"lexical antonym, not a negation particle"}
+{"pair_id":"adv_neg_15","operative":"negation","a":"Should the mutex be locked before reading?","b":"Should the mutex be locked before reading or not?","answers_differ":false,"notes":"CONTROL: 'or not' adds a negation token without changing the question"}
+{"pair_id":"adv_num_01","operative":"number","a":"Convert 100 km to miles","b":"Convert 200 km to miles","answers_differ":true,"notes":"single digit change"}
+{"pair_id":"adv_num_02","operative":"number","a":"How many days are in 3 weeks?","b":"How many days are in 5 weeks?","answers_differ":true,"notes":"single digit change"}
+{"pair_id":"adv_num_03","operative":"number","a":"What is 15% of 200?","b":"What is 50% of 200?","answers_differ":true,"notes":"transposed digits"}
+{"pair_id":"adv_num_04","operative":"number","a":"Is 8 GB of RAM enough for a 1B model?","b":"Is 8 GB of RAM enough for a 7B model?","answers_differ":true,"notes":"model size flip; directly on-topic"}
+{"pair_id":"adv_num_05","operative":"number","a":"What happens in Python 3.9?","b":"What happens in Python 2.9?","answers_differ":true,"notes":"version number"}
+{"pair_id":"adv_num_06","operative":"number","a":"How long does a 5 km run take?","b":"How long does a 50 km run take?","answers_differ":true,"notes":"order of magnitude"}
+{"pair_id":"adv_num_07","operative":"number","a":"Bake at 180 C for 25 minutes","b":"Bake at 180 C for 45 minutes","answers_differ":true,"notes":"one of two numbers changes"}
+{"pair_id":"adv_num_08","operative":"number","a":"What is the interest on 1000 at 5 percent?","b":"What is the interest on 1000 at 15 percent?","answers_differ":true,"notes":"rate change"}
+{"pair_id":"adv_num_09","operative":"number","a":"Explain the events of 1929","b":"Explain the events of 1939","answers_differ":true,"notes":"year, single digit"}
+{"pair_id":"adv_num_10","operative":"number","a":"How many bytes in 1 KB?","b":"How many bytes in 1 MB?","answers_differ":true,"notes":"unit not digit; tests unit sensitivity"}
+{"pair_id":"adv_num_11","operative":"number","a":"Split the bill among 3 people","b":"Split the bill among 4 people","answers_differ":true,"notes":"single digit"}
+{"pair_id":"adv_num_12","operative":"number","a":"What is the rate limit, 100 per minute?","b":"What is the rate limit, 1000 per minute?","answers_differ":true,"notes":"trailing zero"}
+{"pair_id":"adv_num_13","operative":"number","a":"Show me the top 5 results","b":"Show me the top 10 results","answers_differ":true,"notes":"count change"}
+{"pair_id":"adv_num_14","operative":"number","a":"Is 0.05 the usual significance threshold?","b":"Is 0.01 the usual significance threshold?","answers_differ":true,"notes":"decimal change"}
+{"pair_id":"adv_num_15","operative":"number","a":"Round 2.5 to the nearest integer","b":"Round 2.5 to the nearest integer please","answers_differ":false,"notes":"CONTROL: identical numbers, boilerplate difference only; SHOULD hit"}
+{"pair_id":"adv_ent_01","operative":"entity","a":"What is the capital of Australia?","b":"What is the capital of Austria?","answers_differ":true,"notes":"near-identical strings, different countries"}
+{"pair_id":"adv_ent_02","operative":"entity","a":"Who founded Microsoft?","b":"Who founded Micron?","answers_differ":true,"notes":"shared prefix"}
+{"pair_id":"adv_ent_03","operative":"entity","a":"Tell me about Java","b":"Tell me about JavaScript","answers_differ":true,"notes":"substring entity; a classic collision"}
+{"pair_id":"adv_ent_04","operative":"entity","a":"What language is spoken in Brazil?","b":"What language is spoken in Brazzaville?","answers_differ":true,"notes":"shared prefix"}
+{"pair_id":"adv_ent_05","operative":"entity","a":"When did the Berlin Wall fall?","b":"When did the Roman Empire fall?","answers_differ":true,"notes":"same frame, different entity"}
+{"pair_id":"adv_ent_06","operative":"entity","a":"How do I use pandas?","b":"How do I use Panda3D?","answers_differ":true,"notes":"library confusion"}
+{"pair_id":"adv_ent_07","operative":"entity","a":"Explain the Doppler effect","b":"Explain the Dunning Kruger effect","answers_differ":true,"notes":"shared frame word"}
+{"pair_id":"adv_ent_08","operative":"entity","a":"What is the population of Georgia?","b":"What is the population of Georgetown?","answers_differ":true,"notes":"shared prefix, different place"}
+{"pair_id":"adv_ent_09","operative":"entity","a":"Who wrote Hamlet?","b":"Who wrote Hamilton?","answers_differ":true,"notes":"shared prefix"}
+{"pair_id":"adv_ent_10","operative":"entity","a":"What does the CPU do?","b":"What does the C.P.U. do?","answers_differ":false,"notes":"CONTROL: punctuation-only entity variation; SHOULD hit"}
+{"pair_id":"adv_mod_01","operative":"modifier","a":"What is the minimum temperature for storage?","b":"What is the maximum temperature for storage?","answers_differ":true,"notes":"antonym modifier"}
+{"pair_id":"adv_mod_02","operative":"modifier","a":"Show me the cheapest option","b":"Show me the most expensive option","answers_differ":true,"notes":"superlative flip"}
+{"pair_id":"adv_mod_03","operative":"modifier","a":"What is the fastest sorting algorithm?","b":"What is the slowest sorting algorithm?","answers_differ":true,"notes":"antonym"}
+{"pair_id":"adv_mod_04","operative":"modifier","a":"List the first 10 primes","b":"List the last 10 primes","answers_differ":true,"notes":"first/last; second is ill-posed, which matters"}
+{"pair_id":"adv_mod_05","operative":"modifier","a":"How do I increase the timeout?","b":"How do I decrease the timeout?","answers_differ":true,"notes":"directional antonym"}
+{"pair_id":"adv_mod_06","operative":"modifier","a":"What is the best case complexity?","b":"What is the worst case complexity?","answers_differ":true,"notes":"the pair follow_002 actually asks in sequence"}
+{"pair_id":"adv_mod_07","operative":"modifier","a":"Should I upgrade before the deadline?","b":"Should I upgrade after the deadline?","answers_differ":true,"notes":"temporal preposition"}
+{"pair_id":"adv_mod_08","operative":"modifier","a":"Which countries export the most oil?","b":"Which countries import the most oil?","answers_differ":true,"notes":"verb antonym"}
+{"pair_id":"adv_mod_09","operative":"modifier","a":"What is the average response time?","b":"What is the median response time?","answers_differ":true,"notes":"statistically distinct, lexically close"}
+{"pair_id":"adv_mod_10","operative":"modifier","a":"Give me a brief summary","b":"Give me a short summary","answers_differ":false,"notes":"CONTROL: true synonym modifier; SHOULD hit"}

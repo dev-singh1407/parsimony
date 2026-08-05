@@ -490,3 +490,59 @@ version is more useful:
 
 This turns an assumption into a measured, bounded claim, and it identifies precisely which prior methods are
 exposed to the failure. That is a stronger contribution than the unqualified version.
+
+---
+
+### ADR-027 — The verifier needs an operative-modifier check, and the threshold is not what makes the cache safe
+
+**Context.** With the adversarial subset authored (45 adversarial pairs + 5 controls), the first calibration
+sweep gave a **26.7% false-hit rate that did not improve above τ_hi = 0.95**. Since raising the threshold
+stopped helping, the verifier — not the similarity cutoff — was the binding constraint. The per-class
+breakdown localised it exactly:
+
+| operative | false-hit rate, initial | after this ADR |
+|---|---|---|
+| number | 0% | 0% |
+| entity | 11% | **0%** |
+| negation | 31% | **0%** |
+| **modifier** | **78%** | **0%** |
+| **overall** | **26.7%** | **0.0%** |
+
+**Three gaps, each found by inspecting the surviving false hits rather than by guessing.**
+
+1. **Operative modifiers.** "What is the **minimum** temperature" against "the **maximum** temperature"
+   changes no number, no entity and no negation particle, and leaves lexical overlap high because one word
+   in six differs. Nothing in the verifier could see it. Added `operative_modifiers()`, a closed lexicon of
+   terms whose substitution inverts a question — min/max, first/last, before/after, import/export,
+   average/median, increase/decrease, include/exclude.
+
+2. **Negation without a particle.** Two forms slipped through: *morphological*
+   ("possible"/"impossible", "refundable"/"non refundable") and *lexical* ("thin the blood" / "**fail to**
+   thin the blood"). Added prefix detection that only fires when the stem appears in the counterpart query —
+   so "international" is not treated as negating "national" — plus negating verbs (fail, lack, prevent,
+   exclude, prohibit, deny).
+
+3. **Alphanumeric identifiers.** "pandas" against "Panda3D" reported *zero entities on both sides*: the
+   proper-noun pattern `[A-Z][a-z]+\b` cannot match across the digit. Added `_ALNUM_ID_RE`, which also
+   catches Python3, GPT4 and room identifiers like B4.
+
+**Decision.** Verifier checks are: number ∧ entity ∧ negation ∧ **modifier** ∧ lexical floor. Operating
+point τ_hi = 0.97, τ_lo = 0.75.
+
+**Justification and the headline claim.** The safe operating point is **not** a threshold. Removing the
+verifier and relying on similarity alone cannot reach the report's <2% target at *any* threshold in the
+sweep, because the adversarial pairs sit at higher cosine than genuine paraphrases (ADR-024). The verifier
+takes the false-hit rate to 0.0% — and it is four set comparisons, costing microseconds, against the
+cross-encoder or NLI pass the literature would reach for.
+
+**Costs, stated plainly.**
+
+- The modifier lexicon cannot distinguish opposition from synonymy: "brief" and "short" are both listed, so
+  that legitimate pair is conservatively rejected. A curated antonym-pair structure would fix it and is
+  future work.
+- True-hit rate at τ_hi = 0.97 is 1/5 controls. **Five controls is far too small a denominator to estimate
+  a true-hit rate**, and this must not be reported as one. The real true-hit measurement comes from the
+  paraphrase class of the main corpus; the adversarial subset is a *safety* instrument, not a utility one.
+  Expanding the control set is the first corpus follow-up.
+- Every threshold here is calibrated against `hashing-v1`. Swapping the encoder invalidates them, which is
+  Contribution 6's point demonstrated on our own stack.

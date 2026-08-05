@@ -1,0 +1,40 @@
+{"gold_id":"gold_001","question":"How many minutes are there in 3.5 hours?","gold_answer":"210","match":"numeric","tolerance":0.0,"acceptable_variants":["210 minutes"]}
+{"gold_id":"gold_002","question":"What is 847 * 23?","gold_answer":"19481","match":"numeric","tolerance":0.0,"acceptable_variants":[]}
+{"gold_id":"gold_003","question":"What is 15% of 200?","gold_answer":"30","match":"numeric","tolerance":0.0,"acceptable_variants":[]}
+{"gold_id":"gold_004","question":"Convert 100 km to miles","gold_answer":"62.137","match":"numeric","tolerance":0.01,"acceptable_variants":["62.14","62.1"]}
+{"gold_id":"gold_005","question":"Convert 72 F to C","gold_answer":"22.22","match":"numeric","tolerance":0.05,"acceptable_variants":["22.2"]}
+{"gold_id":"gold_006","question":"What is 2 ** 16?","gold_answer":"65536","match":"numeric","tolerance":0.0,"acceptable_variants":[]}
+{"gold_id":"gold_007","question":"How many days between 2026-01-15 and 2026-08-05?","gold_answer":"202","match":"numeric","tolerance":0.0,"acceptable_variants":[]}
+{"gold_id":"gold_008","question":"What is 144 / 12?","gold_answer":"12","match":"numeric","tolerance":0.0,"acceptable_variants":[]}
+{"gold_id":"gold_009","question":"Convert 5 kg to pounds","gold_answer":"11.023","match":"numeric","tolerance":0.01,"acceptable_variants":["11.02"]}
+{"gold_id":"gold_010","question":"What is 0.1 + 0.2?","gold_answer":"0.3","match":"numeric","tolerance":0.0,"acceptable_variants":[]}
+{"gold_id":"gold_011","question":"How many seconds are in a day?","gold_answer":"86400","match":"numeric","tolerance":0.0,"acceptable_variants":[]}
+{"gold_id":"gold_012","question":"What is 1234 - 567?","gold_answer":"667","match":"numeric","tolerance":0.0,"acceptable_variants":[]}
+{"gold_id":"gold_013","question":"What is 25 * 4 + 10?","gold_answer":"110","match":"numeric","tolerance":0.0,"acceptable_variants":[]}
+{"gold_id":"gold_014","question":"Convert 6 feet to centimetres","gold_answer":"182.88","match":"numeric","tolerance":0.05,"acceptable_variants":["182.9"]}
+{"gold_id":"gold_015","question":"What is 3.5 * 1.5?","gold_answer":"5.25","match":"numeric","tolerance":0.0,"acceptable_variants":[]}
+{"gold_id":"gold_016","question":"What is the boiling point of water at sea level in Celsius?","gold_answer":"100","match":"numeric","tolerance":0.0,"acceptable_variants":["100 C","100 degrees Celsius"]}
+{"gold_id":"gold_017","question":"What is the freezing point of water in Fahrenheit?","gold_answer":"32","match":"numeric","tolerance":0.0,"acceptable_variants":["32 F"]}
+{"gold_id":"gold_018","question":"What is the smallest prime number?","gold_answer":"2","match":"numeric","tolerance":0.0,"acceptable_variants":[]}
+{"gold_id":"gold_019","question":"What is the atomic number of carbon?","gold_answer":"6","match":"numeric","tolerance":0.0,"acceptable_variants":[]}
+{"gold_id":"gold_020","question":"How many bones are in the adult human body?","gold_answer":"206","match":"numeric","tolerance":0.0,"acceptable_variants":[]}
+{"gold_id":"gold_021","question":"What is the capital of Australia?","gold_answer":"Canberra","match":"contains","tolerance":0.0,"acceptable_variants":[]}
+{"gold_id":"gold_022","question":"What is the capital of France?","gold_answer":"Paris","match":"contains","tolerance":0.0,"acceptable_variants":[]}
+{"gold_id":"gold_023","question":"What is the chemical symbol for tungsten?","gold_answer":"W","match":"exact","tolerance":0.0,"acceptable_variants":["W (wolfram)"]}
+{"gold_id":"gold_024","question":"What does HTTP stand for?","gold_answer":"Hypertext Transfer Protocol","match":"contains","tolerance":0.0,"acceptable_variants":["HyperText Transfer Protocol"]}
+{"gold_id":"gold_025","question":"Who wrote the novel Nineteen Eighty-Four?","gold_answer":"George Orwell","match":"contains","tolerance":0.0,"acceptable_variants":["Orwell"]}
+{"gold_id":"gold_026","question":"Who painted Guernica?","gold_answer":"Pablo Picasso","match":"contains","tolerance":0.0,"acceptable_variants":["Picasso"]}
+{"gold_id":"gold_027","question":"What language is spoken in Brazil?","gold_answer":"Portuguese","match":"contains","tolerance":0.0,"acceptable_variants":[]}
+{"gold_id":"gold_028","question":"What is the currency of Japan?","gold_answer":"yen","match":"contains","tolerance":0.0,"acceptable_variants":["Japanese yen","JPY"]}
+{"gold_id":"gold_029","question":"Which element has the symbol Fe?","gold_answer":"iron","match":"contains","tolerance":0.0,"acceptable_variants":[]}
+{"gold_id":"gold_030","question":"What gas do plants absorb from the atmosphere?","gold_answer":"carbon dioxide","match":"contains","tolerance":0.0,"acceptable_variants":["CO2"]}
+{"gold_id":"gold_031","question":"Who discovered penicillin?","gold_answer":"Alexander Fleming","match":"contains","tolerance":0.0,"acceptable_variants":["Fleming"]}
+{"gold_id":"gold_032","question":"What is the tallest mountain above sea level?","gold_answer":"Mount Everest","match":"contains","tolerance":0.0,"acceptable_variants":["Everest"]}
+{"gold_id":"gold_033","question":"When did the Berlin Wall fall?","gold_answer":"1989","match":"contains","tolerance":0.0,"acceptable_variants":["November 1989"]}
+{"gold_id":"gold_034","question":"What is the speed of light in a vacuum in metres per second?","gold_answer":"299792458","match":"numeric","tolerance":1000.0,"acceptable_variants":["3 x 10^8","300000000"]}
+{"gold_id":"gold_035","question":"Which country has the longest coastline?","gold_answer":"Canada","match":"contains","tolerance":0.0,"acceptable_variants":[]}
+{"gold_id":"gold_036","question":"Explain what a hash table is. What is its average lookup complexity?","gold_answer":"O(1)","match":"contains","tolerance":0.0,"acceptable_variants":["constant time","O(1) average"]}
+{"gold_id":"gold_037","question":"My dataset has 4500 rows. What if I only had 450 rows? How many folds for cross validation?","gold_answer":"depends","match":"set","tolerance":0.0,"acceptable_variants":["5","10","5 or 10"]}
+{"gold_id":"gold_038","question":"I have a 2019 laptop with 8 GB of RAM. Can it run a 7B language model?","gold_answer":"yes with quantisation","match":"set","tolerance":0.0,"acceptable_variants":["quantised","quantized","4-bit","Q4"]}
+{"gold_id":"gold_039","question":"The train departs at 07:15 from platform 4. Which platform?","gold_answer":"4","match":"numeric","tolerance":0.0,"acceptable_variants":["platform 4"]}
+{"gold_id":"gold_040","question":"The API rate limit is 100 requests per minute. What status code is returned when exceeded?","gold_answer":"429","match":"numeric","tolerance":0.0,"acceptable_variants":["HTTP 429"]}

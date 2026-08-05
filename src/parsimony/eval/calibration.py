@@ -1,0 +1,166 @@
+"""Threshold calibration against the adversarial subset.
+
+This produces Contributions 2 and 6 directly:
+
+  * the false-cache-hit rate as a function of the similarity threshold, with
+    compression on and off (Gap 3);
+  * a per-configuration safe operating point, replacing the single universal
+    number the literature offers (Gap 5).
+
+METHOD
+------
+For each adversarial pair, store A in a fresh cache and then query with B.
+
+    answers_differ and B hits   -> FALSE HIT   (the failure mode)
+    answers_differ and B misses -> correct rejection
+    same answer  and B hits     -> TRUE HIT    (the saving we want)
+    same answer  and B misses   -> missed opportunity
+
+The control pairs (answers_differ = false) matter as much as the adversarial
+ones. Without them a trivially safe policy — reject everything — scores a
+perfect 0% false-hit rate, so the sweep would recommend disabling the cache.
+Reporting both rates is what makes the operating point meaningful.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+
+from parsimony.core.config import ParsimonyConfig
+from parsimony.eval.corpus import AdversarialPair, load_adversarial
+from parsimony.infra.embedding import get_embedder
+from parsimony.modules.m1_compressor import normalise_lossless
+from parsimony.modules.m2_cache import SemanticCache, verify_match
+
+
+@dataclass(frozen=True, slots=True)
+class CalibrationPoint:
+    tau_hi: float
+    tau_lo: float
+    verifier_on: bool
+    compression_on: bool
+    false_hits: int
+    adversarial_total: int
+    true_hits: int
+    control_total: int
+
+    @property
+    def false_hit_rate(self) -> float:
+        return 100.0 * self.false_hits / self.adversarial_total if self.adversarial_total else 0.0
+
+    @property
+    def true_hit_rate(self) -> float:
+        return 100.0 * self.true_hits / self.control_total if self.control_total else 0.0
+
+    @property
+    def is_safe(self) -> bool:
+        """Report 3.3 sets the target below 2%."""
+        return self.false_hit_rate < 2.0
+
+
+def _lookup_hits(
+    query: str,
+    stored_query: str,
+    embedder,
+    cfg: ParsimonyConfig,
+    verifier_on: bool,
+) -> bool:
+    """Would this query be served from a cache holding only `stored_query`?"""
+    cache = SemanticCache(cfg.cache.ttl_seconds, embedder)
+    vec_stored, vec_query = embedder.embed([stored_query, query])
+    cache.store("k", stored_query, "stored answer", chain="root", model_id="m", vec=vec_stored)
+
+    if SemanticCache.make_key(query, "root", "m") == SemanticCache.make_key(
+        stored_query, "root", "m"
+    ):
+        return True  # exact tier
+
+    found = cache.search(vec_query, "root", "m", cfg.cache.top_k)
+    if not found:
+        return False
+    entry, score = found[0]
+
+    if score >= cfg.cache.tau_hi:
+        return True
+    if score < cfg.cache.tau_lo:
+        return False
+    if not verifier_on:
+        return True  # single-threshold behaviour: anything above tau_lo is a hit
+    return verify_match(
+        cache.invariants_of(query),
+        entry.invariants,
+        query,
+        entry.query,
+        cfg.cache.jaccard_min,
+    ).passed
+
+
+def evaluate_point(
+    pairs: tuple[AdversarialPair, ...],
+    cfg: ParsimonyConfig,
+    embedder,
+    verifier_on: bool = True,
+    compression_on: bool = False,
+) -> CalibrationPoint:
+    false_hits = adversarial_total = true_hits = control_total = 0
+
+    for pair in pairs:
+        a, b = pair.a, pair.b
+        if compression_on:
+            # The Gap 3 manipulation: the cache sees normalised text on both
+            # the write and the lookup path.
+            a, b = normalise_lossless(a), normalise_lossless(b)
+
+        hit = _lookup_hits(b, a, embedder, cfg, verifier_on)
+        if pair.answers_differ:
+            adversarial_total += 1
+            false_hits += int(hit)
+        else:
+            control_total += 1
+            true_hits += int(hit)
+
+    return CalibrationPoint(
+        tau_hi=cfg.cache.tau_hi,
+        tau_lo=cfg.cache.tau_lo,
+        verifier_on=verifier_on,
+        compression_on=compression_on,
+        false_hits=false_hits,
+        adversarial_total=adversarial_total,
+        true_hits=true_hits,
+        control_total=control_total,
+    )
+
+
+DEFAULT_SWEEP = (0.70, 0.75, 0.80, 0.85, 0.90, 0.92, 0.95, 0.97, 0.99)
+
+
+def sweep_thresholds(
+    base: ParsimonyConfig,
+    thresholds: tuple[float, ...] = DEFAULT_SWEEP,
+    pairs: tuple[AdversarialPair, ...] | None = None,
+    embedder=None,
+    verifier_on: bool = True,
+    compression_on: bool = False,
+) -> list[CalibrationPoint]:
+    pairs = pairs if pairs is not None else load_adversarial()
+    embedder = embedder or get_embedder(base.embedder_id)
+    out = []
+    for tau in thresholds:
+        cfg = replace(base, cache=replace(base.cache, tau_hi=tau, tau_lo=min(tau, base.cache.tau_lo)))
+        out.append(evaluate_point(pairs, cfg, embedder, verifier_on, compression_on))
+    return out
+
+
+def by_operative(
+    pairs: tuple[AdversarialPair, ...], cfg: ParsimonyConfig, embedder, verifier_on: bool = True
+) -> dict[str, tuple[int, int]]:
+    """False hits per operative class — which edit type defeats the cache."""
+    out: dict[str, list[int]] = {}
+    for pair in pairs:
+        if not pair.answers_differ:
+            continue
+        hit = _lookup_hits(pair.b, pair.a, embedder, cfg, verifier_on)
+        bucket = out.setdefault(pair.operative, [0, 0])
+        bucket[0] += int(hit)
+        bucket[1] += 1
+    return {k: (v[0], v[1]) for k, v in sorted(out.items())}

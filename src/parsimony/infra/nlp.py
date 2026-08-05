@@ -36,14 +36,59 @@ _NUM_RE = re.compile(
 
 _NEGATIONS = frozenset(
     {
+        # particles and contractions
         "not", "no", "never", "none", "nothing", "neither", "nor", "without",
         "cannot", "can't", "won't", "don't", "doesn't", "didn't", "isn't",
         "aren't", "wasn't", "weren't", "shouldn't", "wouldn't", "couldn't",
-        "hasn't", "haven't", "hadn't", "unable", "unlike", "exclude",
-        "excluding", "except",
+        "hasn't", "haven't", "hadn't", "unable", "unlike", "except",
+        # standalone negating prefix, as in "non commercial" written open
+        "non",
+        # LEXICAL negation: verbs that negate without any particle. Measured
+        # gap -- "Does aspirin thin the blood?" against "Does aspirin FAIL TO
+        # thin the blood?" produced a false hit because no particle appears.
+        "fail", "fails", "failed", "failing", "lack", "lacks", "lacking",
+        "refuse", "refuses", "prevent", "prevents", "avoid", "avoids",
+        "omit", "omits", "exclude", "excludes", "excluded", "excluding",
+        "forbid", "forbids", "prohibit", "prohibits", "deny", "denies",
     }
 )
 _WORD_RE = re.compile(r"[A-Za-z']+")
+
+# --------------------------------------------------------------------------
+# Operative modifiers.
+#
+# Measured gap: with only number, entity and negation checks the verifier let
+# 78% of modifier-swapped adversarial pairs through. "What is the MINIMUM
+# temperature" and "what is the MAXIMUM temperature" share every other token, so
+# lexical overlap stays high, no number changes, no entity changes and no
+# negation particle appears -- yet the answers are opposite.
+#
+# These are the words whose substitution inverts a question while leaving its
+# surface almost untouched. The caching literature's verifiers do not check for
+# them.
+# --------------------------------------------------------------------------
+_OPPOSITION_TERMS = frozenset(
+    {
+        "minimum", "maximum", "min", "max", "least", "most", "smallest", "largest",
+        "first", "last", "earliest", "latest", "initial", "final",
+        "best", "worst", "cheapest", "expensive", "fastest", "slowest",
+        "increase", "decrease", "raise", "lower", "add", "remove",
+        "before", "after", "prior", "subsequent", "ascending", "descending",
+        "import", "export", "input", "output", "upload", "download",
+        "average", "mean", "median", "mode", "total", "sum",
+        "more", "less", "fewer", "greater", "higher", "lower",
+        "always", "sometimes", "rarely", "often",
+        "include", "exclude", "enable", "disable", "start", "stop",
+        "open", "close", "lock", "unlock", "encrypt", "decrypt",
+        "commercial", "personal", "public", "private", "internal", "external",
+        "brief", "detailed", "short", "long",
+    }
+)
+
+# Morphological negation: "possible" -> "impossible", "refundable" ->
+# "non refundable". No separate negation token appears, so a particle-based
+# check misses it entirely.
+_NEG_PREFIXES = ("non", "un", "im", "in", "ir", "il", "dis", "anti")
 
 # --------------------------------------------------------------------------
 # Quoted spans
@@ -63,6 +108,11 @@ _QUOTED_RE = re.compile(
 
 _ACRONYM_RE = re.compile(r"\b[A-Z]{2,6}\b")
 _PROPER_RE = re.compile(r"\b[A-Z][a-z]{1,}(?:\s+[A-Z][a-z]{1,}){0,3}\b")
+# Alphanumeric identifiers: Panda3D, Python3, GPT4, Qwen2, room B4.
+# _PROPER_RE cannot match these at all -- its trailing \b fails against the
+# digit -- so "pandas" against "Panda3D" produced a false cache hit with both
+# queries reporting zero entities.
+_ALNUM_ID_RE = re.compile(r"\b[A-Za-z]{2,}\d[A-Za-z0-9]*\b")
 _SENT_START_RE = re.compile(r"(?:^|[.!?]\s+|\n\s*)")
 
 # Words that begin sentences constantly and are never entities.
@@ -110,7 +160,7 @@ class RegexInvariantExtractor:
         quoted = frozenset(quoted_vals)
 
         starts = _sentence_start_offsets(text)
-        ents: set[str] = set(_ACRONYM_RE.findall(text))
+        ents: set[str] = set(_ACRONYM_RE.findall(text)) | set(_ALNUM_ID_RE.findall(text))
         for m in _PROPER_RE.finditer(text):
             val = m.group(0)
             first = val.split()[0]
@@ -219,6 +269,30 @@ _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 def shingles(text: str) -> frozenset[str]:
     return frozenset(_TOKEN_RE.findall(text.lower()))
+
+
+def operative_modifiers(text: str) -> frozenset[str]:
+    """Words whose substitution inverts a question without disturbing its surface."""
+    return frozenset(w for w in _TOKEN_RE.findall(text.lower()) if w in _OPPOSITION_TERMS)
+
+
+def morphological_negations(text: str, other: str) -> frozenset[str]:
+    """Prefix-negated words in `text` whose stem appears in `other`.
+
+    Requiring the stem to be present in the counterpart query is what keeps this
+    precise: "international" is not a negation of "national" in isolation, but
+    "impossible" opposite "possible" in an otherwise identical question is.
+    """
+    other_words = set(_TOKEN_RE.findall(other.lower()))
+    found = set()
+    for word in _TOKEN_RE.findall(text.lower()):
+        for prefix in _NEG_PREFIXES:
+            if len(word) > len(prefix) + 3 and word.startswith(prefix):
+                stem = word[len(prefix) :]
+                if stem in other_words:
+                    found.add(word)
+                    break
+    return frozenset(found)
 
 
 def jaccard(a: str, b: str) -> float:
