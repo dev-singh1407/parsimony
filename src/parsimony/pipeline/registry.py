@@ -94,13 +94,13 @@ def default_registry(cache=None) -> StageRegistry:
     from parsimony.modules.m3_history import stages as m3_stages
     from parsimony.modules.m4_assembler import stages as m4_stages
     from parsimony.modules.m5_budgeter import OutputBudgeter
-    from parsimony.modules.m6_router import DeterministicRouterStage
+    from parsimony.modules.m6_router import stages as m6_stages
 
     reg = StageRegistry()
-    reg.register(DeterministicRouterStage())
     reg.register(CacheLookupStage(cache if cache is not None else SemanticCache()))
     reg.register_all(m3_stages())
     reg.register_all(m1_stages())
     reg.register_all(m4_stages())
     reg.register(OutputBudgeter())
+    reg.register_all(m6_stages())
     return reg

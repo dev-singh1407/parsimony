@@ -35,10 +35,30 @@ class TestAblation:
         traced = {t.name for t in outcome.traces}
         assert traced == set(pipeline.cfg.stage_order)
 
-    def test_unimplemented_stages_are_visible_rather_than_absent(self, pipeline):
-        outcome = pipeline.run("hello")
+    def test_every_stage_in_the_order_is_now_implemented(self):
+        """PLANNED_STAGES is empty: every stage in DEFAULT_STAGE_ORDER is built."""
+        from parsimony.core.config import PLANNED_STAGES
+
+        assert PLANNED_STAGES == frozenset()
+
+    def test_unimplemented_stages_are_visible_rather_than_absent(self, monkeypatch, make_pipeline):
+        """The mechanism, tested directly rather than via whichever stage
+        happens to be unbuilt today.
+
+        A declared-but-unbuilt stage must appear in the trace as
+        NOT_IMPLEMENTED. If it silently vanished, a sweep could run for hours
+        with a module absent and nothing in the ledger would say so.
+        """
+        from parsimony.core import config as config_module
+        from parsimony.pipeline import registry as registry_module
+
+        monkeypatch.setattr(registry_module, "PLANNED_STAGES", frozenset({"m9_future"}))
+        cfg = replace(
+            full_stack(), stage_order=(*config_module.DEFAULT_STAGE_ORDER, "m9_future")
+        )
+        outcome = make_pipeline(cfg).run("hello")
         planned = [t for t in outcome.traces if t.outcome is StageOutcome.NOT_IMPLEMENTED]
-        assert {t.name for t in planned} == {"m6b_router"}
+        assert [t.name for t in planned] == ["m9_future"]
 
 
 class TestShortCircuit:

@@ -37,8 +37,8 @@ DEFAULT_STAGE_ORDER: tuple[str, ...] = (
 
 # Declared but not yet implemented. The registry skips these and records
 # "not_implemented" in the trace, so the roadmap is visible in every run rather
-# than silently absent.
-PLANNED_STAGES: frozenset[str] = frozenset({"m6b_router"})
+# than silently absent. Empty: every stage in DEFAULT_STAGE_ORDER is now built.
+PLANNED_STAGES: frozenset[str] = frozenset()
 
 # The four factorial axes (report 4.6).
 FACTORIAL_MODULES: tuple[str, ...] = ("M1", "M2", "M3", "M5")

@@ -17,7 +17,7 @@ from datetime import date, datetime, timedelta
 from fractions import Fraction
 
 from parsimony.core.config import ParsimonyConfig
-from parsimony.core.proposals import NoOp, Proposal, ShortCircuit
+from parsimony.core.proposals import ContextPatch, NoOp, Proposal, ShortCircuit, TransformKind
 from parsimony.core.types import RequestContext, RouteTier
 
 # --------------------------------------------------------------------------
@@ -230,6 +230,96 @@ def solve(query: str) -> tuple[str, str] | None:
     return None
 
 
+_CODE_FENCE_RE = re.compile(r"```")
+_MULTI_QUESTION_RE = re.compile(r"\?")
+_REASON_MARKER_RE = re.compile(
+    r"\bwhy\b|\bexplain\b|\bcompare\b|\btrade-?offs?\b|\bprove\b|\bderive\b|"
+    r"\bstep by step\b|\bimplications?\b|\banalyse\b|\banalyze\b",
+    re.IGNORECASE,
+)
+
+
+def routing_features(ctx: RequestContext) -> dict[str, float]:
+    """Feature vector for the escalation decision.
+
+    EVERY feature is logged whether the current rule uses it or not. A learned
+    router (RouteLLM-style) can then be fitted from the ledger later with no
+    interface change and no new data collection — the training set accumulates
+    for free from the moment this ships.
+    """
+    query = ctx.query
+    words = query.split()
+    return {
+        "n_words": float(len(words)),
+        "n_history_turns": float(len(ctx.history)),
+        "has_code_fence": float(bool(_CODE_FENCE_RE.search(query))),
+        "n_questions": float(len(_MULTI_QUESTION_RE.findall(query))),
+        "reason_markers": float(len(_REASON_MARKER_RE.findall(query))),
+        "n_numbers": float(len(ctx.invariants.numbers)),
+        "n_entities": float(len(ctx.invariants.entities)),
+        "n_negations": float(len(ctx.invariants.negations)),
+        "is_reasoning_class": float(
+            ctx.response_class is not None and ctx.response_class.value == "reasoning"
+        ),
+        "is_code_class": float(
+            ctx.response_class is not None and ctx.response_class.value == "code"
+        ),
+    }
+
+
+def complexity_score(features: dict[str, float]) -> float:
+    """Bounded heuristic in [0, 1].
+
+    Deliberately transparent and hand-weighted rather than learned: with no
+    labelled difficulty data yet, a fitted model would encode our guesses with
+    false precision. The features are logged so the honest version can replace
+    this once the ledger has enough rows.
+    """
+    score = 0.0
+    score += 0.30 * min(features["reason_markers"], 2.0) / 2.0
+    score += 0.20 * features["is_reasoning_class"]
+    score += 0.15 * features["is_code_class"]
+    score += 0.15 * min(features["n_words"], 60.0) / 60.0
+    score += 0.10 * min(features["n_questions"], 3.0) / 3.0
+    score += 0.10 * min(features["n_history_turns"], 6.0) / 6.0
+    return round(min(score, 1.0), 4)
+
+
+class EscalationRouterStage:
+    """M6b — choose the model tier once the final prompt is known.
+
+    Runs after assembly, so the decision can use the real token count rather
+    than an estimate. Restores routing to a setting with no paid model to
+    escalate to: the strongest tier available is a 3B model on the same CPU, so
+    escalation buys capability at the cost of seconds, not rupees.
+    """
+
+    module_id = "M6"
+    name = "m6b_router"
+    reads = frozenset({"query", "history", "response_class", "assembled"})
+    writes = frozenset({"route_tier", "complexity"})
+
+    def applies_to(self, ctx: RequestContext, cfg: ParsimonyConfig) -> bool:
+        return cfg.enables("M6")
+
+    def propose(self, ctx: RequestContext, cfg: ParsimonyConfig) -> Proposal:
+        features = routing_features(ctx)
+        score = complexity_score(features)
+        escalate = cfg.router.escalation_tier and score >= cfg.router.escalation_complexity
+        tier = RouteTier.MODEL_LARGE if escalate else RouteTier.MODEL_SMALL
+
+        return ContextPatch(
+            kind=TransformKind.DECIDE,
+            fields={"route_tier": tier, "complexity": score},
+            rationale=(
+                f"complexity {score:.2f} "
+                f"{'>=' if escalate else '<'} {cfg.router.escalation_complexity} "
+                f"-> {tier.name}"
+            ),
+            evidence={"complexity": score, "escalated": escalate, **features},
+        )
+
+
 class DeterministicRouterStage:
     module_id = "M6"
     name = "m6a_deterministic"
@@ -250,3 +340,7 @@ class DeterministicRouterStage:
             rationale=f"answered exactly by the {handler} handler",
             evidence={"handler": handler, "model_tokens": 0},
         )
+
+
+def stages() -> list:
+    return [DeterministicRouterStage(), EscalationRouterStage()]

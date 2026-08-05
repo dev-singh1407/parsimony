@@ -62,6 +62,7 @@ class Pipeline:
         cfg: ParsimonyConfig,
         *,
         provider=None,
+        provider_large=None,
         tokenizer=None,
         cache: SemanticCache | None = None,
         registry: StageRegistry | None = None,
@@ -76,6 +77,7 @@ class Pipeline:
         self.cfg = cfg
         self.tokenizer = tokenizer or get_tokenizer(cfg.tokenizer_id)
         self.provider = provider or MockProvider()
+        self.provider_large = provider_large
         self.embedder = embedder if embedder is not None else get_embedder(cfg.embedder_id)
         self.cache = (
             cache if cache is not None else SemanticCache(cfg.cache.ttl_seconds, self.embedder)
@@ -266,11 +268,12 @@ class Pipeline:
             prefix_survived, prefix_ratio = survived, ratio
             self._last_prompt_ids[ctx.conversation_id] = current_ids
 
+            route = ctx.route_tier or RouteTier.MODEL_SMALL
+            provider = self._provider_for(route)
             g0 = time.perf_counter_ns()
-            response, ttft, tpot, early_stopped = self._generate(prompt_text, ctx)
+            response, ttft, tpot, early_stopped = self._generate(prompt_text, ctx, provider)
             gen_ns = time.perf_counter_ns() - g0
             tokens_out = self.tokenizer.count(response)
-            route = RouteTier.MODEL_SMALL
 
             if cache_stage is not None and cache_lookup_ctx is not None:
                 # Redaction at the write boundary (ADR-013): the model saw the
@@ -291,9 +294,9 @@ class Pipeline:
             seed=self.cfg.seed,
             pass_kind=self.pass_kind,
             created_at=time.time(),
-            model_name=self.provider.model_name,
-            model_quantisation=self.provider.quantisation,
-            model_digest=self.provider.model_digest,
+            model_name=self._provider_for(route).model_name,
+            model_quantisation=self._provider_for(route).quantisation,
+            model_digest=self._provider_for(route).model_digest,
             tokenizer_id=self.tokenizer.id,
             embedder_id=self.cfg.embedder_id,
             tokens_in_original=tokens_in_original,
@@ -331,7 +334,20 @@ class Pipeline:
 
     # -- helpers -----------------------------------------------------------
 
-    def _generate(self, prompt: str, ctx: RequestContext):
+    def _provider_for(self, tier: RouteTier):
+        """Escalation has somewhere to go only if a large provider was supplied.
+
+        Falling back silently would make the M6b arm look like it escalated
+        while actually running the same model, so the ledger's route_tier would
+        be a lie. Instead the tier is recorded as chosen and the provider used
+        is recorded separately via model_name.
+        """
+        if tier is RouteTier.MODEL_LARGE and self.provider_large is not None:
+            return self.provider_large
+        return self.provider
+
+    def _generate(self, prompt: str, ctx: RequestContext, provider=None):
+        provider = provider or self.provider
         params = GenParams(
             num_predict=ctx.output_budget or DEFAULT_NUM_PREDICT,
             temperature=0.0,
@@ -343,7 +359,7 @@ class Pipeline:
         early_stopped = False
         t0 = time.perf_counter_ns()
         try:
-            for event in self.provider.generate(prompt, params):
+            for event in provider.generate(prompt, params):
                 if first is None:
                     first = event.emitted_at_ns
                 last = event.emitted_at_ns
