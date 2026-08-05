@@ -48,3 +48,19 @@
 {"pair_id":"adv_mod_08","operative":"modifier","a":"Which countries export the most oil?","b":"Which countries import the most oil?","answers_differ":true,"notes":"verb antonym"}
 {"pair_id":"adv_mod_09","operative":"modifier","a":"What is the average response time?","b":"What is the median response time?","answers_differ":true,"notes":"statistically distinct, lexically close"}
 {"pair_id":"adv_mod_10","operative":"modifier","a":"Give me a brief summary","b":"Give me a short summary","answers_differ":false,"notes":"CONTROL: true synonym modifier; SHOULD hit"}
+{"pair_id":"ctl_neg_01","operative":"negation","a":"Should I never commit secrets to git?","b":"Should I never commit secrets to a git repository?","answers_differ":false,"notes":"CONTROL: negation on both sides, same meaning"}
+{"pair_id":"ctl_neg_02","operative":"negation","a":"Why should I not use eval in Python?","b":"Why shouldn't I use eval in Python?","answers_differ":false,"notes":"CONTROL: contraction vs expanded negation"}
+{"pair_id":"ctl_neg_03","operative":"negation","a":"What happens if I do not close the file?","b":"What happens if I don't close the file?","answers_differ":false,"notes":"CONTROL: contraction only"}
+{"pair_id":"ctl_neg_04","operative":"negation","a":"Is it true that water does not conduct electricity when pure?","b":"Is it true that pure water does not conduct electricity?","answers_differ":false,"notes":"CONTROL: clause reordering, negation preserved"}
+{"pair_id":"ctl_num_01","operative":"number","a":"Convert 100 km to miles","b":"How many miles is 100 km?","answers_differ":false,"notes":"CONTROL: same number, restructured question"}
+{"pair_id":"ctl_num_02","operative":"number","a":"What is 15% of 200?","b":"Calculate 15 percent of 200","answers_differ":false,"notes":"CONTROL: percent sign vs word"}
+{"pair_id":"ctl_num_03","operative":"number","a":"Bake at 180 C for 25 minutes","b":"Bake it at 180 C for 25 minutes please","answers_differ":false,"notes":"CONTROL: boilerplate added, numbers identical"}
+{"pair_id":"ctl_num_04","operative":"number","a":"Is 8 GB of RAM enough for a 1B model?","b":"Will 8 GB of RAM run a 1B model?","answers_differ":false,"notes":"CONTROL: reworded, same numbers"}
+{"pair_id":"ctl_num_05","operative":"number","a":"How many days are in 3 weeks?","b":"How many days does 3 weeks contain?","answers_differ":false,"notes":"CONTROL: verb swap"}
+{"pair_id":"ctl_ent_01","operative":"entity","a":"What is the capital of Australia?","b":"What is Australia's capital city?","answers_differ":false,"notes":"CONTROL: possessive form, same entity"}
+{"pair_id":"ctl_ent_02","operative":"entity","a":"Who founded Microsoft?","b":"Who was the founder of Microsoft?","answers_differ":false,"notes":"CONTROL: noun vs verb form"}
+{"pair_id":"ctl_ent_03","operative":"entity","a":"Tell me about JavaScript","b":"Explain JavaScript to me","answers_differ":false,"notes":"CONTROL: same entity, different verb"}
+{"pair_id":"ctl_ent_04","operative":"entity","a":"When did the Berlin Wall fall?","b":"In what year did the Berlin Wall fall?","answers_differ":false,"notes":"CONTROL: more specific phrasing, same answer"}
+{"pair_id":"ctl_mod_01","operative":"modifier","a":"Give me a brief summary","b":"Give me a short summary","answers_differ":false,"notes":"CONTROL: synonym modifiers - a flat lexicon rejected this"}
+{"pair_id":"ctl_mod_02","operative":"modifier","a":"What is the smallest prime number?","b":"What is the least prime number?","answers_differ":false,"notes":"CONTROL: synonym superlatives"}
+{"pair_id":"ctl_mod_03","operative":"modifier","a":"Show me the fastest sorting algorithm","b":"Show me the quickest sorting algorithm","answers_differ":false,"notes":"CONTROL: synonym modifiers"}

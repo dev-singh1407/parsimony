@@ -67,23 +67,53 @@ _WORD_RE = re.compile(r"[A-Za-z']+")
 # surface almost untouched. The caching literature's verifiers do not check for
 # them.
 # --------------------------------------------------------------------------
-_OPPOSITION_TERMS = frozenset(
-    {
-        "minimum", "maximum", "min", "max", "least", "most", "smallest", "largest",
-        "first", "last", "earliest", "latest", "initial", "final",
-        "best", "worst", "cheapest", "expensive", "fastest", "slowest",
-        "increase", "decrease", "raise", "lower", "add", "remove",
-        "before", "after", "prior", "subsequent", "ascending", "descending",
-        "import", "export", "input", "output", "upload", "download",
-        "average", "mean", "median", "mode", "total", "sum",
-        "more", "less", "fewer", "greater", "higher", "lower",
-        "always", "sometimes", "rarely", "often",
-        "include", "exclude", "enable", "disable", "start", "stop",
-        "open", "close", "lock", "unlock", "encrypt", "decrypt",
-        "commercial", "personal", "public", "private", "internal", "external",
-        "brief", "detailed", "short", "long",
-    }
+# Opposition PAIRS, not a flat set.
+#
+# A flat set cannot tell opposition from synonymy: "brief" and "short" are both
+# modifiers, so comparing raw term sets rejected that legitimate paraphrase as a
+# false hit. Grouping into (side A, side B) collapses synonyms onto the same
+# side while keeping genuine inversions apart.
+_OPPOSITION_PAIRS: tuple[tuple[frozenset[str], frozenset[str]], ...] = (
+    (frozenset({"minimum", "min", "least", "smallest", "lowest", "fewest"}),
+     frozenset({"maximum", "max", "most", "largest", "highest", "greatest"})),
+    (frozenset({"first", "earliest", "initial", "oldest"}),
+     frozenset({"last", "latest", "final", "newest"})),
+    (frozenset({"best", "better", "cheapest", "cheaper"}),
+     frozenset({"worst", "worse", "expensive", "costliest"})),
+    (frozenset({"fastest", "faster", "quickest"}),
+     frozenset({"slowest", "slower"})),
+    (frozenset({"increase", "increases", "raise", "raises", "grow", "add"}),
+     frozenset({"decrease", "decreases", "reduce", "reduces", "shrink", "remove"})),
+    (frozenset({"before", "prior", "preceding", "earlier"}),
+     frozenset({"after", "subsequent", "following", "later"})),
+    (frozenset({"ascending", "asc"}), frozenset({"descending", "desc"})),
+    (frozenset({"import", "imports", "input", "inputs", "upload", "download"}),
+     frozenset({"export", "exports", "output", "outputs"})),
+    (frozenset({"average", "mean"}), frozenset({"median", "mode"})),
+    (frozenset({"more", "greater", "higher", "above"}),
+     frozenset({"less", "fewer", "lower", "below"})),
+    (frozenset({"always", "every", "all"}),
+     frozenset({"never", "rarely", "sometimes", "occasionally"})),
+    (frozenset({"include", "includes", "enable", "enabled", "allow", "allowed"}),
+     frozenset({"exclude", "excludes", "disable", "disabled", "forbid", "blocked"})),
+    (frozenset({"open", "opens", "unlock", "decrypt"}),
+     frozenset({"close", "closes", "lock", "encrypt"})),
+    (frozenset({"start", "starts", "begin", "begins"}),
+     frozenset({"stop", "stops", "end", "ends"})),
+    (frozenset({"commercial", "commercially", "public", "external"}),
+     frozenset({"personal", "private", "internal", "noncommercial"})),
+    # Synonyms sit on the SAME side, so "brief" against "short" no longer
+    # registers as an opposition.
+    (frozenset({"brief", "short", "concise", "summary"}),
+     frozenset({"detailed", "long", "comprehensive", "thorough"})),
 )
+
+_TERM_TO_POLARITY: dict[str, tuple[int, int]] = {
+    term: (group_index, side)
+    for group_index, sides in enumerate(_OPPOSITION_PAIRS)
+    for side, terms in enumerate(sides)
+    for term in terms
+}
 
 # Morphological negation: "possible" -> "impossible", "refundable" ->
 # "non refundable". No separate negation token appears, so a particle-based
@@ -271,9 +301,24 @@ def shingles(text: str) -> frozenset[str]:
     return frozenset(_TOKEN_RE.findall(text.lower()))
 
 
-def operative_modifiers(text: str) -> frozenset[str]:
-    """Words whose substitution inverts a question without disturbing its surface."""
-    return frozenset(w for w in _TOKEN_RE.findall(text.lower()) if w in _OPPOSITION_TERMS)
+def operative_modifiers(text: str) -> frozenset[tuple[int, int]]:
+    """(opposition group, side) pairs present in the text.
+
+    Returning the POLARITY rather than the surface word is what lets synonyms
+    agree: "give me a brief summary" and "give me a short summary" both yield
+    the same (group, side), so comparing two texts by equality no longer
+    rejects them, while "minimum" against "maximum" still differs.
+    """
+    return frozenset(
+        _TERM_TO_POLARITY[w]
+        for w in _TOKEN_RE.findall(text.lower())
+        if w in _TERM_TO_POLARITY
+    )
+
+
+def describe_modifiers(text: str) -> frozenset[str]:
+    """Human-readable form, for traces and error messages."""
+    return frozenset(w for w in _TOKEN_RE.findall(text.lower()) if w in _TERM_TO_POLARITY)
 
 
 def morphological_negations(text: str, other: str) -> frozenset[str]:

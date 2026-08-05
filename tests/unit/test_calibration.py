@@ -29,10 +29,44 @@ def _verify(a: str, b: str, jaccard_min: float = 0.55):
 
 class TestOperativeModifiers:
     def test_detects_extremum_terms(self):
-        assert operative_modifiers("What is the minimum temperature?") == frozenset({"minimum"})
+        assert operative_modifiers("What is the minimum temperature?")
 
     def test_ignores_ordinary_words(self):
         assert operative_modifiers("What is the temperature?") == frozenset()
+
+    def test_opposites_land_on_different_sides(self):
+        assert operative_modifiers("the minimum value") != operative_modifiers("the maximum value")
+
+    def test_synonyms_land_on_the_same_side(self):
+        """A flat term set could not do this: "brief" and "short" were both
+        modifiers, so the pair was rejected as a false hit."""
+        assert operative_modifiers("give me a brief answer") == operative_modifiers(
+            "give me a short answer"
+        )
+
+    @pytest.mark.parametrize(
+        "a,b",
+        [
+            ("the smallest value", "the least value"),
+            ("sort ascending", "sort asc"),
+            ("the fastest option", "the quickest option"),
+            ("the earliest date", "the first date"),
+        ],
+    )
+    def test_synonym_pairs_do_not_conflict(self, a, b):
+        assert operative_modifiers(a) == operative_modifiers(b)
+
+    @pytest.mark.parametrize(
+        "a,b",
+        [
+            ("the smallest value", "the largest value"),
+            ("sort ascending", "sort descending"),
+            ("include archived items", "exclude archived items"),
+            ("the average latency", "the median latency"),
+        ],
+    )
+    def test_opposition_pairs_conflict(self, a, b):
+        assert operative_modifiers(a) != operative_modifiers(b)
 
     @pytest.mark.parametrize(
         "a,b",
@@ -53,14 +87,10 @@ class TestOperativeModifiers:
         assert not result.passed
         assert not result.modifier_agree
 
-    def test_synonym_modifiers_still_match(self):
-        """The control direction: 'brief' and 'short' are both in the lexicon,
-        so they must not be treated as an opposition."""
-        assert operative_modifiers("Give me a brief summary") != operative_modifiers(
-            "Give me a short summary"
-        )  # they differ as terms...
-        # ...which means this pair is conservatively rejected. Documented cost of
-        # a lexicon-based check: it cannot tell opposition from synonymy.
+    def test_a_synonym_modifier_pair_is_accepted(self):
+        """Previously a documented cost of the flat lexicon (ADR-027); now fixed
+        by grouping terms into opposition pairs."""
+        assert _verify("Give me a brief summary", "Give me a short summary").modifier_agree
 
 
 class TestMorphologicalNegation:
@@ -118,11 +148,11 @@ class TestCalibrationSweep:
         for p in pairs:
             counts[p.operative] = counts.get(p.operative, 0) + 1
         assert set(counts) == {"negation", "number", "entity", "modifier"}
-        assert len(pairs) == 50
+        assert len(pairs) >= 60
 
     def test_includes_control_pairs(self, pairs):
         """Without controls, 'reject everything' scores a perfect false-hit rate."""
-        assert sum(1 for p in pairs if not p.answers_differ) >= 4
+        assert sum(1 for p in pairs if not p.answers_differ) >= 20
 
     def test_default_configuration_meets_the_false_hit_target(self, pairs, embedder):
         """Report 3.3 sets the target below 2%."""
