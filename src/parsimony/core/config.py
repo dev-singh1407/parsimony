@@ -286,15 +286,28 @@ def with_cache_lookup(cfg: ParsimonyConfig, mode: str) -> ParsimonyConfig:
     question is unanswerable if the order is fixed in code. Here it is one
     config value, and the two arms are otherwise byte-identical pipelines.
     """
-    order = [s for s in cfg.stage_order if s != "m2_cache"]
-    if mode == "COMPRESSED":
-        last_m1 = max(
+    order = [s for s in cfg.stage_order if s not in ("m2_cache", "m2_cache_probe")]
+
+    def _after_deterministic() -> int:
+        return order.index("m6a_deterministic") + 1 if "m6a_deterministic" in order else 0
+
+    def _after_compression() -> int:
+        return max(
             (i for i, s in enumerate(order) if s.startswith("m1_")), default=len(order) - 1
-        )
-        order.insert(last_m1 + 1, "m2_cache")
-    else:  # RAW (and the first leg of BOTH)
-        after = order.index("m6a_deterministic") + 1 if "m6a_deterministic" in order else 0
-        order.insert(after, "m2_cache")
+        ) + 1
+
+    if mode == "COMPRESSED":
+        order.insert(_after_compression(), "m2_cache")
+    elif mode == "BOTH":
+        # Probe on the raw query, authoritative lookup on the compressed one.
+        # One request then yields a PAIRED observation of the same cache under
+        # both orderings, which is a much stronger design for Gap 3 than
+        # comparing two independent runs. Insert the later position first so
+        # the earlier insert does not shift it.
+        order.insert(_after_compression(), "m2_cache")
+        order.insert(_after_deterministic(), "m2_cache_probe")
+    else:  # RAW
+        order.insert(_after_deterministic(), "m2_cache")
     return replace(cfg, stage_order=tuple(order), cache_lookup_on=mode)
 
 

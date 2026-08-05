@@ -225,6 +225,8 @@ def gap3(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
         ("RAW  (cache sees the original query)", with_cache_lookup(replace(base, label="RAW"), "RAW")),
         ("COMPRESSED (cache sees the compressed query)",
          with_cache_lookup(replace(base, label="COMPRESSED"), "COMPRESSED")),
+        ("BOTH (paired: probe raw, act compressed)",
+         with_cache_lookup(replace(base, label="BOTH"), "BOTH")),
     ]
 
     table = Table(title="Compression x cache interaction", header_style="bold")
@@ -243,17 +245,20 @@ def gap3(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
 
     console.print(table)
     delta = results[1].cache_hits - results[0].cache_hits
-    verdict = (
-        f"Compressing before the lookup changed the hit count by [bold]{delta:+d}[/bold] "
-        f"over {corpus.n_requests} requests."
-    )
     console.print(
         Panel(
-            f"{verdict}\n"
-            "[dim]Normalisation collapses politeness-only paraphrases onto the same key, so more\n"
-            "queries hit. The open question the literature leaves unanswered is whether the same\n"
-            "collapsing also merges questions that should NOT match — measured against the\n"
-            "adversarial pair subset in Sprint 2, once the semantic tier exists.[/dim]",
+            f"Compressing before the lookup changed the TRUE-hit count by "
+            f"[bold]{delta:+d}[/bold] over {corpus.n_requests} requests.\n\n"
+            "[dim]Normalisation collapses politeness-only paraphrases onto one key, so more "
+            "queries hit.\n"
+            "The other half of gap 3 — whether it also merges questions that should NOT match —\n"
+            "is measured separately against the adversarial subset: run "
+            "[/dim][bold]parsimony calibrate[/bold][dim]\n"
+            "with and without --compression. The verifier holds the false-hit rate at 0% in both.\n\n"
+            "BOTH matches COMPRESSED on outcome by design: the authoritative lookup is the\n"
+            "compressed one, and the raw lookup is an observe-only probe. The value of BOTH is\n"
+            "that each request records what the OTHER ordering would have done, giving a paired\n"
+            "observation instead of two independent runs.[/dim]",
             title="Gap 3", border_style="magenta",
         )
     )

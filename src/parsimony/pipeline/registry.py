@@ -97,7 +97,11 @@ def default_registry(cache=None) -> StageRegistry:
     from parsimony.modules.m6_router import stages as m6_stages
 
     reg = StageRegistry()
-    reg.register(CacheLookupStage(cache if cache is not None else SemanticCache()))
+    shared_cache = cache if cache is not None else SemanticCache()
+    reg.register(CacheLookupStage(shared_cache))
+    # Same cache object, observe-only. Used by cache_lookup_on="BOTH" to record
+    # what the pre-compression lookup WOULD have done without acting on it.
+    reg.register(CacheLookupStage(shared_cache, probe_only=True, name="m2_cache_probe"))
     reg.register_all(m3_stages())
     reg.register_all(m1_stages())
     reg.register_all(m4_stages())

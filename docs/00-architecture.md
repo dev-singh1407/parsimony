@@ -281,9 +281,14 @@ cache_lookup_on: Literal["RAW", "COMPRESSED", "BOTH"] = "RAW"
 
 Gap 3 asks whether compressing a query before it reaches the cache raises or lowers the false-hit rate. That
 question is unanswerable if the pipeline can only run one order. `BOTH` runs the lookup twice against the
-same index and records both outcomes — one request yielding a paired observation, which is a far stronger
-statistical design than comparing two independent runs. **This is the single most important extensibility
-requirement in the system and it is why stage order is data.**
+same cache — an observe-only **probe** on the raw query before compression, and the authoritative lookup on
+the compressed query after — so one request yields a paired observation, a far stronger design than
+comparing two independent runs. **This is the single most important extensibility requirement in the system
+and it is why stage order is data.**
+
+> The probe never short-circuits and never writes: if it served the request, the compressed-arm observation
+> would never happen and the pairing would be lost. Implemented as a second `CacheLookupStage` over the same
+> `SemanticCache`, registered as `m2_cache_probe`.
 
 ---
 

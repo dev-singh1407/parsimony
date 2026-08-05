@@ -45,8 +45,32 @@ _VOLATILE_RE = re.compile(
 )
 
 
+_ALNUM_RE = re.compile(r"[a-z0-9]")
+
+
 def canonicalise(text: str) -> str:
     return _WS_RE.sub(" ", text.strip().lower()).rstrip("?.! ")
+
+
+def is_cacheable(query: str) -> bool:
+    """Is this query safe to key on?
+
+    Canonicalisation strips trailing punctuation so that "what is X?" and
+    "what is X" share a key. That is lossless for real queries and CATASTROPHIC
+    for degenerate ones: "   ", "?!...", "!!!" and "" all canonicalise to the
+    empty string and therefore to the SAME key. Measured before this guard, six
+    distinct inputs collided and served each other's answers.
+
+    The exact-hash tier is the dangerous place for this, because it
+    short-circuits BEFORE the three-zone verifier runs — the verifier only
+    guards the semantic tier. Hash equality is trusted as semantic equality, so
+    the canonical form has to actually carry information.
+
+    This is the collision class the key-collision literature describes
+    (docs/03-decision-log.md, ADR-029), reachable here without any adversarial
+    search at all.
+    """
+    return bool(_ALNUM_RE.search(canonicalise(query)))
 
 
 def chain_hash(history: tuple, depth: int) -> str:
@@ -160,6 +184,7 @@ class CacheStats:
     misses: int = 0
     expired: int = 0
     stores: int = 0
+    uncacheable: int = 0  # canonical form carried no information to key on
 
 
 class SemanticCache:
@@ -218,8 +243,12 @@ class SemanticCache:
 
     # -- tier 0 -------------------------------------------------------------
 
-    def lookup(self, key: str, now: float | None = None) -> CacheEntry | None:
+    def lookup(self, key: str, now: float | None = None, query: str | None = None) -> CacheEntry | None:
         self.stats.consulted += 1
+        if query is not None and not is_cacheable(query):
+            self.stats.uncacheable += 1
+            self.stats.misses += 1
+            return None
         entry = self._exact.get(key)
         if entry is None:
             self.stats.misses += 1
@@ -269,7 +298,12 @@ class SemanticCache:
         model_id: str = "",
         vec: np.ndarray | None = None,
         now: float | None = None,
-    ) -> CacheEntry:
+    ) -> CacheEntry | None:
+        if not is_cacheable(query):
+            # Nothing to key on. Storing it would make this entry the answer to
+            # every future degenerate query.
+            self.stats.uncacheable += 1
+            return None
         self.stats.stores += 1
         entry = CacheEntry(
             entry_id=key,
@@ -315,8 +349,17 @@ class CacheLookupStage:
     reads = frozenset({"query", "history"})
     writes = frozenset()
 
-    def __init__(self, cache: SemanticCache) -> None:
+    def __init__(self, cache: SemanticCache, *, probe_only: bool = False,
+                 name: str | None = None) -> None:
         self.cache = cache
+        # A probe records what the cache WOULD have done without acting on it.
+        # cache_lookup_on="BOTH" runs a probe before compression and the real
+        # lookup after, so a single request yields a paired observation of the
+        # same cache under both orderings — a far stronger design for Gap 3
+        # than comparing two independent runs.
+        self.probe_only = probe_only
+        if name is not None:
+            self.name = name
 
     def applies_to(self, ctx: RequestContext, cfg: ParsimonyConfig) -> bool:
         return cfg.enables("M2") and (cfg.cache.exact_tier or cfg.cache.semantic_tier)
@@ -331,15 +374,26 @@ class CacheLookupStage:
         chain = self.chain_for(ctx, cfg)
         key = SemanticCache.make_key(ctx.query, chain, cfg.model.name)
 
+        if not is_cacheable(ctx.query):
+            return NoOp(
+                "not_applicable",
+                "query carries no information to key on",
+                {"zone": "uncacheable", "top_k": ()},
+            )
+
         if cfg.cache.exact_tier:
-            entry = self.cache.lookup(key)
+            entry = self.cache.lookup(key, query=ctx.query)
             if entry is not None:
+                evidence = {"zone": "accept", "tier": "exact", "cache_key": key[:12],
+                            "entry_hits": entry.hits, "top_k": (),
+                            "probe_only": self.probe_only}
+                if self.probe_only:
+                    return NoOp("no_yield", "probe: exact hit (not acted on)", evidence)
                 return ShortCircuit(
                     response=entry.response,
                     served_by=RouteTier.CACHE_EXACT,
                     rationale="exact-hash cache hit",
-                    evidence={"zone": "accept", "tier": "exact", "cache_key": key[:12],
-                              "entry_hits": entry.hits, "top_k": ()},
+                    evidence=evidence,
                 )
 
         if not (cfg.cache.semantic_tier and ctx.derived is not None
@@ -357,20 +411,28 @@ class CacheLookupStage:
         query_inv = self.cache.invariants_of(ctx.query)
 
         if score >= cfg.cache.tau_hi:
+            evidence = {"zone": "accept", "tier": "semantic", "score": round(score, 4),
+                        "top_k": top_k, "probe_only": self.probe_only}
+            if self.probe_only:
+                return NoOp("no_yield", "probe: semantic hit (not acted on)", evidence)
             self.cache.stats.semantic_hits += 1
             best.hits += 1
             return ShortCircuit(
                 response=best.response,
                 served_by=RouteTier.CACHE_SEMANTIC,
                 rationale=f"semantic hit, cosine {score:.3f} >= tau_hi {cfg.cache.tau_hi}",
-                evidence={"zone": "accept", "tier": "semantic", "score": round(score, 4),
-                          "top_k": top_k},
+                evidence=evidence,
             )
 
         if score >= cfg.cache.tau_lo:
             result = verify_match(query_inv, best.invariants, ctx.query, best.query,
                                   cfg.cache.jaccard_min)
             if result.passed:
+                evidence = {"zone": "verify", "tier": "semantic", "score": round(score, 4),
+                            "verifier": result.as_dict(), "top_k": top_k,
+                            "probe_only": self.probe_only}
+                if self.probe_only:
+                    return NoOp("no_yield", "probe: verified hit (not acted on)", evidence)
                 self.cache.stats.semantic_hits += 1
                 self.cache.stats.verified_hits += 1
                 best.hits += 1
@@ -378,8 +440,7 @@ class CacheLookupStage:
                     response=best.response,
                     served_by=RouteTier.CACHE_SEMANTIC,
                     rationale=f"verified hit, cosine {score:.3f} in verify zone",
-                    evidence={"zone": "verify", "tier": "semantic", "score": round(score, 4),
-                              "verifier": result.as_dict(), "top_k": top_k},
+                    evidence=evidence,
                 )
             self.cache.stats.verify_rejections += 1
             return NoOp(
@@ -397,6 +458,8 @@ class CacheLookupStage:
 
     def remember(self, ctx: RequestContext, cfg: ParsimonyConfig, response: str) -> None:
         """Write path, called by the orchestrator after generation."""
+        if self.probe_only:
+            return  # a probe observes; the authoritative stage owns the write
         chain = self.chain_for(ctx, cfg)
         key = SemanticCache.make_key(ctx.query, chain, cfg.model.name)
         vec = None

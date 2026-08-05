@@ -101,6 +101,51 @@ understated by **37.7 percentage points**, and the error would have flattered th
 
 ---
 
+### ADR-029 — The exact-hash tier has no verifier, so its canonicalisation must be lossless
+
+**Context.** Probing degenerate inputs found a live collision class. Canonicalisation lowercases, collapses
+whitespace and strips trailing punctuation — lossless for real queries, so that "what is X?" and "what is X"
+share a key. But applied to inputs that are *only* punctuation or whitespace it destroys everything:
+
+| query | canonical form | key |
+|---|---|---|
+| `"   \n\t  "` | `""` | `207fbd06116dbfdd` |
+| `"?!..."` | `""` | `207fbd06116dbfdd` |
+| `"!!!"` | `""` | `207fbd06116dbfdd` |
+| `"."` | `""` | `207fbd06116dbfdd` |
+| `"???"` | `""` | `207fbd06116dbfdd` |
+| `""` | `""` | `207fbd06116dbfdd` |
+
+Six distinct inputs, one key. In a live pipeline they served one another's cached answers.
+
+**The structural point, which matters more than the bug.** The three-zone verifier — the mechanism ADR-027
+shows is what actually makes the cache safe — **only guards the semantic tier**. The exact-hash tier
+short-circuits before it, on the assumption that hash equality implies semantic equality. That assumption
+holds exactly as long as canonicalisation is lossless, and nothing was enforcing it.
+
+**Decision.** A query is cacheable only if its canonical form contains at least one alphanumeric character.
+`store()` and `lookup()` both refuse otherwise, and the refusal is counted in `CacheStats.uncacheable`.
+
+**Justification.** A canonical form carrying no information cannot key anything: whatever is stored under it
+becomes the answer to every future degenerate query. Refusing is the only correct behaviour — there is no
+threshold or verifier that rescues an empty key.
+
+**Relation to the literature.** The report's Paper 7 (*Key Collision Attack on LLM Semantic Caching*, 2026)
+searches for adversarial suffixes that force false-positive hits. This collision class needs no adversarial
+search at all — it is reachable by typing "?" — and it lives in the tier that paper's threat model does not
+examine, because the exact tier looks unambiguously safe. Worth a sentence in the related-work discussion:
+**hash-tier canonicalisation is an unexamined attack surface, and its safety is a property of the
+normalisation function rather than of the cache policy.**
+
+**Consequences.**
+
+- Real repeats are unaffected; only information-free queries are refused, and `uncacheable` makes the rate
+  visible rather than silent.
+- Any future addition to `canonicalise()` — stemming, stop-word removal, aggressive Unicode folding — widens
+  the collision class and must be weighed against this, because the exact tier will not catch it.
+
+---
+
 ### ADR-005 — Dual ledger sinks: JSONL for experiments, SQLite for serving
 
 **Context.** The report specifies SQLite. The sweep is 16 cells × 5 seeds × 3 models × 150 conversations
