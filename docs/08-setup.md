@@ -63,11 +63,17 @@ Everything below runs in a couple of seconds.
 
 | Command | What it does |
 |---|---|
+| `python reproduce.py --out figures` | **Regenerates every table in the report from a live run (~40 s)** |
 | `... main demo` | The scripted review walkthrough |
 | `... main chat "What is 847 * 23?"` | One query with the full stage trace |
 | `... main chat "..." --baseline` | Same query with every module off |
 | `... main chat "..." --repeat` | Sends it twice, so the cache hit is visible |
-| `... main bench` | 2³ factorial ablation + the M6 row, writes a JSONL ledger |
+| `... main bench` | Factorial ablation + quality table, writes a JSONL ledger |
+| `... main bench --modules M1,M2,M3,M5` | The full 2⁴ headline design |
+| `... main bench --bundle bundles/mined` | Warm-started from an M7 policy bundle (gap 6) |
+| `... main calibrate` | Threshold sweep against the adversarial subset (gaps 3 and 5) |
+| `... main tokenprobe` | When does shortening text fail to reduce tokens? (ADR-026) |
+| `... main learn --out bundles/mined` | Mine a policy bundle by counterfactual replay (M7) |
 | `... main gap3` | The compression × cache interaction experiment |
 | `... main corpus` | Corpus composition and its freeze hash |
 | `... main ledger-import runs/<id>.jsonl` | Fold a run into the SQLite analysis DB |

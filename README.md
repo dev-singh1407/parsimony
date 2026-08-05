@@ -8,47 +8,66 @@ Dev Singh (23BCE0794) · Guide: Dr Sathya K
 
 ---
 
-## Status — Sprint 0/1 complete, runs today
+## Status — all eight modules built, full pipeline runs end to end
 
 ```bash
-python -m parsimony.surfaces.cli.main demo
+python reproduce.py --out figures
 ```
 
-**156 tests, all passing, under a second.** Setup and commands: [`docs/08-setup.md`](docs/08-setup.md).
+**356 tests passing.** Every table below regenerates from a live run in ~40 s. Setup and commands:
+[`docs/08-setup.md`](docs/08-setup.md).
 
-| Built | Deferred |
+| Module | State |
 |---|---|
-| L0 contracts, orchestrator, stage registry + DAG validation | **M3** history manager (Sprint 3) |
-| **M1** compressor tiers 1–2 (tier 3 written, gated off until its golden test) | **M4** prefix-stable assembler (Sprint 4) |
-| **M2** exact-hash cache with context chain and TTL | **M6b** model-tier escalation (Sprint 4) |
-| **M5** output budgeter + streaming early-stop | Semantic cache tier — needs embeddings (Sprint 2) |
-| **M6a** deterministic tier — exact arithmetic, units, dates | Ollama / real models (Sprint 2, ADR-007) |
-| **M8** fidelity gate with `TransformKind` scoping | Quality metrics, ANOVA, Pareto (Sprint 6) |
-| Ledger v1, JSONL + SQLite sinks, blob store | Dashboard, proxy, extension (Sprint 6) |
-| Factorial sweep runner, corpus loader, 35-conversation corpus v0 | |
+| **M1** compressor — tiers 1–3, negative-yield detection, windowed re-tokenisation | built, golden-tested |
+| **M2** two-tier cache — exact + semantic, three-zone verifier | built |
+| **M3** history manager — 4 strategies, separate arrangement stage | built |
+| **M4** prefix-stable assembler + token-level prefix-survival instrument | built |
+| **M5** output budgeter + streaming early stop | built |
+| **M6** router — deterministic tier (0 model tokens) + escalation | built |
+| **M7** policy learner — counterfactual replay, PolicyBundle, warm start | built |
+| **M8** fidelity gate — `TransformKind`-scoped, always on | built |
 
-**What is real:** token counts (exact, Qwen2.5 vocabulary), every module's logic, the gate and its reverts,
-the ablation harness, the ledger. **What is simulated:** model responses and all latency figures —
-`MockProvider` synthesises TTFT/TPOT. Every row records `model_digest = "mock:v1"` so no simulated run can
-later be mistaken for a real one.
+Plus: ledger v1 with dual sinks, generation memoisation, factorial sweep runner, four quality measures,
+bootstrap/effect-size/Pareto statistics, threshold calibration, and `reproduce.py`.
 
-### Measured on the corpus today
+**Deferred by request:** Ollama and real model hosting; the dashboard, OpenAI-compatible proxy and browser
+extension.
 
-| Cell | total tokens | reduction |
+**What is real:** exact token counts under the Qwen2.5 vocabulary, every module's logic, the gate and its
+reverts, the cache verifier, the ablation harness and all statistics. **What is simulated:** model responses
+and every latency figure — `MockProvider` synthesises TTFT/TPOT. Every ledger row records
+`model_digest = "mock:v1"`, so no simulated run can later be mistaken for a real one.
+
+### Headline results (151 conversations, 263 requests, 17 cells)
+
+| effect | estimate | partial η² |
 |---|---|---|
-| baseline | 5415 | — |
-| M1 | 5378 | 0.7% |
-| M2 | 5283 | 2.4% |
-| M5 | 4781 | 11.7% |
-| M1+M2+M5 | 4621 | **14.7%** |
-| M1+M2+M5+M6 | 4407 | **18.6%** |
+| M5 output budgeter | +12.97 pp | 0.545 |
+| M3 history manager | +11.69 pp | 0.443 |
+| M2 semantic cache | +1.58 pp | 0.008 |
+| M1 compressor | +0.25 pp | 0.000 |
 
-M5 dominates because it is the only module acting on output tokens — the ~82% side of the CPU cost the
-report's Figure 2 is about. M1's solo contribution is small on this corpus because most queries are already
-terse; that is an honest floor, not a bug, and it is why the corpus scales to 150 in Sprint 3.
+Full stack reaches **+33.4%** total token reduction. **Every interaction term is negative** — the modules
+genuinely eat each other's lunch. The additivity shortfall is **2.66 pp, 95% CI [+1.06, +4.13]**, which
+excludes zero: that is Contribution 1, measured rather than assumed.
 
-**Gap 3, measured on day one:** moving the cache lookup from before to after the compressor — one entry in a
-config list, no code change — takes cache hits from 2 to 4. That is ADR-002 earning its place.
+### Three findings that changed the design
+
+**The published cache thresholds are unsafe here (ADR-024, ADR-027).** The adversarial negation pair sits at
+cosine 0.924 — *higher than every genuine paraphrase*. The literature's "safe" 0.85–0.92 would auto-accept it
+and serve the opposite answer. Measurement drove the verifier from a 26.7% false-hit rate to **0.0%**, and
+the fix was three checks nothing in the caching literature performs: operative modifiers (min/max),
+morphological and lexical negation, and alphanumeric identifiers.
+
+**Position-aware placement halves KV prefix reuse for zero token difference (ADR-025).** 94.4 → 47.6 prefix
+tokens reused, with the same turns and the same token count. Every metric in the compression literature
+scores those two configurations identically.
+
+**Negative yield is real but not where the report claims (ADR-026).** Across 495 word deletions and every
+lexicon substitution, none raised the token count — modern BPE encodes the leading space, so whitespace-
+aligned edits are monotone. Sub-token edits *do* raise it ("running" → "runing" is 2 tokens → 3). The guard
+earns its place by rejecting **zero-yield** edits, which perturb text for no saving at all.
 
 ## Documents
 
