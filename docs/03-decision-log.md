@@ -448,3 +448,45 @@ would score these two configurations identically, and one of them is roughly twi
   per conversation length, which is another row in the calibration table.
 - A follow-up worth running: a "position-aware-once" arrangement that fixes the order on first computation
   and keeps it stable thereafter, capturing most of the attention benefit at a fraction of the prefix cost.
+
+---
+
+### ADR-026 — Negative yield is real, but not in the regime phrase compression operates in
+
+**Context.** The report states that "deleting a word can raise the token count by breaking a merge in its
+neighbours", and negative-yield detection is presented as the novel detail of M1 tier 3. That is an
+assumption underpinning a headline contribution, so it was measured rather than trusted
+(`parsimony tokenprobe`, Qwen2.5-1.5B tokenizer).
+
+| edit regime | tested | saved tokens | saved nothing | **cost** tokens |
+|---|---|---|---|---|
+| phrase substitution | 24 | 24 | 0 | 0 |
+| single-word deletion | 495 | 491 | 4 | **0** |
+| sub-token edit | 8 | 0 | 5 | **3** |
+
+**Whitespace-aligned edits are monotone.** Across 495 single-word deletions and every lexicon substitution
+in the corpus, not one increased the token count. Modern BPE tokenisers encode a leading space into the
+token (`" word"`), so deleting a whole word removes exactly its tokens and leaves the merge boundaries at
+either side intact.
+
+**Sub-token edits are not monotone.** `"running" → "runing"` is 2 tokens → **3**. `"unbelievable" →
+"unbelievble"` is 4 → **5**. Shorter text, more tokens.
+
+**Decision.** Keep the check, and reframe what it is for. It rejects `delta >= 0`, not merely `delta > 0`.
+
+**Justification.** The check's real value turned out to be rejecting **zero-yield** edits, which are far more
+common than true negative-yield ones: 5 of 8 sub-token edits shortened the text and saved nothing at all,
+and "in order to" → "inorder to" and "New York" → "NewYork" both cost 0 tokens. An edit that perturbs the
+text without saving a token is pure risk — it can only lose meaning — and no published method checks for it
+because they all count characters or words rather than the target model's tokens.
+
+**Consequences for the report.** The claim must be stated precisely rather than broadly, and the precise
+version is more useful:
+
+- For **phrase- and word-level** compression (what Parsimony does, and what most practical systems do)
+  shortening is safe and the guard is cheap insurance costing one re-tokenisation per candidate.
+- For **character- or subword-level** compression — which includes perplexity-scored token dropping of the
+  LLMLingua family — the guard is essential, because that is exactly the regime where merges break.
+
+This turns an assumption into a measured, bounded claim, and it identifies precisely which prior methods are
+exposed to the failure. That is a stronger contribution than the unqualified version.

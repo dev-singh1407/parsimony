@@ -235,6 +235,49 @@ def gap3(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
     )
 
 
+@app.command()
+def tokenprobe(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
+    """When does shortening text fail to reduce tokens? (M1 tier 3 evidence)"""
+    from parsimony.eval.tokenizer_probe import run_probe
+    from parsimony.infra.tokenization import get_tokenizer
+
+    corpus = load_corpus(corpus_path)
+    texts = [q for c in corpus.conversations for q in c.user_turns]
+    tok = get_tokenizer()
+    results = run_probe(texts, tok)
+
+    table = Table(title=f"Negative-yield probe — tokenizer {tok.id}", header_style="bold")
+    table.add_column("Edit regime")
+    table.add_column("tested", justify="right")
+    table.add_column("saved tokens", justify="right")
+    table.add_column("saved nothing", justify="right")
+    table.add_column("cost tokens", justify="right")
+    table.add_column("wasted", justify="right")
+    for r in results:
+        table.add_row(
+            r.regime,
+            str(r.tested),
+            str(r.reduced),
+            str(r.neutral),
+            f"[red]{r.increased}[/red]" if r.increased else "0",
+            f"{r.wasted_pct:.0f}%",
+        )
+    console.print(table)
+    console.print(
+        Panel(
+            "Whitespace-aligned edits (phrase, word) are [bold]monotone[/bold] under this "
+            "tokenizer:\nshortening the text always reduces or preserves the token count.\n\n"
+            "Sub-token edits are [bold]not[/bold]: 'running'->'runing' is shorter text and "
+            "MORE tokens.\n\n"
+            "[dim]So the negative-yield guard earns its place mainly by rejecting ZERO-yield "
+            "edits —\nedits that perturb the text for no saving at all, which is pure risk. "
+            "True negative\nyield matters for character- and subword-level methods, not for "
+            "phrase compression.[/dim]",
+            title="ADR-026", border_style="yellow",
+        )
+    )
+
+
 @app.command("ledger-import")
 def ledger_import(
     files: list[Path] = typer.Argument(..., help="JSONL ledger files."),

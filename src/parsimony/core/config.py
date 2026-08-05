@@ -48,7 +48,10 @@ FACTORIAL_MODULES: tuple[str, ...] = ("M1", "M2", "M3", "M5")
 class CompressionConfig:
     tier1_enabled: bool = True  # lossless normalisation
     tier2_enabled: bool = True  # extractive redundancy removal
-    tier3_enabled: bool = False  # tokenizer-aware rewriting — Sprint 3
+    # Enabled: the windowed re-tokenisation it relies on is guarded by
+    # tests/golden/test_windowed_retokenisation.py, which checks the windowed
+    # delta against full re-tokenisation for every candidate edit in the corpus.
+    tier3_enabled: bool = True
     # Two thresholds, because a similarity threshold is meaningless without the
     # scorer it was calibrated against. Cosine runs far hotter than Jaccard for
     # the same sentence pair. Keeping both explicit is the calibration-table

@@ -17,6 +17,7 @@ from parsimony.core.config import ParsimonyConfig
 from parsimony.core.proposals import ContextPatch, NoOp, Proposal, TransformKind
 from parsimony.core.types import RequestContext
 from parsimony.infra.nlp import jaccard
+from parsimony.modules.m1_tier3 import rewrite as tier3_rewrite
 
 _FENCE_RE = re.compile(r"(```.*?```|`[^`\n]+`)", re.DOTALL)
 
@@ -220,11 +221,11 @@ class Tier2Deduper:
 class Tier3Rewriter:
     """Tokenizer-aware rewriting with negative-yield detection.
 
-    Disabled by default. Because byte-pair merges are context dependent,
-    deleting a word can *raise* the token count by breaking a merge in its
-    neighbours, so every candidate edit is re-tokenised and reverted if it does
-    not actually pay. Ships in Sprint 3 together with the golden test that
-    asserts windowed re-tokenisation matches full re-tokenisation.
+    Because byte-pair merges are context dependent, an edit that removes
+    characters can *raise* the token count by breaking a merge that spanned the
+    boundary. Every candidate is re-tokenised and reverted if it does not
+    actually pay. Implementation in modules/m1_tier3.py; the windowed
+    re-tokenisation it relies on is guarded by tests/golden/.
     """
 
     module_id = "M1"
@@ -232,23 +233,12 @@ class Tier3Rewriter:
     reads = frozenset({"query"})
     writes = frozenset({"query"})
 
-    LEXICON: tuple[tuple[str, str], ...] = (
-        (r"\bin order to\b", "to"),
-        (r"\bat this point in time\b", "now"),
-        (r"\bdue to the fact that\b", "because"),
-        (r"\bin the event that\b", "if"),
-        (r"\bfor the purpose of\b", "for"),
-        (r"\ba large number of\b", "many"),
-        (r"\bis able to\b", "can"),
-        (r"\bit is important to note that\b", ""),
-    )
-
     def applies_to(self, ctx: RequestContext, cfg: ParsimonyConfig) -> bool:
         return cfg.enables("M1") and cfg.compression.tier3_enabled
 
     def skip_reason(self, ctx: RequestContext, cfg: ParsimonyConfig) -> str:
         if cfg.enables("M1") and not cfg.compression.tier3_enabled:
-            return "tier 3 off until its golden test lands (Sprint 3)"
+            return "tier 3 disabled in this configuration"
         return "not applicable"
 
     def propose(self, ctx: RequestContext, cfg: ParsimonyConfig) -> Proposal:
@@ -256,28 +246,52 @@ class Tier3Rewriter:
         if d is None:
             return NoOp("not_applicable", "no derived cache")
 
-        text = ctx.query
-        applied, rejected = 0, 0
-        for pattern, replacement in self.LEXICON:
-            candidate = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
-            if candidate == text:
-                continue
-            # Negative-yield detection: the edit must actually reduce tokens.
-            if d.token_count(candidate) < d.token_count(text):
-                text = re.sub(r"\s{2,}", " ", candidate).strip()
-                applied += 1
-            else:
-                rejected += 1
+        new_text, outcomes = tier3_rewrite(
+            ctx.query, _TokenCounter(d), window=cfg.compression.retokenise_window
+        )
+        applied = [o for o in outcomes if o.applied]
+        rejected = [o for o in outcomes if not o.applied]
 
         if not applied:
-            return NoOp("no_yield", f"{rejected} edit(s) rejected as negative-yield")
+            detail = (
+                f"{len(rejected)} candidate edit(s) rejected as negative-yield"
+                if rejected
+                else "no candidate edits"
+            )
+            return NoOp(
+                "no_yield",
+                detail,
+                {"tier": 3, "candidates": len(outcomes), "negative_yield_rejected": len(rejected)},
+            )
 
         return ContextPatch(
             kind=TransformKind.REWRITE,
-            fields={"query": text},
-            rationale=f"{applied} token-reducing rewrite(s), {rejected} rejected",
-            evidence={"tier": 3, "applied": applied, "negative_yield_rejected": rejected},
+            fields={"query": new_text},
+            rationale=(
+                f"{len(applied)} token-reducing rewrite(s), "
+                f"{len(rejected)} rejected as negative-yield"
+            ),
+            evidence={
+                "tier": 3,
+                "applied": len(applied),
+                "negative_yield_rejected": len(rejected),
+                "tokens_saved": -sum(o.windowed_delta for o in applied),
+                "rules": sorted({o.candidate.rule for o in applied}),
+            },
         )
+
+
+class _TokenCounter:
+    """Adapts DerivedCache to the minimal tokenizer surface tier 3 needs, so the
+    rewriting logic stays testable against a bare tokenizer."""
+
+    __slots__ = ("_d",)
+
+    def __init__(self, derived) -> None:
+        self._d = derived
+
+    def count(self, text: str) -> int:
+        return self._d.token_count(text)
 
 
 def _replace_content(turn, content: str):
