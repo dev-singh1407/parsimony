@@ -546,3 +546,47 @@ cross-encoder or NLI pass the literature would reach for.
   Expanding the control set is the first corpus follow-up.
 - Every threshold here is calibrated against `hashing-v1`. Swapping the encoder invalidates them, which is
   Contribution 6's point demonstrated on our own stack.
+
+---
+
+### ADR-028 — M1 tier 2 is encoder-limited, not technique-limited
+
+**Context.** Tier 2 (extractive redundancy removal) fired **zero times in 239 opportunities**. The shipped
+threshold of 0.80 had been set by eye from a sentence pair that was not actually in the corpus — precisely
+the practice this project criticises the caching literature for. Sweeping it properly
+(`parsimony calibrate-dedup`) and then measuring every intended duplicate in the summarisation class gave:
+
+| intended duplicate pair | cosine |
+|---|---|
+| "The library will close at 6 PM on weekdays" / "The library shuts at 6 PM on weekdays" | 0.729 |
+| "Remote work reduces commuting time" / "Remote work cuts commuting time significantly" | 0.635 |
+| "The course runs for 12 weeks" / "The course lasts 12 weeks in total" | 0.561 |
+| "The policy takes effect on 1 April" / "The policy starts on 1 April for full time staff" | 0.486 |
+| "Rent is 1200 per month" / "Monthly rent comes to 1200" | **0.324** |
+| "needs 250 g of flour" / "You will need 250 g flour for this" | **0.312** |
+| "produces no direct carbon emissions" / "emit no carbon dioxide while operating" | **0.319** |
+
+**The bottom three are the same fact reworded** — exactly what tier 2 exists to delete — and the lexical
+encoder places them barely above unrelated text.
+
+**Decision.** Set `dedup_threshold = 0.70`, the loosest value with a 0% gate-revert rate. Report tier 2's
+near-zero contribution as an **encoder property**, not a technique failure.
+
+**Justification.** There is no threshold that recovers those pairs. Reaching 0.32 would merge sentences that
+share nothing but function words, and the fidelity gate would not save us — these paraphrases carry the same
+numbers and entities, so every invariant check passes while the meaning of the *summary* changes. Lowering
+the threshold trades a silent quality loss for a token saving, which is the opposite of the trade this
+project is trying to characterise.
+
+**Consequences.**
+
+- Tier 2's ~0 pp contribution in the ablation is now *explained* rather than merely reported. Without this
+  measurement the honest-looking conclusion "extractive redundancy removal does not help at small scale"
+  would have been drawn, and it would have been **wrong** — the technique was never given a working
+  similarity signal.
+- This is the sharpest concrete argument in the project for the encoder swap. It converts "MiniLM would
+  presumably be better" into "MiniLM is required for tier 2 to function at all, and here is the
+  quantified gap".
+- Strengthens Contribution 6 beyond its original claim. The report proposes a calibration table of safe
+  settings per model. This finding says something stronger: for some module/encoder combinations **no safe
+  setting exists**, and a calibration table that only ever reports a number would hide that.

@@ -151,6 +151,75 @@ def sweep_thresholds(
     return out
 
 
+@dataclass(frozen=True, slots=True)
+class DedupPoint:
+    """One operating point for M1 tier 2's near-duplicate threshold."""
+
+    threshold: float
+    proposed: int
+    applied: int
+    reverted: int
+    tokens_saved: int
+
+    @property
+    def revert_rate(self) -> float:
+        return 100.0 * self.reverted / self.proposed if self.proposed else 0.0
+
+    @property
+    def saving_per_edit(self) -> float:
+        return self.tokens_saved / self.applied if self.applied else 0.0
+
+
+DEDUP_SWEEP = (0.60, 0.65, 0.70, 0.72, 0.75, 0.78, 0.80, 0.85, 0.90)
+
+
+def sweep_dedup_threshold(
+    base: ParsimonyConfig,
+    corpus,
+    thresholds: tuple[float, ...] = DEDUP_SWEEP,
+) -> list[DedupPoint]:
+    """Measure tier 2's behaviour across thresholds instead of guessing one.
+
+    The shipped default (0.80) was set by eye from a sentence pair that was not
+    actually in the corpus, and tier 2 consequently never fired once in 239
+    opportunities. Guessing a threshold is precisely what this project
+    criticises the caching literature for, so it gets the same treatment as the
+    cache: sweep it, look at where the fidelity gate starts objecting, and pick
+    the operating point from data.
+
+    The gate's revert rate is the safety signal. A threshold low enough to merge
+    sentences that differ in a number or an entity shows up as reverts, not as
+    silent damage.
+    """
+    from parsimony.eval.runner import run_conversation
+    from parsimony.pipeline.orchestrator import Pipeline
+
+    points: list[DedupPoint] = []
+    for threshold in thresholds:
+        cfg = replace(
+            base,
+            enabled_modules=frozenset({"M1"}),
+            compression=replace(base.compression, dedup_threshold=threshold),
+            label=f"dedup@{threshold}",
+        )
+        pipeline = Pipeline(cfg)
+        proposed = applied = reverted = saved = 0
+        for conv in corpus.conversations:
+            for outcome in run_conversation(pipeline, conv):
+                for trace in outcome.traces:
+                    if trace.name != "m1_tier2":
+                        continue
+                    if trace.outcome.value == "applied":
+                        proposed += 1
+                        applied += 1
+                        saved += trace.tokens_before - trace.tokens_after
+                    elif trace.outcome.value == "reverted":
+                        proposed += 1
+                        reverted += 1
+        points.append(DedupPoint(threshold, proposed, applied, reverted, saved))
+    return points
+
+
 def by_operative(
     pairs: tuple[AdversarialPair, ...], cfg: ParsimonyConfig, embedder, verifier_on: bool = True
 ) -> dict[str, tuple[int, int]]:

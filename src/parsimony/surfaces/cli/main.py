@@ -374,6 +374,37 @@ def calibrate(
     )
 
 
+@app.command("calibrate-dedup")
+def calibrate_dedup(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
+    """Sweep M1 tier 2's near-duplicate threshold against the corpus."""
+    from parsimony.eval.calibration import sweep_dedup_threshold
+
+    corpus = load_corpus(corpus_path)
+    points = sweep_dedup_threshold(full_stack(), corpus)
+
+    table = Table(title=f"M1 tier 2 dedup threshold — {corpus.n_requests} requests",
+                  header_style="bold")
+    table.add_column("threshold", justify="right")
+    table.add_column("edits proposed", justify="right")
+    table.add_column("applied", justify="right")
+    table.add_column("gate reverted", justify="right")
+    table.add_column("revert rate", justify="right")
+    table.add_column("tokens saved", justify="right")
+
+    for p in points:
+        colour = "green" if p.revert_rate < 20 else ("yellow" if p.revert_rate < 50 else "red")
+        table.add_row(
+            f"{p.threshold:.2f}", str(p.proposed), str(p.applied), str(p.reverted),
+            f"[{colour}]{p.revert_rate:.0f}%[/{colour}]", str(p.tokens_saved),
+        )
+    console.print(table)
+    console.print(
+        "[dim]The gate's revert rate is the safety signal: a threshold loose enough to merge\n"
+        "sentences differing in a number or entity shows up as reverts, not silent damage.\n"
+        "Pick the loosest threshold whose revert rate is still acceptable.[/dim]"
+    )
+
+
 @app.command()
 def tokenprobe(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
     """When does shortening text fail to reduce tokens? (M1 tier 3 evidence)"""

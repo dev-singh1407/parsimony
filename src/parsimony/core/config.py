@@ -57,7 +57,17 @@ class CompressionConfig:
     # the same sentence pair. Keeping both explicit is the calibration-table
     # argument (Contribution 6) applied to our own stack rather than asserted
     # about someone else's.
-    dedup_threshold: float = 0.80  # cosine under hashing-v1 (see CacheConfig note)
+    # CALIBRATED, not guessed (`parsimony calibrate-dedup`). The previous 0.80
+    # was set by eye from a sentence pair that was not in the corpus, and tier 2
+    # fired zero times in 239 opportunities. 0.70 is the loosest threshold whose
+    # gate-revert rate is still 0%.
+    #
+    # It only recovers near-verbatim repeats. Under a LEXICAL encoder, genuine
+    # paraphrases sit far lower -- "Rent is 1200 per month" against "Monthly
+    # rent comes to 1200" scores 0.324 -- so there is no threshold that catches
+    # them without also merging unrelated sentences. See ADR-028: tier 2 is
+    # encoder-limited, not technique-limited.
+    dedup_threshold: float = 0.70  # cosine under hashing-v1
     dedup_threshold_lexical: float = 0.62  # Jaccard fallback
     min_sentence_tokens: int = 4
     retokenise_window: int = 32

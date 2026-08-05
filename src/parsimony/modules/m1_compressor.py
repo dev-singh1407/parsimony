@@ -52,8 +52,39 @@ _BLANKS_RE = re.compile(r"\n{3,}")
 _SPACES_RE = re.compile(r"[ \t]{2,}")
 _TRAILING_RE = re.compile(r"[ \t]+$", re.MULTILINE)
 _PUNCT_SPACE_RE = re.compile(r"\s+([,.;:!?])")
-_SENT_PARTS_RE = re.compile(r"([^.!?\n]+[.!?]*)")
+# Splitting on "any period" is wrong in two ways that both corrupt user text:
+# it cuts inside decimals ("3.5 hours" -> "3. 5 hours", destroying the number)
+# and inside abbreviations ("e.g. other" -> "e. g. other"). The fidelity gate
+# caught the decimal case on 13 of 32 tier-1 proposals — it did its job, but a
+# LOSSLESS normaliser has no business needing to be rescued by the gate.
+#
+# A period terminates a sentence only when followed by whitespace and then a
+# capital or digit. That single rule handles decimals (no whitespace follows)
+# and mid-sentence abbreviations ("e.g. other" — lowercase follows); the
+# abbreviation list below catches the remainder, where a capital legitimately
+# follows ("Dr. Smith", "etc. Then").
+_SENT_BOUNDARY_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9])")
+_ABBREVIATIONS = frozenset(
+    {"e.g", "i.e", "etc", "vs", "mr", "mrs", "ms", "dr", "prof", "sr", "jr",
+     "fig", "no", "approx", "cf", "al", "inc", "ltd", "st"}
+)
 _HAS_ALNUM_RE = re.compile(r"[A-Za-z0-9]")
+
+
+def _ends_with_abbreviation(text: str) -> bool:
+    words = text.rstrip().rstrip(".").split()
+    return bool(words) and words[-1].lower() in _ABBREVIATIONS
+
+
+def _split_sentence_parts(line: str) -> list[str]:
+    """Split a line into sentences, re-joining false splits after abbreviations."""
+    merged: list[str] = []
+    for part in _SENT_BOUNDARY_RE.split(line):
+        if merged and _ends_with_abbreviation(merged[-1]):
+            merged[-1] = f"{merged[-1]} {part}"
+        else:
+            merged.append(part)
+    return merged
 
 
 def _protect_code(text: str):
@@ -79,7 +110,14 @@ def _clean_sentence(sentence: str) -> str:
     s = s.strip()
     if not _HAS_ALNUM_RE.search(s):
         return ""
-    # Re-capitalise: removal frequently strips the original sentence opener.
+
+    # Re-capitalise only when the ORIGINAL segment opened with a capital.
+    # Capitalising unconditionally invents capitals mid-sentence ("for 3.5
+    # hours" -> "for 3.5 Hours") and changes text the user wrote, which a
+    # lossless tier must never do.
+    original_alpha = next((c for c in sentence if c.isalpha()), "")
+    if not original_alpha.isupper():
+        return s
     for i, ch in enumerate(s):
         if ch.isalpha():
             return s[:i] + ch.upper() + s[i + 1 :]
@@ -102,7 +140,7 @@ def normalise_lossless(text: str) -> str:
             if not line.strip():
                 lines.append("")
                 continue
-            cleaned = [_clean_sentence(p) for p in _SENT_PARTS_RE.findall(line)]
+            cleaned = [_clean_sentence(p) for p in _split_sentence_parts(line)]
             lines.append(" ".join(c for c in cleaned if c))
         out.append("\n".join(lines))
 

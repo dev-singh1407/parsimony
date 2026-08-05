@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from parsimony.core.config import full_stack
@@ -45,6 +47,51 @@ class TestLosslessNormalisation:
     def test_is_idempotent(self):
         once = normalise_lossless("Hello! Could you please explain recursion? Thanks!")
         assert normalise_lossless(once) == once
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "If a train travels at 80 km/h for 3.5 hours, how far does it go?",
+            "What is 0.1 + 0.2?",
+            "How do I merge two dictionaries in Python 3.9?",
+            "Version 2.1 fixed the memory leak and 2.3 improved startup.",
+            "Convert 62.137 miles to kilometres",
+        ],
+    )
+    def test_never_splits_inside_a_decimal(self, text):
+        """Regression: the sentence splitter cut on the period inside "3.5",
+        rebuilding it as "3. 5" and destroying the number. The gate caught it on
+        13 of 32 tier-1 proposals — but a LOSSLESS tier must not need rescuing.
+        """
+        out = normalise_lossless(text)
+        for number in re.findall(r"\d+\.\d+", text):
+            assert number in out, f"{number!r} was corrupted: {out!r}"
+
+    @pytest.mark.parametrize(
+        "text,keep",
+        [
+            ("Tell me about 3.14 and e.g. other constants.", "e.g."),
+            ("Please ask Dr. Smith. Then tell me the result.", "Dr. Smith"),
+            ("Compare cats vs. dogs please.", "vs."),
+        ],
+    )
+    def test_never_splits_inside_an_abbreviation(self, text, keep):
+        assert keep in normalise_lossless(text)
+
+    def test_does_not_invent_capitals_mid_sentence(self):
+        """Capitalising unconditionally turned "for 3.5 hours" into "3.5 Hours",
+        changing text the user wrote."""
+        out = normalise_lossless("If a train travels for 3.5 hours, how far?")
+        assert "hours" in out and "Hours" not in out
+
+    def test_still_recapitalises_when_it_strips_the_opener(self):
+        assert normalise_lossless("Could you please explain recursion?").startswith("Explain")
+
+    def test_leaves_a_clean_sentence_completely_alone(self):
+        """No proposal at all is better than a no-op edit: it keeps the trace
+        honest about how often tier 1 actually has work to do."""
+        text = "What is the capital of France?"
+        assert normalise_lossless(text) == text
 
     def test_never_increases_length(self):
         for text in ["Explain recursion.", "Hi, please help.", "```code```", "A. B. C."]:
