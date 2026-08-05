@@ -17,8 +17,9 @@ from rich.table import Table
 
 from parsimony.core.config import baseline, factorial_cells, full_stack, with_cache_lookup
 from parsimony.core.types import Mode
-from parsimony.eval.corpus import load_corpus
-from parsimony.eval.runner import additivity_shortfall, run_cell, summarise, sweep
+from parsimony.eval.corpus import load_corpus, load_gold
+from parsimony.eval.metrics import LengthBiasedMockJudge
+from parsimony.eval.runner import additivity_shortfall, run_cell, sweep
 from parsimony.infra.ids import ulid
 from parsimony.infra.storage import JsonlSink, import_jsonl
 from parsimony.pipeline.orchestrator import Pipeline
@@ -135,6 +136,8 @@ def bench(
     write_ledger: bool = typer.Option(True, "--ledger/--no-ledger"),
     router: bool = typer.Option(True, "--router/--no-router",
                                 help="Add a row with M6 on top of the full stack."),
+    quality: bool = typer.Option(True, "--quality/--no-quality",
+                                 help="Score the four quality measures and the gold subset."),
 ) -> None:
     """Run the factorial ablation over the corpus and write a ledger."""
     axes = tuple(m.strip().upper() for m in modules.split(",") if m.strip())
@@ -162,26 +165,25 @@ def bench(
         sink = JsonlSink(path)
 
     try:
-        results = []
         with console.status("[bold green]running cells...") as status:
-            for cfg in cells:
-                status.update(f"[bold green]cell: {cfg.label}")
-                # EXPERIMENT mode: a failed ledger write is fatal here, because
-                # in a sweep the ledger IS the result (ADR-005).
-                results.append(
-                    run_cell(
-                        replace(cfg, mode=Mode.EXPERIMENT),
-                        corpus,
-                        sink=sink,
-                        run_id=run_id,
-                    )
-                )
-        results = summarise(results)
+            # EXPERIMENT mode: a failed ledger write is fatal here, because in a
+            # sweep the ledger IS the result (ADR-005).
+            results = sweep(
+                [replace(cfg, mode=Mode.EXPERIMENT) for cfg in cells],
+                corpus,
+                sink=sink,
+                run_id=run_id,
+                judge=LengthBiasedMockJudge() if quality else None,
+                gold=load_gold() if quality else (),
+                progress=lambda label: status.update(f"[bold green]cell: {label}"),
+            )
     finally:
         if sink is not None:
             sink.close()
 
     console.print(_cell_table(results, corpus))
+    if quality:
+        console.print(_quality_table(results))
     _print_shortfall(results, axes)
     if write_ledger:
         console.print(f"\n[dim]ledger written to[/dim] {path}")
@@ -402,6 +404,38 @@ def _cell_table(results, corpus) -> Table:
         "t0 = answered by the deterministic tier (zero model tokens) | "
         "gate = fidelity reverts | stop = early-stop fires"
     )
+    return table
+
+
+def _quality_table(results) -> Table:
+    table = Table(
+        title="Quality — four measures, never averaged",
+        header_style="bold",
+        caption="embed/overlap/judge are PROXIES against the baseline's own answer. "
+                "gold is the only ground truth.\n"
+                "overlap is structurally biased against M5: shorter answers score "
+                "lower by construction.\n"
+                "judge disagreement = how often it flipped when the options were "
+                "swapped; high means noise.",
+    )
+    table.add_column("Cell", no_wrap=True)
+    table.add_column("embed", justify="right")
+    table.add_column("overlap", justify="right")
+    table.add_column("judge", justify="right")
+    table.add_column("judge disagree", justify="right")
+    table.add_column("gold", justify="right")
+
+    for r in results:
+        gold_colour = "green" if r.gold_accuracy >= 50 else "yellow"
+        table.add_row(
+            r.label,
+            f"{r.quality_embedding:.1f}%" if r.q_embedding else "[dim]ref[/dim]",
+            f"{r.quality_overlap:.1f}%" if r.q_overlap else "[dim]ref[/dim]",
+            f"{r.quality_judge:.1f}%" if r.q_judge else "[dim]ref[/dim]",
+            f"{r.judge_disagreement_rate:.0f}%" if r.q_judge else "[dim]-[/dim]",
+            f"[{gold_colour}]{r.gold_accuracy:.1f}%[/{gold_colour}]"
+            f" ({r.gold_correct}/{r.gold_total})" if r.gold_total else "[dim]-[/dim]",
+        )
     return table
 
 

@@ -17,7 +17,8 @@ from typing import Iterable, Sequence
 
 from parsimony.core.config import ParsimonyConfig
 from parsimony.core.types import RouteTier, Turn
-from parsimony.eval.corpus import Conversation, Corpus
+from parsimony.eval.corpus import Conversation, Corpus, GoldItem
+from parsimony.eval.metrics import grade, score_response
 from parsimony.infra.ids import ulid
 from parsimony.modules.m2_cache import SemanticCache
 from parsimony.pipeline.orchestrator import Outcome, Pipeline
@@ -37,6 +38,18 @@ class CellResult:
     gate_fires: int = 0
     early_stops: int = 0
     middleware_ms: list[float] = field(default_factory=list)
+    prefix_tokens: list[int] = field(default_factory=list)
+
+    # Four quality measures, kept SEPARATE. There is deliberately no combined
+    # score: averaging a proxy with a ground truth manufactures confidence.
+    q_embedding: list[float] = field(default_factory=list)
+    q_overlap: list[float] = field(default_factory=list)
+    q_judge: list[float] = field(default_factory=list)
+    q_judge_disagreements: int = 0
+    gold_correct: int = 0
+    gold_total: int = 0
+
+    responses: dict[tuple[str, int], str] = field(default_factory=dict)
 
     # filled by summarise(), relative to the baseline cell
     total_reduction_pct: float = 0.0
@@ -58,8 +71,37 @@ class CellResult:
         ordered = sorted(self.middleware_ms)
         return ordered[min(len(ordered) - 1, int(0.95 * len(ordered)))]
 
+    @property
+    def mean_prefix_tokens(self) -> float:
+        return statistics.fmean(self.prefix_tokens) if self.prefix_tokens else 0.0
+
+    @property
+    def quality_embedding(self) -> float:
+        return 100.0 * statistics.fmean(self.q_embedding) if self.q_embedding else 100.0
+
+    @property
+    def quality_overlap(self) -> float:
+        return 100.0 * statistics.fmean(self.q_overlap) if self.q_overlap else 100.0
+
+    @property
+    def quality_judge(self) -> float:
+        return 100.0 * statistics.fmean(self.q_judge) if self.q_judge else 100.0
+
+    @property
+    def judge_disagreement_rate(self) -> float:
+        """High means the judge is noise and its score should be discounted."""
+        n = len(self.q_judge)
+        return 100.0 * self.q_judge_disagreements / n if n else 0.0
+
+    @property
+    def gold_accuracy(self) -> float:
+        return 100.0 * self.gold_correct / self.gold_total if self.gold_total else 0.0
+
     def observe(self, outcome: Outcome) -> None:
         row = outcome.row
+        self.responses[(row.conversation_id, row.turn_index)] = outcome.response
+        if row.prefix_tokens_survived is not None:
+            self.prefix_tokens.append(row.prefix_tokens_survived)
         self.n_requests += 1
         self.tokens_in_baseline += row.tokens_in_original
         self.tokens_in_final += row.tokens_in_final
@@ -100,15 +142,20 @@ def run_cell(
     *,
     provider=None,
     tokenizer=None,
+    embedder=None,
     sink=None,
     run_id: str | None = None,
     pass_kind: str = "quality",
+    reference: "CellResult | None" = None,
+    judge=None,
+    gold: tuple[GoldItem, ...] = (),
 ) -> CellResult:
     cache = SemanticCache(cfg.cache.ttl_seconds)
     pipeline = Pipeline(
         cfg,
         provider=provider,
         tokenizer=tokenizer,
+        embedder=embedder,
         cache=cache,
         registry=default_registry(cache),
         sink=sink,
@@ -120,7 +167,45 @@ def run_cell(
     for conv in corpus.conversations:
         for outcome in run_conversation(pipeline, conv):
             result.observe(outcome)
+
+    if reference is not None:
+        _score_against(result, reference, corpus, pipeline.embedder, judge)
+    if gold:
+        _score_gold(result, pipeline, gold)
     return result
+
+
+def _score_against(result, reference, corpus, embedder, judge) -> None:
+    """Compare this cell's answers against the baseline cell's, per request."""
+    questions = {
+        (c.conversation_id, i): q
+        for c in corpus.conversations
+        for i, q in enumerate(c.user_turns)
+    }
+    for key, response in result.responses.items():
+        ref = reference.responses.get(key)
+        if ref is None:
+            continue
+        vec = score_response(
+            questions.get(key, ""), response, ref, embedder=embedder, judge=judge
+        )
+        if vec.embedding_similarity is not None:
+            result.q_embedding.append(vec.embedding_similarity)
+        if vec.token_overlap is not None:
+            result.q_overlap.append(vec.token_overlap)
+        if vec.judge is not None:
+            result.q_judge.append(vec.judge)
+            if vec.judge_swap_agreed is False:
+                result.q_judge_disagreements += 1
+
+
+def _score_gold(result, pipeline, gold: tuple[GoldItem, ...]) -> None:
+    """The only non-proxy measure. Fresh conversation ids so the cache cannot
+    serve a gold answer from the main corpus run."""
+    for item in gold:
+        outcome = pipeline.run(item.question, conversation_id=f"gold:{item.gold_id}")
+        result.gold_total += 1
+        result.gold_correct += int(grade(outcome.response, item))
 
 
 def sweep(
@@ -129,19 +214,36 @@ def sweep(
     *,
     provider=None,
     tokenizer=None,
+    embedder=None,
     sink=None,
     run_id: str | None = None,
     progress=None,
+    judge=None,
+    gold: tuple[GoldItem, ...] = (),
 ) -> list[CellResult]:
+    """Run every cell, baseline first.
+
+    Baseline must run first because the three proxy quality measures are
+    computed against its answers. Ordering the work by dependency here means no
+    caller has to know about it.
+    """
     run_id = run_id or ulid()
+    cells = sorted(cells, key=lambda c: c.label != "baseline")
     results: list[CellResult] = []
+    reference: CellResult | None = None
+
     for cfg in cells:
         if progress is not None:
             progress(cfg.label or cfg.config_hash)
-        results.append(
-            run_cell(cfg, corpus, provider=provider, tokenizer=tokenizer,
-                     sink=sink, run_id=run_id)
+        result = run_cell(
+            cfg, corpus,
+            provider=provider, tokenizer=tokenizer, embedder=embedder,
+            sink=sink, run_id=run_id,
+            reference=reference, judge=judge, gold=gold,
         )
+        if reference is None and cfg.label == "baseline":
+            reference = result
+        results.append(result)
     return summarise(results)
 
 
