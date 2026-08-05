@@ -91,12 +91,16 @@ def default_registry(cache=None) -> StageRegistry:
     """Wire the stages that exist today. Later sprints append here."""
     from parsimony.modules.m1_compressor import stages as m1_stages
     from parsimony.modules.m2_cache import CacheLookupStage, SemanticCache
+    from parsimony.modules.m3_history import stages as m3_stages
+    from parsimony.modules.m4_assembler import stages as m4_stages
     from parsimony.modules.m5_budgeter import OutputBudgeter
     from parsimony.modules.m6_router import DeterministicRouterStage
 
     reg = StageRegistry()
     reg.register(DeterministicRouterStage())
     reg.register(CacheLookupStage(cache if cache is not None else SemanticCache()))
+    reg.register_all(m3_stages())
     reg.register_all(m1_stages())
+    reg.register_all(m4_stages())
     reg.register(OutputBudgeter())
     return reg

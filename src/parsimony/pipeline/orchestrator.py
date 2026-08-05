@@ -34,9 +34,10 @@ from parsimony.infra.providers import MockProvider
 from parsimony.infra.storage import MemoryBlobStore, sha256
 from parsimony.infra.tokenization import get_tokenizer
 from parsimony.modules.m2_cache import SemanticCache
+from parsimony.modules.m4_assembler import assemble_prefix_stable, assemble_volatile_head
 from parsimony.modules.m5_budgeter import OutputBudgeter
 from parsimony.modules.m8_fidelity import FidelityGate
-from parsimony.pipeline.assembly import assemble, prefix_survival
+from parsimony.pipeline.assembly import prefix_survival
 from parsimony.pipeline.registry import PlannedStage, StageRegistry, default_registry
 
 DEFAULT_NUM_PREDICT = 256
@@ -230,8 +231,14 @@ class Pipeline:
 
         # -- generation or short circuit ------------------------------------
 
-        baseline_prompt = assemble(original_ctx, self.tokenizer)
-        tokens_in_original = baseline_prompt.total_token_count
+        # Reference denominator for the per-request input-reduction display.
+        # Always the prefix-stable rendering of the ORIGINAL content, so it is
+        # identical across ablation cells and only the content differs.
+        # Between-cell comparison is done by the runner against the baseline
+        # cell's totals, not against this.
+        tokens_in_original = assemble_prefix_stable(
+            original_ctx, ctx.derived.token_count
+        ).total_token_count
 
         if short is not None:
             response = short.response
@@ -244,7 +251,11 @@ class Pipeline:
             prefix_survived, prefix_ratio = None, None
             early_stopped = False
         else:
-            final_prompt = assemble(ctx, self.tokenizer)
+            # M4 produces the assembled prompt when enabled. With it ablated we
+            # fall back to a volatile-head rendering, which models the very
+            # common "turn N of M" preamble that silently destroys KV prefix
+            # reuse while looking free in a token count (see m4_assembler).
+            final_prompt = ctx.assembled or assemble_volatile_head(ctx, ctx.derived.token_count)
             prompt_text = final_prompt.full_text
             tokens_in_final = final_prompt.total_token_count
 

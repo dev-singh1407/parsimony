@@ -26,6 +26,7 @@ DEFAULT_STAGE_ORDER: tuple[str, ...] = (
     "m6a_deterministic",
     "m2_cache",
     "m3_history",
+    "m3_arrange",
     "m1_tier1",
     "m1_tier2",
     "m1_tier3",
@@ -37,7 +38,7 @@ DEFAULT_STAGE_ORDER: tuple[str, ...] = (
 # Declared but not yet implemented. The registry skips these and records
 # "not_implemented" in the trace, so the roadmap is visible in every run rather
 # than silently absent.
-PLANNED_STAGES: frozenset[str] = frozenset({"m3_history", "m4_assembler", "m6b_router"})
+PLANNED_STAGES: frozenset[str] = frozenset({"m6b_router"})
 
 # The four factorial axes (report 4.6).
 FACTORIAL_MODULES: tuple[str, ...] = ("M1", "M2", "M3", "M5")
@@ -86,10 +87,16 @@ class CacheConfig:
 
 @dataclass(frozen=True, slots=True)
 class HistoryConfig:
-    strategy: Literal["recency", "relevance", "mmr", "summary"] = "recency"
-    arrangement: Literal["chronological", "position_aware"] = "chronological"
+    # The recommended configuration. "recency" and "chronological" are the
+    # control arms: an honest report has to show whether the clever strategies
+    # actually beat "keep the last few turns in order" on short conversations.
+    strategy: Literal["recency", "relevance", "mmr", "summary"] = "mmr"
+    arrangement: Literal["chronological", "position_aware"] = "position_aware"
     max_turns: int = 6
     token_budget: int = 1024
+    # Relevance vs redundancy in MMR. Lives here rather than on
+    # CompressionConfig because M3 is what selects with it.
+    mmr_lambda: float = 0.7
     summarise_async: bool = True
 
 
@@ -128,7 +135,7 @@ class ModelConfig:
 @dataclass(frozen=True, slots=True)
 class ParsimonyConfig:
     mode: Mode = Mode.SERVE
-    enabled_modules: frozenset[str] = frozenset({"M1", "M2", "M3", "M5", "M6"})
+    enabled_modules: frozenset[str] = frozenset({"M1", "M2", "M3", "M4", "M5", "M6"})
     stage_order: tuple[str, ...] = DEFAULT_STAGE_ORDER
     cache_lookup_on: Literal["RAW", "COMPRESSED", "BOTH"] = "RAW"
     compression: CompressionConfig = field(default_factory=CompressionConfig)
@@ -197,7 +204,7 @@ def baseline() -> ParsimonyConfig:
 
 def full_stack() -> ParsimonyConfig:
     return ParsimonyConfig(
-        enabled_modules=frozenset({"M1", "M2", "M3", "M5", "M6"}), label="full"
+        enabled_modules=frozenset({"M1", "M2", "M3", "M4", "M5", "M6"}), label="full"
     )
 
 

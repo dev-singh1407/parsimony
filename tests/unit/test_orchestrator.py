@@ -38,7 +38,7 @@ class TestAblation:
     def test_unimplemented_stages_are_visible_rather_than_absent(self, pipeline):
         outcome = pipeline.run("hello")
         planned = [t for t in outcome.traces if t.outcome is StageOutcome.NOT_IMPLEMENTED]
-        assert {t.name for t in planned} == {"m3_history", "m4_assembler", "m6b_router"}
+        assert {t.name for t in planned} == {"m6b_router"}
 
 
 class TestShortCircuit:

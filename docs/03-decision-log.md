@@ -413,3 +413,38 @@ which is precisely why the key-collision attack literature exists.
   demonstrated on our own stack rather than asserted about someone else's.
 - The verify zone carrying most traffic makes verifier cost a first-class concern, and is why it must stay
   a set comparison rather than a second neural pass.
+
+---
+
+### ADR-025 — Position-aware placement and KV prefix reuse are in direct conflict, and the conflict is invisible to token counts
+
+**Context.** M3's arrangement step moves the most query-relevant retained turn adjacent to the query,
+exploiting the start/end attention bias documented in *Lost in the Middle*. M4 pins an invariant zone to the
+prompt head so the KV prefix survives. Measured over a 5-turn conversation:
+
+| configuration | mean prefix tokens reused |
+|---|---|
+| M4 off (volatile head) | 2.4 |
+| M4 on, chronological | **94.4** |
+| M4 on, position-aware | **47.6** |
+
+**The two M4-on arms retain the same turns and send the same number of tokens.** Only the order differs.
+Position-aware placement halves prefix reuse for exactly zero token difference.
+
+**Decision.** Keep both arrangements as independently ablatable options rather than picking one. Report
+prefix survival alongside token count for every arrangement.
+
+**Justification.** This is Contribution 3 reproduced inside our own stack, and it is a sharper example than
+the compression case the report anticipates: compression at least *shows up* as a token reduction, so a
+practitioner sees a trade. Reordering shows up as nothing at all. Every metric in the compression literature
+would score these two configurations identically, and one of them is roughly twice as expensive to prefill.
+
+**Consequences.**
+
+- The recommended default (`position_aware`) is not obviously correct. Which arm wins depends on whether the
+  attention benefit outweighs the re-prefill cost, and that is a *measurement*, not a preference — it needs
+  the real-model latency pass to settle, since with a mock provider the prefill cost is synthetic.
+- Strengthens the case for `arrangement` being config rather than code: the answer may differ per model and
+  per conversation length, which is another row in the calibration table.
+- A follow-up worth running: a "position-aware-once" arrangement that fixes the order on first computation
+  and keeps it stable thereafter, capturing most of the attention benefit at a fraction of the prefix cost.
