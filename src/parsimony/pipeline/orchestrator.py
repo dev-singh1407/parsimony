@@ -29,6 +29,7 @@ from parsimony.core.types import (
 from parsimony.infra.derived import DerivedCache
 from parsimony.infra.embedding import get_embedder
 from parsimony.infra.ids import ulid
+from parsimony.infra.memo import MemoEntry, gen_params_hash, memo_key
 from parsimony.infra.nlp import RegexInvariantExtractor, RegexPiiDetector
 from parsimony.infra.providers import MockProvider
 from parsimony.infra.storage import MemoryBlobStore, sha256
@@ -70,6 +71,7 @@ class Pipeline:
         sink=None,
         blobs=None,
         embedder=None,
+        memo=None,
         run_id: str | None = None,
         pass_kind: str = "quality",
         corpus_hash: str | None = None,
@@ -87,6 +89,10 @@ class Pipeline:
         self.gate = gate or FidelityGate()
         self.sink = sink
         self.blobs = blobs or MemoryBlobStore()
+        # Only consulted in EXPERIMENT mode: a memoised response is bit-exact
+        # but takes microseconds, so it must never reach a latency measurement
+        # or a served request (ADR-019).
+        self.memo = memo if cfg.mode is Mode.EXPERIMENT else None
         self.run_id = run_id or ulid()
         self.pass_kind = pass_kind
         self.corpus_hash = corpus_hash
@@ -252,6 +258,7 @@ class Pipeline:
             prompt_text = ""
             prefix_survived, prefix_ratio = None, None
             early_stopped = False
+            memoised = False
         else:
             # M4 produces the assembled prompt when enabled. With it ablated we
             # fall back to a volatile-head rendering, which models the very
@@ -271,7 +278,9 @@ class Pipeline:
             route = ctx.route_tier or RouteTier.MODEL_SMALL
             provider = self._provider_for(route)
             g0 = time.perf_counter_ns()
-            response, ttft, tpot, early_stopped = self._generate(prompt_text, ctx, provider)
+            response, ttft, tpot, early_stopped, memoised = self._generate(
+                prompt_text, ctx, provider
+            )
             gen_ns = time.perf_counter_ns() - g0
             tokens_out = self.tokenizer.count(response)
 
@@ -322,7 +331,7 @@ class Pipeline:
             total_ns=total_ns,
             middleware_ns=total_ns - gen_ns,
             per_stage_ns={t.name: t.duration_ns for t in traces},
-            generation_memoised=False,
+            generation_memoised=memoised,
             early_stopped=early_stopped,
             prompt_sha256=self.blobs.put(prompt_text) if prompt_text else "",
             response_sha256=self.blobs.put(self._pii.redact(response)),
@@ -353,6 +362,18 @@ class Pipeline:
             temperature=0.0,
             seed=self.cfg.seed,
         )
+        key = None
+        if self.memo is not None:
+            key = memo_key(
+                prompt, provider.model_digest, gen_params_hash(params, self.cfg)
+            )
+            cached = self.memo.get(key)
+            if cached is not None:
+                # Bit-exact: identical prompt, digest and params at temperature 0
+                # produce identical output. Timing fields are left None rather
+                # than fabricated — a memo hit has no meaningful TTFT.
+                return cached.text, None, None, cached.early_stopped, True
+
         stopper = OutputBudgeter.stopper(self.cfg)
         pieces: list[str] = []
         first = last = None
@@ -375,7 +396,9 @@ class Pipeline:
         tpot = None
         if first is not None and last is not None and len(pieces) > 1:
             tpot = (last - first) // (len(pieces) - 1)
-        return text, ttft, tpot, early_stopped
+        if self.memo is not None and key is not None:
+            self.memo.put(key, MemoEntry(text=text, early_stopped=early_stopped))
+        return text, ttft, tpot, early_stopped, False
 
     def _emit(self, row: LedgerRow) -> None:
         if self.sink is None:

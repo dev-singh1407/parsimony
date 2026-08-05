@@ -19,13 +19,14 @@ from __future__ import annotations
 import argparse
 import csv
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from parsimony.core.config import ParsimonyConfig, factorial_cells, full_stack  # noqa: E402
+from parsimony.core.config import factorial_cells, full_stack  # noqa: E402
+from parsimony.core.types import Mode  # noqa: E402
 from parsimony.eval.calibration import by_operative, sweep_thresholds  # noqa: E402
 from parsimony.eval.corpus import load_adversarial, load_corpus, load_gold  # noqa: E402
 from parsimony.eval.metrics import LengthBiasedMockJudge  # noqa: E402
@@ -45,6 +46,7 @@ from parsimony.eval.stats import (  # noqa: E402
 )
 from parsimony.eval.tokenizer_probe import run_probe  # noqa: E402
 from parsimony.infra.embedding import get_embedder  # noqa: E402
+from parsimony.infra.memo import GenerationMemo  # noqa: E402
 from parsimony.infra.tokenization import get_tokenizer  # noqa: E402
 
 AXES = ("M1", "M2", "M3", "M5")
@@ -321,6 +323,8 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=Path("figures"))
     parser.add_argument("--corpus", type=Path, default=None)
     parser.add_argument("--no-quality", action="store_true")
+    parser.add_argument("--no-memo", action="store_true",
+                        help="Disable generation memoisation (the timing-pass setting).")
     args = parser.parse_args()
 
     missing = check_schema()
@@ -340,13 +344,25 @@ def main() -> int:
         cells[-1].with_modules(cells[-1].enabled_modules | {"M4", "M6"},
                                label="+".join(AXES) + "+M4+M6")
     )
-    print(f"running {len(cells)} cells...")
+    # EXPERIMENT mode: a failed ledger write becomes fatal (the ledger IS the
+    # result), and it is the only mode in which the generation memo is
+    # consulted at all — a served request must never receive a memoised answer.
+    cells = [replace(c, mode=Mode.EXPERIMENT) for c in cells]
+    # Quality pass: memo ON. Bit-exact at temperature 0, so this is a pure
+    # compute optimisation (ADR-019). Latency from this pass is meaningless and
+    # every row is flagged `generation_memoised` so analysis can exclude it.
+    memo = None if args.no_memo else GenerationMemo()
+    print(f"running {len(cells)} cells (memo {'off' if args.no_memo else 'on'})...")
     results = sweep(
         cells, corpus,
+        memo=memo,
         judge=None if args.no_quality else LengthBiasedMockJudge(),
         gold=() if args.no_quality else load_gold(),
         progress=lambda label: print(f"  {label}"),
     )
+    if memo is not None:
+        print(f"  memo: {memo.hits} hits / {memo.hits + memo.misses} generations "
+              f"({memo.hit_rate:.1f}% avoided)")
 
     ctx = Context(results=results, corpus=corpus, out=args.out)
     parts = [

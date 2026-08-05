@@ -153,6 +153,7 @@ def run_cell(
     provider=None,
     tokenizer=None,
     embedder=None,
+    memo=None,
     sink=None,
     run_id: str | None = None,
     pass_kind: str = "quality",
@@ -169,6 +170,7 @@ def run_cell(
         cache=cache,
         registry=default_registry(cache),
         sink=sink,
+        memo=memo,
         run_id=run_id or ulid(),
         pass_kind=pass_kind,
         corpus_hash=corpus.corpus_hash,
@@ -225,6 +227,7 @@ def sweep(
     provider=None,
     tokenizer=None,
     embedder=None,
+    memo=None,
     sink=None,
     run_id: str | None = None,
     progress=None,
@@ -241,14 +244,15 @@ def sweep(
     cells = sorted(cells, key=lambda c: c.label != "baseline")
     results: list[CellResult] = []
     reference: CellResult | None = None
+    pass_kind = "timing" if memo is None else "quality"
 
     for cfg in cells:
         if progress is not None:
             progress(cfg.label or cfg.config_hash)
         result = run_cell(
             cfg, corpus,
-            provider=provider, tokenizer=tokenizer, embedder=embedder,
-            sink=sink, run_id=run_id,
+            provider=provider, tokenizer=tokenizer, embedder=embedder, memo=memo,
+            sink=sink, run_id=run_id, pass_kind=pass_kind,
             reference=reference, judge=judge, gold=gold,
         )
         if reference is None and cfg.label == "baseline":
