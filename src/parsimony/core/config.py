@@ -153,6 +153,12 @@ class ParsimonyConfig:
     # similarity threshold must then be recalibrated (see infra/embedding.py).
     embedder_id: str = "hashing-v1"
     system_prompt: str = "You are a concise, accurate assistant."
+    # Standing facts mined by M7. Part of M4's invariant zone, so it is
+    # byte-stable across turns and lengthens the reusable KV prefix.
+    context_digest: str = ""
+    # Content hash of the loaded PolicyBundle, recorded in every ledger row.
+    # "Warm-started" vs "cold" is this field being set, not a separate code path.
+    bundle_hash: str = ""
     seed: int = 0
     label: str = ""
 

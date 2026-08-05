@@ -138,6 +138,8 @@ def bench(
                                 help="Add a row with M6 on top of the full stack."),
     quality: bool = typer.Option(True, "--quality/--no-quality",
                                  help="Score the four quality measures and the gold subset."),
+    bundle: Path = typer.Option(None, "--bundle",
+                                help="Warm-start from an M7 PolicyBundle (gap 6)."),
 ) -> None:
     """Run the factorial ablation over the corpus and write a ledger."""
     axes = tuple(m.strip().upper() for m in modules.split(",") if m.strip())
@@ -149,6 +151,16 @@ def bench(
         f"| hash [cyan]{corpus.corpus_hash}[/cyan]"
     )
     console.print(f"[bold]cells[/bold]  2^{len(axes)} = {2 ** len(axes)} over {', '.join(axes)}")
+
+    warm = None
+    if bundle is not None:
+        from parsimony.modules.m7_learner import PolicyBundle
+
+        warm = PolicyBundle.load(bundle)
+        console.print(
+            f"[bold]bundle[/bold] {warm.bundle_hash} — {len(warm.cache_seed)} cache entries, "
+            f"{len(warm.redundancy)} redundant phrases, {len(warm.digest)} digest chars"
+        )
 
     cells = list(factorial_cells(axes=axes, always_on=frozenset()))
     if router:
@@ -168,11 +180,21 @@ def bench(
         with console.status("[bold green]running cells...") as status:
             # EXPERIMENT mode: a failed ledger write is fatal here, because in a
             # sweep the ledger IS the result (ADR-005).
+            prepared = [replace(cfg, mode=Mode.EXPERIMENT) for cfg in cells]
+            if warm is not None:
+                # The digest joins M4's invariant zone, and bundle_hash lands in
+                # every ledger row so warm and cold runs are distinguishable
+                # without being separate code paths.
+                prepared = [
+                    replace(cfg, context_digest=warm.digest, bundle_hash=warm.bundle_hash)
+                    for cfg in prepared
+                ]
             results = sweep(
-                [replace(cfg, mode=Mode.EXPERIMENT) for cfg in cells],
+                prepared,
                 corpus,
                 sink=sink,
                 run_id=run_id,
+                warm_start=warm,
                 judge=LengthBiasedMockJudge() if quality else None,
                 gold=load_gold() if quality else (),
                 progress=lambda label: status.update(f"[bold green]cell: {label}"),
@@ -235,6 +257,58 @@ def gap3(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
             title="Gap 3", border_style="magenta",
         )
     )
+
+
+@app.command()
+def learn(
+    out: Path = typer.Option(Path("bundles/mined"), "--out", help="Where to write the bundle."),
+    corpus_path: Path = typer.Option(None, "--corpus", help="Logs to mine (defaults to corpus/)."),
+) -> None:
+    """Mine a PolicyBundle from conversation logs (M7, offline)."""
+    from parsimony.infra.memo import GenerationMemo
+    from parsimony.modules.m7_learner import learn as mine
+
+    corpus = load_corpus(corpus_path)
+    cfg = replace(full_stack(), mode=Mode.EXPERIMENT)
+    pipeline = Pipeline(cfg, memo=GenerationMemo())
+
+    def generate(question: str) -> str:
+        return pipeline.run(question, conversation_id=f"learn:{hash(question)}").response
+
+    with console.status("[bold green]counterfactual replay..."):
+        bundle = mine(
+            [list(c.user_turns) for c in corpus.conversations],
+            generate,
+            pipeline.embedder,
+        )
+    path = bundle.save(out)
+
+    table = Table(title=f"PolicyBundle  [{bundle.bundle_hash}]", header_style="bold")
+    table.add_column("artefact")
+    table.add_column("size", justify="right")
+    table.add_row("pre-populated cache entries", str(len(bundle.cache_seed)))
+    table.add_row("redundancy lexicon", str(len(bundle.redundancy)))
+    table.add_row("standing-context digest", f"{len(bundle.digest)} chars")
+    table.add_row("query templates", str(len(bundle.templates)))
+    console.print(table)
+
+    if bundle.findings:
+        ft = Table(title="Counterfactual replay — is this phrase ever load-bearing?",
+                   header_style="bold")
+        ft.add_column("phrase")
+        ft.add_column("occurrences", justify="right")
+        ft.add_column("answer unchanged", justify="right")
+        ft.add_column("verdict")
+        for f in sorted(bundle.findings, key=lambda f: -f.occurrences)[:12]:
+            safe = f.safe_rate == 1.0
+            ft.add_row(
+                f.phrase, str(f.occurrences), f"{f.unchanged}/{f.occurrences}",
+                "[green]always redundant[/green]" if safe else "[yellow]sometimes matters[/yellow]",
+            )
+        console.print(ft)
+
+    console.print(f"\n[dim]written to[/dim] {path}")
+    console.print(f"[dim]use with[/dim]  parsimony bench --bundle {path}")
 
 
 @app.command()

@@ -128,6 +128,7 @@ class Pipeline:
             query=query,
             history=history,
             system_prompt=self.cfg.system_prompt,
+            context_digest=self.cfg.context_digest,
             turn_index=turn_index,
             config_hash=self.cfg.config_hash,
             corpus_hash=self.corpus_hash,

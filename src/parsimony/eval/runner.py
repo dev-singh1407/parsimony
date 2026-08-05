@@ -160,6 +160,7 @@ def run_cell(
     reference: "CellResult | None" = None,
     judge=None,
     gold: tuple[GoldItem, ...] = (),
+    warm_start=None,
 ) -> CellResult:
     cache = SemanticCache(cfg.cache.ttl_seconds)
     pipeline = Pipeline(
@@ -175,6 +176,11 @@ def run_cell(
         pass_kind=pass_kind,
         corpus_hash=corpus.corpus_hash,
     )
+    if warm_start is not None:
+        from parsimony.modules.m7_learner import warm_start as seed_cache
+
+        seed_cache(pipeline, warm_start)
+
     result = CellResult(label=cfg.label or "unlabelled", config_hash=cfg.config_hash)
     for conv in corpus.conversations:
         for outcome in run_conversation(pipeline, conv):
@@ -233,6 +239,7 @@ def sweep(
     progress=None,
     judge=None,
     gold: tuple[GoldItem, ...] = (),
+    warm_start=None,
 ) -> list[CellResult]:
     """Run every cell, baseline first.
 
@@ -253,7 +260,7 @@ def sweep(
             cfg, corpus,
             provider=provider, tokenizer=tokenizer, embedder=embedder, memo=memo,
             sink=sink, run_id=run_id, pass_kind=pass_kind,
-            reference=reference, judge=judge, gold=gold,
+            reference=reference, judge=judge, gold=gold, warm_start=warm_start,
         )
         if reference is None and cfg.label == "baseline":
             reference = result
