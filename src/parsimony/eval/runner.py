@@ -11,6 +11,7 @@ determine hit rate, which would silently invalidate every M2 result.
 
 from __future__ import annotations
 
+import random
 import statistics
 from dataclasses import dataclass, field
 from typing import Iterable, Sequence
@@ -50,6 +51,10 @@ class CellResult:
     gold_total: int = 0
 
     responses: dict[tuple[str, int], str] = field(default_factory=dict)
+    # Per-conversation totals: the resampling unit for the bootstrap. Requests
+    # within a conversation are not independent (later turns carry earlier
+    # answers as history), so resampling requests would understate the interval.
+    per_conversation: dict[str, int] = field(default_factory=dict)
 
     # filled by summarise(), relative to the baseline cell
     total_reduction_pct: float = 0.0
@@ -100,6 +105,11 @@ class CellResult:
     def observe(self, outcome: Outcome) -> None:
         row = outcome.row
         self.responses[(row.conversation_id, row.turn_index)] = outcome.response
+        self.per_conversation[row.conversation_id] = (
+            self.per_conversation.get(row.conversation_id, 0)
+            + row.tokens_in_final
+            + row.tokens_out
+        )
         if row.prefix_tokens_survived is not None:
             self.prefix_tokens.append(row.prefix_tokens_survived)
         self.n_requests += 1
@@ -301,3 +311,51 @@ def additivity_shortfall(
         "stacked_label": full.label,
         "n_solo_modules": len(solo),
     }
+
+
+def shortfall_interval(
+    results: Sequence[CellResult], axes: Sequence[str], resamples: int = 4000, seed: int = 0
+):
+    """Bootstrap CI for the additivity shortfall — the project's primary number.
+
+    Resamples CONVERSATIONS, not requests. Turns within a conversation share
+    history, so they are not independent observations; resampling requests would
+    understate the interval and overstate our confidence.
+    """
+    from parsimony.eval.stats import Interval, bootstrap_ci
+
+    by_label = {r.label: r for r in results}
+    baseline = by_label.get("baseline")
+    axis_set = set(axes)
+    solo_labels = [a for a in axes if a in by_label]
+    stacked_label = "+".join(a for a in axes if a in axis_set)
+    stacked = by_label.get(stacked_label)
+    if baseline is None or stacked is None or len(solo_labels) < 2:
+        return None
+
+    conversations = sorted(baseline.per_conversation)
+    if not conversations:
+        return None
+
+    def shortfall_for(sample: Sequence[str]) -> float:
+        base_total = sum(baseline.per_conversation.get(c, 0) for c in sample) or 1
+
+        def reduction(cell: CellResult) -> float:
+            total = sum(cell.per_conversation.get(c, 0) for c in sample)
+            return 100.0 * (1 - total / base_total)
+
+        predicted = sum(reduction(by_label[label]) for label in solo_labels)
+        return predicted - reduction(stacked)
+
+    rng = random.Random(seed)
+    n = len(conversations)
+    draws = [
+        shortfall_for([conversations[rng.randrange(n)] for _ in range(n)])
+        for _ in range(resamples)
+    ]
+    draws.sort()
+    return Interval(
+        point=shortfall_for(conversations),
+        low=draws[max(0, int(0.025 * resamples) - 1)],
+        high=draws[min(resamples - 1, int(0.975 * resamples))],
+    )
