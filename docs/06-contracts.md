@@ -90,13 +90,21 @@ class AssembledPrompt:
 ```python
 class DerivedCache:
     """Per-request memo (ADR-006). Lazy: a request short-circuited at router tier 0
-    never pays for spaCy or embeddings. Modules MUST go through this, never the
-    embedder directly — enforced by an import-linter rule."""
-    def query_embedding(self) -> np.ndarray: ...          # (384,) L2-normalised
-    def turn_embeddings(self) -> np.ndarray: ...          # (n_turns, 384) ONE batched pass
-    def doc(self) -> spacy.tokens.Doc: ...                # one spaCy pass, shared by M1 and M8
-    def sentences(self) -> tuple[str, ...]: ...
-    def stats(self) -> DerivedStats: ...                  # what was computed; lands in the ledger
+    never pays for sentence splitting or embeddings. Modules MUST go through this,
+    never the embedder directly — enforced by tests/test_architecture.py."""
+
+    def token_count(self, text: str) -> int: ...
+    def sentences(self, text: str) -> tuple[str, ...]: ...
+
+    # Text-keyed, batched, memoised. NOT `query_embedding()` / `turn_embeddings()`:
+    # modules rewrite the query mid-pipeline, so a binding captured at ingestion
+    # would be stale by the time M1 has run. Keying on the text itself stays
+    # correct under rewriting and still collapses the four passes the naive
+    # design would make.
+    def embed(self, texts: list[str]) -> np.ndarray: ...   # (n, 384) L2-normalised
+    def embed_one(self, text: str) -> np.ndarray: ...      # convenience: embed([t])[0]
+
+    def stats(self) -> dict[str, int]: ...                 # what was computed; lands in the ledger
 
 
 class Mode(Enum):

@@ -24,6 +24,7 @@ import re
 from dataclasses import dataclass
 
 from parsimony.eval.corpus import GoldItem
+from parsimony.infra.embedding import text_similarity
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 _NUM_RE = re.compile(r"-?\d+(?:,\d{3})*(?:\.\d+)?")
@@ -78,10 +79,9 @@ def token_overlap(candidate: str, reference: str) -> float:
 
 
 def embedding_similarity(candidate: str, reference: str, embedder) -> float:
-    if not candidate.strip() or not reference.strip():
-        return 0.0
-    vecs = embedder.embed([candidate, reference])
-    return float(vecs[0] @ vecs[1])
+    """Proxy quality measure. The implementation lives at L1 so that L2 modules
+    can use it without importing the evaluation layer."""
+    return text_similarity(candidate, reference, embedder)
 
 
 # --------------------------------------------------------------------------

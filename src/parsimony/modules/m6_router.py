@@ -267,21 +267,21 @@ def routing_features(ctx: RequestContext) -> dict[str, float]:
     }
 
 
-def complexity_score(features: dict[str, float]) -> float:
+def complexity_score(features: dict[str, float], cfg: ParsimonyConfig | None = None) -> float:
     """Bounded heuristic in [0, 1].
 
     Deliberately transparent and hand-weighted rather than learned: with no
     labelled difficulty data yet, a fitted model would encode our guesses with
-    false precision. The features are logged so the honest version can replace
-    this once the ledger has enough rows.
+    false precision. Weights and caps live in RouterConfig so M7 can emit a
+    tuned set without a code change, and the features are logged so the honest
+    learned version can replace this once the ledger has enough rows.
     """
+    router = (cfg or ParsimonyConfig()).router
     score = 0.0
-    score += 0.30 * min(features["reason_markers"], 2.0) / 2.0
-    score += 0.20 * features["is_reasoning_class"]
-    score += 0.15 * features["is_code_class"]
-    score += 0.15 * min(features["n_words"], 60.0) / 60.0
-    score += 0.10 * min(features["n_questions"], 3.0) / 3.0
-    score += 0.10 * min(features["n_history_turns"], 6.0) / 6.0
+    for name, weight in router.complexity_weights.items():
+        value = features.get(name, 0.0)
+        cap = router.complexity_caps.get(name)
+        score += weight * (min(value, cap) / cap if cap else value)
     return round(min(score, 1.0), 4)
 
 
@@ -304,7 +304,7 @@ class EscalationRouterStage:
 
     def propose(self, ctx: RequestContext, cfg: ParsimonyConfig) -> Proposal:
         features = routing_features(ctx)
-        score = complexity_score(features)
+        score = complexity_score(features, cfg)
         escalate = cfg.router.escalation_tier and score >= cfg.router.escalation_complexity
         tier = RouteTier.MODEL_LARGE if escalate else RouteTier.MODEL_SMALL
 

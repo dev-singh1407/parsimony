@@ -165,11 +165,15 @@ class CacheStats:
 class SemanticCache:
     """Cross-request state, so the stage holds it rather than owning it."""
 
-    def __init__(self, ttl_seconds: int = 86_400, embedder=None) -> None:
+    def __init__(self, ttl_seconds: int = 86_400, embedder=None, index=None) -> None:
         self._exact: dict[str, CacheEntry] = {}
         self._entries: dict[str, CacheEntry] = {}
         self._embedder = embedder
-        self._index = ExactIndex(embedder.dim) if embedder is not None else None
+        # `index` is injectable so ADR-004's claim about approximate search can
+        # be measured rather than asserted. Default stays exact.
+        self._index = index if index is not None else (
+            ExactIndex(embedder.dim) if embedder is not None else None
+        )
         self._ttl = ttl_seconds
         self._extractor = RegexInvariantExtractor()
         self._inv_memo: dict[str, Invariants] = {}

@@ -218,8 +218,106 @@ class ExactIndex:
         self._matrix = None
 
 
+class LshIndex:
+    """Approximate search by random-projection LSH. NOT for measurement.
+
+    Exists to make ADR-004 checkable rather than merely asserted. That ADR
+    claims an approximate index would contaminate the false-hit rate, because
+    the measured number would then mix "the similarity policy was wrong" with
+    "the index missed the true neighbour" — two causes that cannot be separated
+    afterwards. An assertion about a component we never built is exactly the
+    kind of claim this project criticises elsewhere, so here is the component.
+
+    Random hyperplanes give each vector a bit signature; only candidates sharing
+    a bucket (within a Hamming radius) are scored. Same protocol as ExactIndex,
+    same contract suite, and `is_exact()` returns False so the analysis layer
+    can refuse to compute a false-hit rate from it.
+
+    numpy only: pulling in FAISS for a negative result would be poor value.
+    """
+
+    def __init__(self, dim: int, n_bits: int = 16, seed: int = 0, probe_radius: int = 2) -> None:
+        self._dim = dim
+        self._n_bits = n_bits
+        self._probe_radius = probe_radius
+        rng = np.random.default_rng(seed)
+        self._planes = rng.normal(size=(n_bits, dim)).astype(np.float32)
+        self._ids: list[str] = []
+        self._rows: list[np.ndarray] = []
+        self._codes: list[int] = []
+        self._position: dict[str, int] = {}
+
+    def is_exact(self) -> bool:
+        return False
+
+    def size(self) -> int:
+        return len(self._ids)
+
+    def _code(self, vec: np.ndarray) -> int:
+        bits = (self._planes @ vec) > 0
+        code = 0
+        for bit in bits:
+            code = (code << 1) | int(bit)
+        return code
+
+    def add(self, vec: np.ndarray, entry_id: str) -> None:
+        if vec.shape != (self._dim,):
+            raise ValueError(f"expected shape ({self._dim},), got {vec.shape}")
+        existing = self._position.get(entry_id)
+        if existing is not None:
+            self._rows[existing] = vec
+            self._codes[existing] = self._code(vec)
+            return
+        self._position[entry_id] = len(self._ids)
+        self._ids.append(entry_id)
+        self._rows.append(vec)
+        self._codes.append(self._code(vec))
+
+    def remove(self, entry_id: str) -> None:
+        pos = self._position.pop(entry_id, None)
+        if pos is None:
+            return
+        self._ids.pop(pos)
+        self._rows.pop(pos)
+        self._codes.pop(pos)
+        self._position = {eid: i for i, eid in enumerate(self._ids)}
+
+    def search(self, vec: np.ndarray, k: int) -> list[tuple[str, float]]:
+        if not self._ids or k <= 0:
+            return []
+        query_code = self._code(vec)
+        candidates = [
+            i for i, code in enumerate(self._codes)
+            if bin(code ^ query_code).count("1") <= self._probe_radius
+        ]
+        if not candidates:
+            return []
+        scored = [(self._ids[i], float(self._rows[i] @ vec)) for i in candidates]
+        scored.sort(key=lambda x: -x[1])
+        return scored[:k]
+
+    def clear(self) -> None:
+        self._ids.clear()
+        self._rows.clear()
+        self._codes.clear()
+        self._position.clear()
+
+
 def cosine(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.dot(a, b))
+
+
+def text_similarity(a: str, b: str, embedder) -> float:
+    """Cosine between two strings.
+
+    Lives at L1 rather than in eval/metrics because M7 (L2) needs it for
+    counterfactual replay, and reaching up into the evaluation layer for a
+    helper is what broke the layering the architecture doc claims to enforce.
+    """
+    if not a.strip() or not b.strip():
+        return 0.0
+    vecs = embedder.embed([a, b])
+    return float(vecs[0] @ vecs[1])
 
 
 def mmr_select(

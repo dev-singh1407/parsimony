@@ -33,6 +33,10 @@ from parsimony.modules.m1_compressor import normalise_lossless
 from parsimony.modules.m2_cache import SemanticCache, verify_match
 
 
+class ApproximateIndexError(RuntimeError):
+    """Raised rather than returning a contaminated false-hit rate (ADR-004)."""
+
+
 @dataclass(frozen=True, slots=True)
 class CalibrationPoint:
     tau_hi: float
@@ -43,6 +47,7 @@ class CalibrationPoint:
     adversarial_total: int
     true_hits: int
     control_total: int
+    index_is_exact: bool = True
 
     @property
     def false_hit_rate(self) -> float:
@@ -55,6 +60,14 @@ class CalibrationPoint:
     @property
     def is_safe(self) -> bool:
         """Report 3.3 sets the target below 2%."""
+        if not self.index_is_exact:
+            raise ApproximateIndexError(
+                "Refusing to judge safety from an approximate index. Measured on the "
+                "adversarial subset, LSH reports a 46.7% false-hit rate where exact search "
+                "reports 84.4% — the approximate index simply fails to retrieve the "
+                "dangerous neighbour, so the danger goes uncounted and the cache looks "
+                "roughly twice as safe as it is (ADR-004)."
+            )
         return self.false_hit_rate < 2.0
 
 
@@ -64,9 +77,11 @@ def _lookup_hits(
     embedder,
     cfg: ParsimonyConfig,
     verifier_on: bool,
+    index_factory=None,
 ) -> bool:
     """Would this query be served from a cache holding only `stored_query`?"""
-    cache = SemanticCache(cfg.cache.ttl_seconds, embedder)
+    index = index_factory(embedder.dim) if index_factory is not None else None
+    cache = SemanticCache(cfg.cache.ttl_seconds, embedder, index=index)
     vec_stored, vec_query = embedder.embed([stored_query, query])
     cache.store("k", stored_query, "stored answer", chain="root", model_id="m", vec=vec_stored)
 
@@ -101,6 +116,7 @@ def evaluate_point(
     embedder,
     verifier_on: bool = True,
     compression_on: bool = False,
+    index_factory=None,
 ) -> CalibrationPoint:
     false_hits = adversarial_total = true_hits = control_total = 0
 
@@ -111,13 +127,18 @@ def evaluate_point(
             # the write and the lookup path.
             a, b = normalise_lossless(a), normalise_lossless(b)
 
-        hit = _lookup_hits(b, a, embedder, cfg, verifier_on)
+        hit = _lookup_hits(b, a, embedder, cfg, verifier_on, index_factory)
         if pair.answers_differ:
             adversarial_total += 1
             false_hits += int(hit)
         else:
             control_total += 1
             true_hits += int(hit)
+
+    exact = True
+    if index_factory is not None:
+        probe = index_factory(embedder.dim)
+        exact = bool(getattr(probe, "is_exact", lambda: True)())
 
     return CalibrationPoint(
         tau_hi=cfg.cache.tau_hi,
@@ -128,6 +149,7 @@ def evaluate_point(
         adversarial_total=adversarial_total,
         true_hits=true_hits,
         control_total=control_total,
+        index_is_exact=exact,
     )
 
 

@@ -19,6 +19,9 @@ from parsimony.core.proposals import ContextPatch, NoOp, ShortCircuit
 from parsimony.core.types import GenParams
 from parsimony.infra.providers import MockProvider
 from parsimony.infra.storage import JsonlSink, MemorySink, SqliteSink, read_jsonl
+import numpy as np
+
+from parsimony.infra.embedding import ExactIndex, HashingEmbedder, LshIndex
 from parsimony.infra.tokenization import HeuristicTokenizer
 from parsimony.modules.m2_cache import SemanticCache
 from parsimony.pipeline.registry import default_registry
@@ -101,6 +104,71 @@ class TestProviderContract:
 
 
 # ----------------------------------------------------------- Tokenizer ------
+@pytest.mark.parametrize(
+    "make_index",
+    [lambda d: ExactIndex(d), lambda d: LshIndex(d)],
+    ids=["exact", "lsh"],
+)
+class TestVectorIndexContract:
+    """One suite, run against every index implementation.
+
+    This is what makes "components are replaceable" a checked claim: an
+    approximate index must behave like the exact one at the API level, and be
+    honest about `is_exact()` so the analysis layer can refuse it.
+    """
+
+    def _populate(self, make_index):
+        embedder = HashingEmbedder()
+        texts = ["what is recursion", "how to bake bread", "what is a hash table",
+                 "explain quicksort", "capital of France"]
+        index = make_index(embedder.dim)
+        vecs = embedder.embed(texts)
+        for text, vec in zip(texts, vecs):
+            index.add(vec, text)
+        return index, embedder, texts, vecs
+
+    def test_reports_size(self, make_index):
+        index, *_ = self._populate(make_index)
+        assert index.size() == 5
+
+    def test_empty_index_returns_nothing(self, make_index):
+        embedder = HashingEmbedder()
+        assert make_index(embedder.dim).search(embedder.embed(["q"])[0], 3) == []
+
+    def test_results_are_sorted_by_descending_score(self, make_index):
+        index, _, _, vecs = self._populate(make_index)
+        scores = [s for _, s in index.search(vecs[0], 5)]
+        assert scores == sorted(scores, reverse=True)
+
+    def test_respects_k(self, make_index):
+        index, _, _, vecs = self._populate(make_index)
+        assert len(index.search(vecs[0], 2)) <= 2
+
+    def test_remove_takes_an_entry_out(self, make_index):
+        index, _, texts, _ = self._populate(make_index)
+        index.remove(texts[0])
+        assert index.size() == 4
+
+    def test_re_adding_updates_rather_than_duplicates(self, make_index):
+        index, embedder, texts, _ = self._populate(make_index)
+        index.add(embedder.embed(["something else"])[0], texts[0])
+        assert index.size() == 5
+
+    def test_rejects_a_wrong_shaped_vector(self, make_index):
+        index, embedder, _, _ = self._populate(make_index)
+        with pytest.raises(ValueError):
+            index.add(np.zeros(embedder.dim + 1, dtype=np.float32), "bad")
+
+    def test_is_exact_is_truthful(self, make_index):
+        """An index that claims exactness must actually retrieve every stored
+        vector; the analysis layer trusts this flag to decide whether a
+        false-hit rate is measurable at all (ADR-004)."""
+        index, _, texts, vecs = self._populate(make_index)
+        if index.is_exact():
+            for text, vec in zip(texts, vecs):
+                assert index.search(vec, 1)[0][0] == text
+
+
 @pytest.mark.parametrize("tokenizer", [HeuristicTokenizer("t")], ids=["heuristic"])
 class TestTokenizerContract:
     def test_count_matches_encode_length(self, tokenizer):

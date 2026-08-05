@@ -75,7 +75,7 @@ contribution: it substantiates the report's critique that the compression litera
 **Objective.** Serve semantically equivalent questions without a model call, and defend that decision against
 near-duplicates.
 
-**reads** `query, conversation_id, derived.query_embedding` · **writes** — (short-circuits or no-ops)
+**reads** `query, conversation_id, derived.embed` · **writes** — (short-circuits or no-ops)
 **Emits** `ShortCircuit(served_by=CACHE_*)` or `NoOp`.
 
 **Design.**
@@ -124,7 +124,7 @@ objection, plus it obscures the embedding geometry Gap 3 is about).
 
 **Objective.** Choose which prior turns survive, and where they are placed.
 
-**reads** `history, derived.query_embedding, derived.turn_embeddings` · **writes** `history`
+**reads** `query, history, derived.embed` · **writes** `history`
 **Emits** `ContextPatch(kind=SELECT)` for selection, then a separate `ContextPatch(kind=SELECT)` for
 arrangement.
 

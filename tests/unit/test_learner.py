@@ -9,6 +9,7 @@ from pathlib import Path
 from parsimony.core.config import full_stack
 from parsimony.core.types import Mode
 from parsimony.infra.embedding import HashingEmbedder
+from parsimony.pipeline.warm_start import warm_start
 from parsimony.modules.m7_learner import (
     PolicyBundle,
     counterfactual_redundancy,
@@ -16,7 +17,6 @@ from parsimony.modules.m7_learner import (
     mine_recurring_questions,
     mine_standing_context,
     mine_templates,
-    warm_start,
 )
 
 

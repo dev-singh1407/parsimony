@@ -72,12 +72,32 @@ scaling demonstration only.
 (5000, 384) matmul, well under 0.2 ms; at N = 100 000, ~3 ms. FAISS's IVF/HNSW indexes are *approximate*:
 recall < 1.0. The headline Gap 3 deliverable is the **false-cache-hit rate**. With an approximate index that
 metric becomes a mixture of "the similarity policy was wrong" and "the index missed the true nearest
-neighbour" — two causes that cannot be separated after the fact. Exact search makes the measurement measure
-the thing it claims to measure. Extensibility is preserved by the protocol; a reviewer asking "does this
-scale?" gets a FAISS run with contract tests proving equivalence at the accept/reject level.
+neighbour" — two causes that cannot be separated after the fact.
 
-**Consequences.** One fewer heavy native dependency on the critical path. FAISS becomes optional, which also
-simplifies installation on Windows — a real consideration for this team's environment.
+**Measured, not assumed (enforcement pass).** The paragraph above was an argument. Asserting a claim about a
+component we never built is exactly what this project criticises elsewhere, so `LshIndex` was implemented
+(random-projection LSH, numpy only) and the sweep re-run on the adversarial subset with the verifier off, so
+the index is the only thing separating the pairs:
+
+| index | false-hit rate | true-hit rate |
+|---|---|---|
+| `ExactIndex` | **84.4%** | 52.4% |
+| `LshIndex` (approximate) | **46.7%** | 28.6% |
+
+**The approximate index makes the cache look roughly twice as safe as it is.** It is not safer — it is worse
+at retrieval in *both* directions (true hits fall too). It simply fails to fetch the dangerous neighbour, so
+the danger is never counted. Had this project used FAISS, the headline safety number would have been
+understated by **37.7 percentage points**, and the error would have flattered the result.
+
+**Consequences.**
+
+- One fewer heavy native dependency on the critical path, and simpler installation on Windows.
+- `CalibrationPoint.is_safe` now **raises** `ApproximateIndexError` rather than returning a number computed
+  from an approximate index. A guard that returns a plausible-looking figure is worse than no guard.
+- `LshIndex` runs in the same `VectorIndexContract` suite as `ExactIndex`, so the swappability claim is
+  checked, and `is_exact()` is contract-tested for truthfulness because the analysis layer trusts it.
+- Generalises beyond this project: any paper reporting a false-hit rate over an ANN index is reporting a
+  number that partly measures its index. That is worth stating in the related-work discussion.
 
 ---
 

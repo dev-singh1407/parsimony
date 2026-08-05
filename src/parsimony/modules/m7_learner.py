@@ -32,7 +32,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from parsimony.eval.metrics import embedding_similarity
+from parsimony.core.config import LearnerConfig
+from parsimony.infra.embedding import text_similarity
 from parsimony.infra.nlp import RegexPiiDetector
 
 # Phrases worth testing for redundancy. Deliberately conservative: only material
@@ -223,7 +224,7 @@ def counterfactual_redundancy(
     generate,
     embedder,
     phrases: tuple[str, ...] = CANDIDATE_PHRASES,
-    similarity_floor: float = 0.98,
+    similarity_floor: float = LearnerConfig().redundancy_similarity_floor,
     min_occurrences: int = 2,
 ) -> list[RedundancyFinding]:
     """Which habitual phrases provably never change the answer.
@@ -246,31 +247,11 @@ def counterfactual_redundancy(
             if not stripped or stripped == q:
                 continue
             occurrences += 1
-            if embedding_similarity(generate(stripped), generate(q), embedder) >= similarity_floor:
+            if text_similarity(generate(stripped), generate(q), embedder) >= similarity_floor:
                 unchanged += 1
         if occurrences >= min_occurrences:
             findings.append(RedundancyFinding(phrase, occurrences, unchanged))
     return findings
-
-
-def warm_start(pipeline, bundle: PolicyBundle) -> int:
-    """Pre-populate the cache from a bundle. Returns entries seeded.
-
-    Same code path as a live cache write, so a warm-started run differs from a
-    cold one only in what the cache already contains (Gap 6, Figure 6).
-    """
-    from parsimony.modules.m2_cache import SemanticCache
-
-    seeded = 0
-    for question, answer in bundle.cache_seed:
-        key = SemanticCache.make_key(question, "root", pipeline.cfg.model.name)
-        vec = pipeline.embedder.embed([question])[0] if pipeline.embedder else None
-        pipeline.cache.store(
-            key, question, answer, chain="root",
-            model_id=pipeline.cfg.model.name, vec=vec,
-        )
-        seeded += 1
-    return seeded
 
 
 def learn(
@@ -278,7 +259,7 @@ def learn(
     generate,
     embedder,
     *,
-    similarity_floor: float = 0.98,
+    similarity_floor: float = LearnerConfig().redundancy_similarity_floor,
     min_count: int = 2,
 ) -> PolicyBundle:
     """Mine a policy bundle from conversation logs.

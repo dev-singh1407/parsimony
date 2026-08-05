@@ -30,15 +30,18 @@ it, and records it. This is the central architectural decision and the rest foll
 
 ## 2. Layering
 
-Dependencies point strictly downward. A layer may not import from a layer above it. This is enforced in CI
-with an import-linter contract, not by convention.
+Dependencies point strictly downward. A layer may not import from a layer above it. This is **enforced by
+`tests/test_architecture.py`**, which parses every source file and fails the suite on an upward import, a
+third-party import inside L0, a module importing another module, or a threshold hard-coded outside
+`ParsimonyConfig`. It is a test rather than an import-linter contract so that it runs in the existing suite
+with no extra dependency and can explain *why* each rule exists when it fails.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│ L5  EXPERIMENTATION      corpus · sweep runner · metrics · analysis  │
-├──────────────────────────────────────────────────────────────────────┤
-│ L4  SURFACES             CLI · FastAPI + OpenAI shim · dashboard ·   │
+│ L5  SURFACES             CLI · FastAPI + OpenAI shim · dashboard ·   │
 │                          MV3 extension                               │
+├──────────────────────────────────────────────────────────────────────┤
+│ L4  EXPERIMENTATION      corpus · sweep runner · metrics · analysis  │
 ├──────────────────────────────────────────────────────────────────────┤
 │ L3  ORCHESTRATION        pipeline runner · stage registry · trace ·  │
 │                          policy engine                               │
@@ -52,6 +55,13 @@ with an import-linter contract, not by convention.
 │                          (stdlib only — zero third-party imports)    │
 └──────────────────────────────────────────────────────────────────────┘
 ```
+
+> **Correction (enforcement pass).** The original sketch put experimentation
+> *above* surfaces. Dependency direction says otherwise: the CLI drives
+> benchmarks, calibration and mining, so it imports `eval`, while nothing in
+> `eval` imports a surface. Conceptual importance does not set layer order —
+> who-imports-whom does. This is now checked by `tests/test_architecture.py`
+> rather than asserted here.
 
 **Why L0 has no third-party dependencies.** L0 defines `RequestContext`, `Proposal`, `Stage`, `LLMProvider`
 and friends. If L0 imports pydantic, numpy or FastAPI, then a unit test of the compressor drags in a web
@@ -295,7 +305,7 @@ parsimony/
 │   │   ├── providers/           # MockProvider, OllamaProvider, LlamaCppProvider
 │   │   └── nlp/                 # spaCy wrapper, PII detector, sentence splitter
 │   ├── modules/                 # L2 — one package per module
-│   │   ├── m1_compressor/  m2_cache/  m3_history/  m4_assembler/
+│   │   ├── m1_tier1/2/3/  m2_cache/  m3_history/  m4_assembler/
 │   │   └── m5_budgeter/    m6_router/ m7_learner/  m8_fidelity/
 │   ├── pipeline/                # L3
 │   │   ├── orchestrator.py  registry.py  trace.py  policy.py
@@ -331,8 +341,8 @@ overhead budget, spent computing the same 384 floats four times.
 
 ```python
 class DerivedCache:
-    def query_embedding(self) -> np.ndarray: ...      # computed once
-    def turn_embeddings(self) -> np.ndarray: ...      # batched, one forward pass for all turns
+    def embed(self, texts: list[str]) -> np.ndarray: ...  # batched, memoised by text
+    def embed_one(self, text: str) -> np.ndarray: ...     # convenience wrapper
     def doc(self) -> spacy.tokens.Doc: ...            # one spaCy pass, reused by M8 and M1
 ```
 

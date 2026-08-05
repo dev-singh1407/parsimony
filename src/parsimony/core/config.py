@@ -135,6 +135,36 @@ class RouterConfig:
     deterministic_tier: bool = True
     escalation_tier: bool = False
     escalation_complexity: float = 0.75
+    # Weights for the transparent complexity heuristic. Here rather than in the
+    # module because they are tunable quantities, and M7 must be able to emit a
+    # tuned set without a code change (ADR-008).
+    complexity_weights: dict[str, float] = field(
+        default_factory=lambda: {
+            "reason_markers": 0.30,
+            "is_reasoning_class": 0.20,
+            "is_code_class": 0.15,
+            "n_words": 0.15,
+            "n_questions": 0.10,
+            "n_history_turns": 0.10,
+        }
+    )
+    complexity_caps: dict[str, float] = field(
+        default_factory=lambda: {
+            "reason_markers": 2.0,
+            "n_words": 60.0,
+            "n_questions": 3.0,
+            "n_history_turns": 6.0,
+        }
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class LearnerConfig:
+    """M7. Offline, but its thresholds still belong in one place."""
+
+    redundancy_similarity_floor: float = 0.98
+    min_occurrences: int = 2
+    min_recurrence: int = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +205,7 @@ class ParsimonyConfig:
     history: HistoryConfig = field(default_factory=HistoryConfig)
     budget: BudgetConfig = field(default_factory=BudgetConfig)
     router: RouterConfig = field(default_factory=RouterConfig)
+    learner: LearnerConfig = field(default_factory=LearnerConfig)
     energy: EnergyConfig = field(default_factory=EnergyConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     tokenizer_id: str = "Qwen/Qwen2.5-1.5B-Instruct"

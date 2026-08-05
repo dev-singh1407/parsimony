@@ -201,7 +201,7 @@ def run_cell(
         corpus_hash=corpus.corpus_hash,
     )
     if warm_start is not None:
-        from parsimony.modules.m7_learner import warm_start as seed_cache
+        from parsimony.pipeline.warm_start import warm_start as seed_cache
 
         seed_cache(pipeline, warm_start)
 
