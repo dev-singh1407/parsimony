@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import random
 import statistics
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Iterable, Sequence
 
 from parsimony.core.config import ParsimonyConfig
@@ -346,6 +347,125 @@ def additivity_shortfall(
         "stacked_label": full.label,
         "n_solo_modules": len(solo),
     }
+
+
+@dataclass(slots=True)
+class SweepReport:
+    """Both passes of a sweep, kept separate so neither contaminates the other."""
+
+    quality: list[CellResult] = field(default_factory=list)
+    timing: list[CellResult] = field(default_factory=list)
+    quality_corpus_size: int = 0
+    timing_corpus_size: int = 0
+    timing_repeats: int = 1
+    memo_hits: int = 0
+    memo_total: int = 0
+    resumed: int = 0
+
+    @property
+    def memo_hit_rate(self) -> float:
+        return 100.0 * self.memo_hits / self.memo_total if self.memo_total else 0.0
+
+
+def two_pass_sweep(
+    cells: Sequence[ParsimonyConfig],
+    corpus: Corpus,
+    *,
+    timing_subset: int = 50,
+    timing_repeats: int = 2,
+    resume_log: "Path | None" = None,
+    sink=None,
+    run_id: str | None = None,
+    progress=None,
+    judge=None,
+    gold: tuple[GoldItem, ...] = (),
+    provider=None,
+    tokenizer=None,
+    embedder=None,
+) -> SweepReport:
+    """The sweep as docs/05-evaluation-harness.md specifies it.
+
+    QUALITY PASS  memo ON, full corpus, 1 repeat.
+    TIMING PASS   memo OFF, stratified subset, N repeats.
+
+    Two passes because generation memoisation is bit-exact at temperature 0 but
+    takes microseconds, so a memoised run says nothing about latency. Token
+    counts, quality scores and every behavioural metric are deterministic
+    functions of the input, so one repeat is mathematically sufficient for them
+    -- running five would be five identical numbers reported as a confidence
+    interval, which is worse than useless. Latency is the only genuinely
+    stochastic quantity and gets the dedicated unmemoised pass.
+
+    `resume_log` wires the completion markers: a 16-hour unattended run WILL be
+    interrupted, and without this an interruption at hour 14 costs 14 hours.
+    """
+    from parsimony.core.types import Mode
+    from parsimony.infra.memo import CompletionLog, GenerationMemo
+
+    run_id = run_id or ulid()
+    # A sweep IS an experiment, so set the mode here rather than requiring every
+    # caller to remember. Forgetting it silently disables the memo (the pipeline
+    # only consults it in EXPERIMENT mode) and downgrades ledger-write failures
+    # from fatal to ignored — both of which are exactly the kind of quiet
+    # miscalibration this project keeps finding.
+    cells = [replace(c, mode=Mode.EXPERIMENT) for c in cells]
+    report = SweepReport(
+        quality_corpus_size=len(corpus), timing_repeats=timing_repeats
+    )
+    log = CompletionLog(resume_log) if resume_log is not None else None
+
+    def _note(message: str) -> None:
+        if progress is not None:
+            progress(message)
+
+    try:
+        memo = GenerationMemo()
+        report.quality = sweep(
+            cells, corpus,
+            provider=provider, tokenizer=tokenizer, embedder=embedder, memo=memo,
+            sink=sink, run_id=run_id, judge=judge, gold=gold,
+            progress=lambda label: _note(f"quality: {label}"),
+        )
+        report.memo_hits, report.memo_total = memo.hits, memo.hits + memo.misses
+
+        subset = corpus.subset(timing_subset)
+        report.timing_corpus_size = len(subset)
+        for repeat in range(timing_repeats):
+            for cfg in cells:
+                marker = (cfg.config_hash, repeat, "timing")
+                if log is not None and log.is_done(*marker):
+                    report.resumed += 1
+                    continue
+                _note(f"timing r{repeat + 1}: {cfg.label}")
+                report.timing.append(
+                    run_cell(
+                        replace(cfg, seed=repeat), subset,
+                        provider=provider, tokenizer=tokenizer, embedder=embedder,
+                        memo=None,  # never memoised: this pass measures the clock
+                        sink=sink, run_id=run_id, pass_kind="timing",
+                    )
+                )
+                if log is not None:
+                    log.mark(*marker)
+    finally:
+        if log is not None:
+            log.close()
+    return summarise_timing(report)
+
+
+def summarise_timing(report: SweepReport) -> SweepReport:
+    """Merge repeats of the same cell so latency has a real sample behind it."""
+    merged: dict[str, CellResult] = {}
+    for cell in report.timing:
+        existing = merged.get(cell.label)
+        if existing is None:
+            merged[cell.label] = cell
+            continue
+        existing.middleware_ms.extend(cell.middleware_ms)
+        existing.prefix_tokens.extend(cell.prefix_tokens)
+        existing.joules.extend(cell.joules)
+    report.timing = summarise(list(merged.values()))
+    return report
 
 
 def calibration_table(results: Sequence[CellResult]) -> dict[str, list[tuple[str, float]]]:

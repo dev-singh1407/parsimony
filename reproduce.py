@@ -19,7 +19,7 @@ from __future__ import annotations
 import argparse
 import csv
 import sys
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable
 
@@ -36,7 +36,7 @@ from parsimony.eval.runner import (  # noqa: E402
     best_per_class,
     calibration_table,
     shortfall_interval,
-    sweep,
+    two_pass_sweep,
 )
 from parsimony.eval.stats import (  # noqa: E402
     ParetoPoint,
@@ -74,6 +74,7 @@ class Context:
     results: list[CellResult]
     corpus: object
     out: Path
+    timing: list[CellResult] = field(default_factory=list)
 
 
 def _table(headers: list[str], rows: list[list[str]]) -> str:
@@ -340,9 +341,22 @@ def render_energy(ctx: Context) -> str:
 
 
 def render_middleware(ctx: Context) -> str:
+    # The TIMING pass ONLY. Falling back to the memoised quality pass would
+    # report memo-hit microseconds as latency -- the precise contamination
+    # the two-pass split exists to prevent. If there is no timing data, say
+    # so; do not substitute.
+    source = ctx.timing
+    if not source:
+        return (
+            "_No unmemoised timing data in this run._\n\n"
+            "The timing pass was skipped or fully resumed from a previous run. Latency is "
+            "deliberately NOT reported from the quality pass: those rows are memoised, so "
+            "their wall-clock reflects a dictionary lookup rather than generation. "
+            "Re-run without `--resume` to regenerate it."
+        )
     headers = ["cell", "mean ms", "95% CI", "p95 ms", "mean prefix tokens reused"]
     rows = []
-    for r in ctx.results:
+    for r in source:
         ci = bootstrap_ci(r.middleware_ms, resamples=2000)
         rows.append([r.label, f"{r.middleware_mean_ms:.2f}",
                      f"[{ci.low:.2f}, {ci.high:.2f}]",
@@ -404,6 +418,14 @@ def main() -> int:
     parser.add_argument("--no-quality", action="store_true")
     parser.add_argument("--no-memo", action="store_true",
                         help="Disable generation memoisation (the timing-pass setting).")
+    parser.add_argument("--resume", action="store_true",
+                        help="Skip timing cells already recorded in completed.log. "
+                             "For long unattended sweeps; off by default so a plain "
+                             "reproduce run always regenerates everything.")
+    parser.add_argument("--timing-subset", type=int, default=50,
+                        help="Conversations in the unmemoised timing pass.")
+    parser.add_argument("--timing-repeats", type=int, default=2,
+                        help="Repeats of the timing pass (latency is the only stochastic part).")
     args = parser.parse_args()
 
     missing = check_schema()
@@ -427,23 +449,28 @@ def main() -> int:
     # result), and it is the only mode in which the generation memo is
     # consulted at all — a served request must never receive a memoised answer.
     cells = [replace(c, mode=Mode.EXPERIMENT) for c in cells]
-    # Quality pass: memo ON. Bit-exact at temperature 0, so this is a pure
-    # compute optimisation (ADR-019). Latency from this pass is meaningless and
-    # every row is flagged `generation_memoised` so analysis can exclude it.
-    memo = None if args.no_memo else GenerationMemo()
-    print(f"running {len(cells)} cells (memo {'off' if args.no_memo else 'on'})...")
-    results = sweep(
+    # Two passes (ADR-019/020, docs/05-evaluation-harness.md): a memoised
+    # quality pass over the full corpus, and an unmemoised timing pass with
+    # repeats over a stratified subset. Latency from a memoised run is
+    # meaningless, so it never gets mixed in.
+    print(f"running {len(cells)} cells, two passes...")
+    report = two_pass_sweep(
         cells, corpus,
-        memo=memo,
+        timing_subset=args.timing_subset,
+        timing_repeats=args.timing_repeats,
+        resume_log=(args.out / "completed.log") if args.resume else None,
         judge=None if args.no_quality else LengthBiasedMockJudge(),
         gold=() if args.no_quality else load_gold(),
-        progress=lambda label: print(f"  {label}"),
+        progress=lambda msg: print(f"  {msg}"),
     )
-    if memo is not None:
-        print(f"  memo: {memo.hits} hits / {memo.hits + memo.misses} generations "
-              f"({memo.hit_rate:.1f}% avoided)")
+    results = report.quality
+    print(f"  memo: {report.memo_hits}/{report.memo_total} generations avoided "
+          f"({report.memo_hit_rate:.1f}%)")
+    print(f"  timing pass: {report.timing_corpus_size} conversations "
+          f"x {report.timing_repeats} repeats"
+          + (f", {report.resumed} cells resumed from a previous run" if report.resumed else ""))
 
-    ctx = Context(results=results, corpus=corpus, out=args.out)
+    ctx = Context(results=results, corpus=corpus, out=args.out, timing=report.timing)
     parts = [
         "# Parsimony — reproduced results",
         "",

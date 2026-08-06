@@ -146,6 +146,78 @@ normalisation function rather than of the cache policy.**
 
 ---
 
+### ADR-030 — Negative yield is a *position-0 boundary* effect, and tier 1 is where it bites
+
+**Context.** ADR-026 concluded from 495 single-word deletions that whitespace-aligned edits are monotone.
+Re-run on the expanded corpus (2,199 deletions), **three raise the token count** — and all three have the
+same shape: removal of the *first* word.
+
+```
+"What happened in the 1970s?"   11 tokens
+     "happened in the 1970s?"   12 tokens   (+1)
+```
+
+**There are TWO distinct position-0 effects.** The first draft of this ADR conflated them and attributed the
+tier-1 case to the wrong one; both are confirmed directly against the tokenizer.
+
+**Effect 1 — loss of the leading-space form.** This is what makes first-word *deletion* non-monotone.
+
+| string | tokens |
+|---|---|
+| `" happened"` | **1** — `[' happened']` |
+| `"happened"` | **3** — `['h', 'app', 'ened']` |
+
+It is real but **not universal**: common words carry a standalone token too, so `" explain"` and `"explain"`
+are both 1. Mid-string deletions keep the space and remain monotone, exactly as ADR-026 found.
+
+**Effect 2 — capitalisation at position 0.** This is what makes M1 **tier 1** fail to pay.
+
+| string | tokens |
+|---|---|
+| `"explain"` | **1** — `['explain']` |
+| `"Explain"` | **2** — `['Ex', 'plain']` |
+
+Decomposed:
+
+```
+"Please explain recursion."   4   ['Please', ' explain', ' recursion', '.']
+"Explain recursion."          4   ['Ex',     'plain',    ' recursion', '.']   <- capital costs +1
+"explain recursion."          3   ['explain',            ' recursion', '.']   <- would have paid
+```
+
+Tier 1 strips leading politeness and then **re-capitalises the new opener** — and the capital hands the
+saving straight back. Measured on representative prompts, **5 of 9 leading-word removals saved zero tokens**.
+
+**The re-capitalisation is kept deliberately.** Dropping it would recover the token but leave the user's text
+starting in lowercase, which is a visible corruption of their input — and tier 1's entire claim is to be
+lossless. The correct resolution is not to stop capitalising but to *decline the edit when it does not pay*,
+which is what the guard now does.
+
+**Decision.** Apply negative-yield detection to **tier 1**, not only tier 3. Tier 1 now measures the payload
+before and after and returns `NoOp` when the edit does not pay.
+
+**Justification.** ADR-026 established that the guard's real value is rejecting **zero-yield** edits, which
+perturb text for no saving and can therefore only lose meaning. It then left that guard in tier 3, the tier
+least exposed to it. Tier 1 is the tier that vacates position 0 on nearly every polite prompt.
+
+**Measured effect.** Over the full corpus, tier 1 previously applied 18 edits saving 48 tokens net. With the
+guard: 12 edits, 49 tokens, **6 rejected as zero-yield** — a third of tier 1's edits were perturbing the
+user's text for zero or negative benefit, and removing them slightly *improved* the total.
+
+**Why this strengthens the report.** The report presents negative-yield detection as a refinement of tier 3
+rewriting. It is more general and more mechanistic than that:
+
+- the effect is a **position-0 boundary** phenomenon, not a neighbour-merge one;
+- it is triggered by the *simplest* transformation in the stack, not the cleverest;
+- it therefore applies to **any** method that strips sentence openers — including the stop-word and
+  discourse-marker deletion that prompt-compression baselines routinely perform.
+
+**Methodological note.** ADR-026's claim was true of its sample and false in general. It was caught only
+because the corpus grew and the probe was re-run. Every empirical claim in this project should be re-checked
+against the final corpus before the report is written.
+
+---
+
 ### ADR-005 — Dual ledger sinks: JSONL for experiments, SQLite for serving
 
 **Context.** The report specifies SQLite. The sweep is 16 cells × 5 seeds × 3 models × 150 conversations
@@ -487,14 +559,20 @@ which is precisely why the key-collision attack literature exists.
 exploiting the start/end attention bias documented in *Lost in the Middle*. M4 pins an invariant zone to the
 prompt head so the KV prefix survives. Measured over a 5-turn conversation:
 
-| configuration | mean prefix tokens reused |
-|---|---|
-| M4 off (volatile head) | 2.4 |
-| M4 on, chronological | **94.4** |
-| M4 on, position-aware | **47.6** |
+| configuration | mean prefix tokens reused | input tokens sent |
+|---|---|---|
+| M4 off (volatile head) | 2.4 | — |
+| M4 on, chronological | **55.8** | 626 |
+| M4 on, position-aware | **10.4** | 614 |
 
-**The two M4-on arms retain the same turns and send the same number of tokens.** Only the order differs.
-Position-aware placement halves prefix reuse for exactly zero token difference.
+**The two M4-on arms retain the same turns; only the order differs.** Position-aware placement costs 81% of
+the prefix reuse while sending 2% *fewer* tokens — so a token-counting metric scores it as the better
+configuration.
+
+> Figures re-measured after the ADR-029 cache fix and the ADR-030 tier-1 guard; the earlier draft recorded
+> 94.4/47.6. The direction and magnitude of the effect are unchanged, and it is now larger. The 626/614 gap
+> is a MockProvider artefact — its response length depends on the prompt hash, so reordering perturbs
+> downstream history lengths; with a real model the counts would be identical.
 
 **Decision.** Keep both arrangements as independently ablatable options rather than picking one. Report
 prefix survival alongside token count for every arrangement.
@@ -529,10 +607,14 @@ assumption underpinning a headline contribution, so it was measured rather than 
 | single-word deletion | 495 | 491 | 4 | **0** |
 | sub-token edit | 8 | 0 | 5 | **3** |
 
-**Whitespace-aligned edits are monotone.** Across 495 single-word deletions and every lexicon substitution
-in the corpus, not one increased the token count. Modern BPE tokenisers encode a leading space into the
-token (`" word"`), so deleting a whole word removes exactly its tokens and leaves the merge boundaries at
-either side intact.
+**Whitespace-aligned edits are monotone *mid-string*.** Modern BPE encodes a leading space into the token
+(`" word"`), so deleting a word from the middle removes exactly its tokens and leaves the merges on either
+side intact.
+
+> **Superseded in part by ADR-030.** The original sample (495 deletions) contained no counterexample and
+> this ADR claimed monotonicity outright. On the expanded corpus (2,199 deletions) **three deletions raise
+> the count** — all of them removals of the *first* word. See ADR-030 for the mechanism; the mid-string
+> claim stands.
 
 **Sub-token edits are not monotone.** `"running" → "runing"` is 2 tokens → **3**. `"unbelievable" →
 "unbelievble"` is 4 → **5**. Shorter text, more tokens.
@@ -627,9 +709,14 @@ the practice this project criticises the caching literature for. Sweeping it pro
 | "Remote work reduces commuting time" / "Remote work cuts commuting time significantly" | 0.635 |
 | "The course runs for 12 weeks" / "The course lasts 12 weeks in total" | 0.561 |
 | "The policy takes effect on 1 April" / "The policy starts on 1 April for full time staff" | 0.486 |
-| "Rent is 1200 per month" / "Monthly rent comes to 1200" | **0.324** |
-| "needs 250 g of flour" / "You will need 250 g flour for this" | **0.312** |
+| "Rent is 1200 per month" / "Monthly rent comes to 1200" | **0.412** |
+| "The recipe needs 250 g of flour" / "You will need 250 g flour for this" | **0.321** |
 | "produces no direct carbon emissions" / "emit no carbon dioxide while operating" | **0.319** |
+
+> Values are for the sentence pairs standalone. Measured in corpus context they run 0.01–0.09 lower,
+> because the split retains prefixes like `"Summarise: "`; an earlier draft quoted the in-context figure
+> (0.324) as though it were the clean pair. The conclusion is unaffected — both are far below any usable
+> threshold.
 
 **The bottom three are the same fact reworded** — exactly what tier 2 exists to delete — and the lexical
 encoder places them barely above unrelated text.

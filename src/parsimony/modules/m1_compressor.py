@@ -168,12 +168,38 @@ class Tier1Normaliser:
             return NoOp("no_yield", "already normalised")
 
         d = ctx.derived
-        before = d.token_count(ctx.text_payload()) if d else 0
+        if d is None:
+            return NoOp("not_applicable", "no derived cache")
+
+        # Negative-yield detection applies HERE too, not just in tier 3.
+        #
+        # Measured: 5 of 9 leading-politeness removals save ZERO tokens.
+        # "Please explain recursion." -> "Explain recursion." is 4 tokens -> 4.
+        # Removing the first word promotes the second to position 0, where it
+        # loses its leading-space token form -- " explain" is one token,
+        # "Explain" is often two or three -- and the saving is handed straight
+        # back (ADR-030).
+        #
+        # An edit that perturbs the user's text without saving a token is pure
+        # risk: it can only lose meaning. Tier 1 is where this bites hardest
+        # precisely because it is the tier that strips sentence openers.
+        before = d.token_count(ctx.text_payload())
+        candidate_payload = "\n".join([t.content for t in new_history] + [new_query])
+        after = d.token_count(candidate_payload)
+        if after >= before:
+            return NoOp(
+                "no_yield",
+                f"normalisation would not pay ({before} -> {after} tokens)",
+                {"tier": 1, "tokens_before": before, "tokens_after": after,
+                 "zero_yield_rejected": True},
+            )
+
         return ContextPatch(
             kind=TransformKind.REWRITE,
             fields={"query": new_query, "history": new_history},
             rationale="lossless normalisation: whitespace, markdown, boilerplate",
-            evidence={"tier": 1, "tokens_before": before},
+            evidence={"tier": 1, "tokens_before": before, "tokens_after": after,
+                      "tokens_saved": before - after},
         )
 
 
