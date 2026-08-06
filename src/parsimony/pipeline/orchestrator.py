@@ -43,6 +43,11 @@ from parsimony.pipeline.registry import PlannedStage, StageRegistry, default_reg
 
 DEFAULT_NUM_PREDICT = 256
 
+# Conversations whose previous prompt is retained for prefix-survival
+# measurement. Only the immediately preceding turn is ever compared against, so
+# this bounds a structure that otherwise grows for the life of the process.
+MAX_TRACKED_CONVERSATIONS = 256
+
 
 @dataclass(frozen=True, slots=True)
 class Outcome:
@@ -82,7 +87,7 @@ class Pipeline:
         self.provider_large = provider_large
         self.embedder = embedder if embedder is not None else get_embedder(cfg.embedder_id)
         self.cache = (
-            cache if cache is not None else SemanticCache(cfg.cache.ttl_seconds, self.embedder)
+            cache if cache is not None else SemanticCache(cfg.cache.ttl_seconds, self.embedder, max_entries=cfg.cache.max_entries)
         )
         self.cache.attach_embedder(self.embedder)
         self.registry = registry or default_registry(self.cache)
@@ -98,7 +103,12 @@ class Pipeline:
         self.corpus_hash = corpus_hash
         self._extractor = RegexInvariantExtractor()
         self._pii = RegexPiiDetector()
+        # Previous prompt per conversation, for prefix-survival measurement.
+        # Bounded: only the most recent conversations can produce a next turn,
+        # and an unbounded dict here grows for the life of the process — 400
+        # conversations tracked 400 token lists in a probe.
         self._last_prompt_ids: dict[str, list[int]] = {}
+        self._max_tracked_conversations = MAX_TRACKED_CONVERSATIONS
 
         # Fail fast: a misconfigured order costs one second here rather than six
         # unattended CPU-hours in the sweep.
@@ -274,7 +284,7 @@ class Pipeline:
                 self._last_prompt_ids.get(ctx.conversation_id), current_ids
             )
             prefix_survived, prefix_ratio = survived, ratio
-            self._last_prompt_ids[ctx.conversation_id] = current_ids
+            self._remember_prompt(ctx.conversation_id, current_ids)
 
             route = ctx.route_tier or RouteTier.MODEL_SMALL
             provider = self._provider_for(route)
@@ -354,6 +364,18 @@ class Pipeline:
         return Outcome(response, row, ctx, tuple(traces), short is None)
 
     # -- helpers -----------------------------------------------------------
+
+    def _remember_prompt(self, conversation_id: str, ids: list[int]) -> None:
+        """Keep the last prompt per conversation, LRU-bounded.
+
+        Prefix survival only ever compares against the immediately preceding
+        turn of the same conversation, so retaining every conversation forever
+        buys nothing and grows without limit.
+        """
+        self._last_prompt_ids.pop(conversation_id, None)
+        self._last_prompt_ids[conversation_id] = ids
+        while len(self._last_prompt_ids) > self._max_tracked_conversations:
+            self._last_prompt_ids.pop(next(iter(self._last_prompt_ids)))
 
     def _provider_for(self, tier: RouteTier):
         """Escalation has somewhere to go only if a large provider was supplied.

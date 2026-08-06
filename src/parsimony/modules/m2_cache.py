@@ -185,14 +185,24 @@ class CacheStats:
     expired: int = 0
     stores: int = 0
     uncacheable: int = 0  # canonical form carried no information to key on
+    evicted: int = 0  # dropped to stay under max_entries
 
 
 class SemanticCache:
     """Cross-request state, so the stage holds it rather than owning it."""
 
-    def __init__(self, ttl_seconds: int = 86_400, embedder=None, index=None) -> None:
+    def __init__(
+        self,
+        ttl_seconds: int = 86_400,
+        embedder=None,
+        index=None,
+        max_entries: int = 10_000,
+    ) -> None:
+        # Insertion-ordered dicts double as the LRU: a hit moves its key to the
+        # end, so the oldest live key is always the first one.
         self._exact: dict[str, CacheEntry] = {}
         self._entries: dict[str, CacheEntry] = {}
+        self._max_entries = max_entries
         self._embedder = embedder
         # `index` is injectable so ADR-004's claim about approximate search can
         # be measured rather than asserted. Default stays exact.
@@ -259,6 +269,7 @@ class SemanticCache:
             return None
         entry.hits += 1
         self.stats.exact_hits += 1
+        self._touch(key)
         return entry
 
     # -- tier 1 -------------------------------------------------------------
@@ -320,9 +331,43 @@ class SemanticCache:
         self._entries[key] = entry
         if vec is not None and self._index is not None:
             self._index.add(vec, key)
+        self._evict_if_needed()
         return entry
 
     # -- helpers ------------------------------------------------------------
+
+    def touch(self, key: str) -> None:
+        """Mark a key most-recently-used.
+
+        Public because SEMANTIC hits are served from `search()`, which the stage
+        drives. Without this, only exact hits would refresh recency and a
+        heavily-used paraphrase entry could be evicted while a stale
+        exact-matched one survived — LRU that does not see half its traffic.
+        """
+        self._touch(key)
+
+    def _touch(self, key: str) -> None:
+        """Move a key to the end of insertion order (most-recently-used)."""
+        for store in (self._exact, self._entries):
+            entry = store.pop(key, None)
+            if entry is not None:
+                store[key] = entry
+
+    def _evict_if_needed(self) -> None:
+        """Drop least-recently-used entries down to the cap.
+
+        Evicting from the vector index too is the part that is easy to forget:
+        an orphaned vector would keep scoring in `search()` and return an
+        entry_id that no longer resolves, which reads as a silent cache miss
+        while still costing the similarity computation.
+        """
+        while len(self._exact) > self._max_entries:
+            oldest = next(iter(self._exact))
+            self._exact.pop(oldest, None)
+            self._entries.pop(oldest, None)
+            if self._index is not None:
+                self._index.remove(oldest)
+            self.stats.evicted += 1
 
     def _expired(self, entry: CacheEntry, now: float | None) -> bool:
         """Expired entries are filtered at retrieval, not deleted: how often the
@@ -417,6 +462,7 @@ class CacheLookupStage:
                 return NoOp("no_yield", "probe: semantic hit (not acted on)", evidence)
             self.cache.stats.semantic_hits += 1
             best.hits += 1
+            self.cache.touch(best.entry_id)
             return ShortCircuit(
                 response=best.response,
                 served_by=RouteTier.CACHE_SEMANTIC,
@@ -436,6 +482,7 @@ class CacheLookupStage:
                 self.cache.stats.semantic_hits += 1
                 self.cache.stats.verified_hits += 1
                 best.hits += 1
+                self.cache.touch(best.entry_id)
                 return ShortCircuit(
                     response=best.response,
                     served_by=RouteTier.CACHE_SEMANTIC,

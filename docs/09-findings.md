@@ -230,6 +230,13 @@ Without this measurement the natural conclusion would have been *"extractive red
 help at small scale"* — and it would have been **wrong**. The technique was never given a working similarity
 signal. This is the concrete, quantified case for swapping the lexical encoder for MiniLM.
 
+**Memory was unbounded in the component designed to accumulate (ADR-031).** Probed under sustained load, 400
+distinct queries produced 400 cache entries, 400 tracked conversations and 415 blobs, with nothing ever
+released. Report §4.7 targets an 8 GB consumer laptop. Now LRU-bounded at 10,000 entries, with the vector
+index evicted alongside each entry — an orphaned vector would keep scoring in `search()` and return an id
+that no longer resolves. The cap sits 38× above the corpus request count, so eviction never fires during a
+sweep and every result is byte-identical with it in place.
+
 **The exact-hash tier has no verifier (ADR-029).** Six degenerate inputs — `""`, `"   "`, `"?"`, `"?!..."`,
 `"!!!"`, `"."` — canonicalised to the empty string and therefore to one cache key, and served each other's
 answers. The three-zone verifier guards only the *semantic* tier; the exact tier short-circuits before it,

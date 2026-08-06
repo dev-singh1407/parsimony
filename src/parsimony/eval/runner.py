@@ -187,7 +187,7 @@ def run_cell(
     gold: tuple[GoldItem, ...] = (),
     warm_start=None,
 ) -> CellResult:
-    cache = SemanticCache(cfg.cache.ttl_seconds)
+    cache = SemanticCache(cfg.cache.ttl_seconds, max_entries=cfg.cache.max_entries)
     pipeline = Pipeline(
         cfg,
         provider=provider,

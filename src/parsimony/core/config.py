@@ -96,6 +96,11 @@ class CacheConfig:
     chain_depth: int = 2
     top_k: int = 5
     ttl_seconds: int = 86_400
+    # LRU capacity. The report targets an 8 GB consumer laptop (4.7), and the
+    # cache is the one component designed to accumulate: without a cap it grows
+    # linearly forever. 10k entries is roughly 15 MB of vectors at 384 float32
+    # plus the stored text, which is affordable and bounded.
+    max_entries: int = 10_000
 
 
 @dataclass(frozen=True, slots=True)

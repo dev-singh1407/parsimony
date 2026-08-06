@@ -218,6 +218,49 @@ against the final corpus before the report is written.
 
 ---
 
+### ADR-031 — Bounded memory: the cache needs LRU eviction
+
+**Context.** Probed under sustained load, nothing in the pipeline ever evicted:
+
+| after 400 distinct queries | entries |
+|---|---|
+| cache entries | 400 |
+| conversations tracked for prefix survival | 400 |
+| blob store entries | 415 |
+
+All three grow linearly with traffic and are never released. Report §4.7 targets an ordinary consumer CPU
+with **8 GB of RAM**, and §4.4 describes the cache as "the one component with a memory" — so this was an
+unbounded leak in precisely the component designed to accumulate.
+
+**Decision.** `CacheConfig.max_entries = 10_000` with LRU eviction; conversation tracking bounded to the 256
+most recent.
+
+**Justification.** 10k entries is roughly 15 MB of vectors at 384 float32 plus stored text — affordable and,
+more importantly, *bounded*. The conversation map only ever compares against the immediately preceding turn
+of the same conversation, so retaining older ones buys nothing at all.
+
+**Two details that are easy to get wrong, both caught by tests.**
+
+1. **The vector index must be evicted with the entry.** An orphaned vector keeps scoring in `search()` and
+   returns an `entry_id` that no longer resolves — a silent miss that still costs the similarity
+   computation, and a slow leak of a different kind.
+2. **`touch()` is public because semantic hits are served from `search()`**, which the stage drives, not from
+   `lookup()`. Refreshing recency only on exact hits would leave LRU blind to half its traffic, so a
+   heavily-used paraphrase entry could be evicted while a stale exact-matched one survived.
+
+**Consequences.**
+
+- The default cap is asserted to exceed 4× the corpus request count, so eviction never fires during a normal
+  sweep. A cap that evicted mid-run would silently depress the hit rate and corrupt every M2 result — the
+  measurement must not be perturbed by the memory bound.
+- `CacheStats.evicted` makes the rate visible, so if a future workload does hit the cap it shows up in the
+  ledger rather than as an unexplained drop in cache performance.
+- The blob store remains unbounded by design: in `EXPERIMENT` mode it is the ledger's content-addressed
+  substrate and losing entries would lose results. It is disk-backed in that mode, and a `SERVE`-mode
+  deployment should use `BlobStore` rather than `MemoryBlobStore`.
+
+---
+
 ### ADR-005 — Dual ledger sinks: JSONL for experiments, SQLite for serving
 
 **Context.** The report specifies SQLite. The sweep is 16 cells × 5 seeds × 3 models × 150 conversations
