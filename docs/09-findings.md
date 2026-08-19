@@ -212,7 +212,43 @@ because exact arithmetic is correct by construction where a 1B model guesses.
 
 ---
 
-## 7. Two limitations we can name precisely
+## 7. Calibrations transfer as ratios, not as mechanisms
+
+Report §4.6 asks whether a calibration survives being applied elsewhere without re-tuning. Three LLMs need
+Ollama, but the **tokenizer** determines every token count, every negative-yield decision and prefix
+survival — so that dimension is answerable now, with two real vocabularies (Qwen2.5 at 151,665, GPT-2 at
+50,257). Same cells, same corpus, **no re-tuning**.
+
+| cell | Qwen2.5 | GPT-2 |
+|---|---|---|
+| M1 | 0.16% | 0.16% |
+| M2 | 1.72% | 1.72% |
+| M3 | 12.84% | 12.84% |
+| M5 | 14.27% | 14.24% |
+| M1+M2+M3+M5 | 26.46% | 26.37% |
+
+**Reduction ratios transfer almost exactly**, and module ranking is identical — because a reduction is a
+ratio, and a roughly constant vocabulary factor cancels. Absolute counts differ substantially ("Please
+explain recursion." is 4 tokens under Qwen, 5 under GPT-2).
+
+**But the mechanisms do not all transfer:**
+
+| claim | Qwen2.5 | GPT-2 | transfers |
+|---|---|---|---|
+| `" happened"` cheaper than `"happened"` | 1 vs 3 | 1 vs 3 | yes |
+| `"explain"` cheaper than `"Explain"` | 1 vs 2 | **2 vs 2** | **no** |
+| first-word deletion can raise the count | 11 vs 12 | 7 vs 8 | yes |
+
+GPT-2 has no capitalisation penalty. **ADR-030 stated that mechanism as general; it is Qwen-specific**, and
+finding that is precisely what a generalisation study is for (ADR-032).
+
+The tier-1 zero-yield rate is 7/20 (35%) under *both* — matching rates from differing mechanisms, which is
+worth reporting because the matching number would otherwise be read as agreement.
+
+**Scope, stated plainly:** this is the tokenizer dimension of §4.6. Decode speed, answer quality and
+quantisation belong to the model and still need a real provider.
+
+## 8. Two limitations we can name precisely
 
 **M1 tier 2 is encoder-limited, not technique-limited (ADR-028).** Intended near-duplicates span:
 

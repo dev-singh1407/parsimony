@@ -340,6 +340,55 @@ def render_energy(ctx: Context) -> str:
     )
 
 
+def render_generalisation(ctx: Context) -> str:
+    """Report 4.6's transfer question, on the tokenizer dimension."""
+    from parsimony.core.config import factorial_cells as _cells
+    from parsimony.eval.generalisation import (
+        check_boundary_effect,
+        check_tier1_yield,
+        sweep_across_tokenizers,
+    )
+
+    cells = list(_cells(axes=("M1", "M2", "M3", "M5"), always_on=frozenset()))
+    arms = [a for a in sweep_across_tokenizers(cells, ctx.corpus) if a.available]
+    if len(arms) < 2:
+        return "_Needs two real tokenizers; at least one was unavailable._"
+
+    headers = ["cell"] + [f"{a.short_name} ({a.vocab_size:,})" for a in arms]
+    rows = []
+    for label in ("baseline", "M1", "M2", "M3", "M5", "M1+M2+M3+M5"):
+        vals = [a.reduction(label) for a in arms]
+        if any(v is None for v in vals):
+            continue
+        rows.append([label] + [f"{v:+.2f}" for v in vals])
+    _write_csv(ctx.out / "generalisation.csv", headers, rows)
+
+    ch = ["claim"] + [a.short_name for a in arms] + ["transfers"]
+    cr = [
+        [c.claim] + [c.values.get(a.short_name, "-") for a in arms]
+        + ["yes" if c.transfers else "**NO**"]
+        for c in check_boundary_effect() + check_tier1_yield(ctx.corpus)
+    ]
+    _write_csv(ctx.out / "generalisation_transfer.csv", ch, cr)
+
+    identical = len({tuple(a.ranking()) for a in arms}) == 1
+    return (
+        _table(headers, rows)
+        + f"\n\nModule ranking identical across vocabularies: **{identical}**.\n\n"
+        + "### Does each finding transfer?\n\n"
+        + _table(ch, cr)
+        + "\n\nReduction **ratios** transfer because a ratio cancels a roughly constant "
+        "vocabulary factor — absolute counts differ substantially (\"Please explain "
+        "recursion.\" is 4 tokens under Qwen2.5 and 5 under GPT-2) while the percentages do "
+        "not. The **mechanisms** underneath do not all transfer: GPT-2 has no capitalisation "
+        "penalty, so one of ADR-030's two position-0 effects is Qwen-specific. That correction "
+        "is ADR-032.\n\n"
+        "**Scope.** This is the *tokenizer* dimension of report §4.6. Decode speed, answer "
+        "quality and quantisation are properties of the model, not the tokenizer, and still "
+        "require a real provider."
+    )
+
+
 def render_middleware(ctx: Context) -> str:
     # The TIMING pass ONLY. Falling back to the memoised quality pass would
     # report memo-hit microseconds as latency -- the precise contamination
@@ -392,6 +441,8 @@ SECTIONS: tuple[Section, ...] = (
             ("tokens_in_final", "tokens_out"), render_calibration_table),
     Section("energy", "Energy and cost equivalent",
             ("joules_estimated", "usd_equivalent"), render_energy),
+    Section("generalisation", "Cross-vocabulary generalisation",
+            ("tokenizer_id", "tokens_in_final", "tokens_out"), render_generalisation),
     Section("tokenprobe", "Negative-yield probe", (), render_tokenprobe),
     Section("middleware", "Middleware overhead and prefix reuse",
             ("middleware_ns", "prefix_tokens_survived"), render_middleware),

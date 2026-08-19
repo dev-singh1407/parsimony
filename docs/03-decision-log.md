@@ -177,6 +177,10 @@ are both 1. Mid-string deletions keep the space and remain monotone, exactly as 
 | `"explain"` | **1** — `['explain']` |
 | `"Explain"` | **2** — `['Ex', 'plain']` |
 
+> **Scoped by ADR-032.** This second mechanism is **vocabulary-specific**. Re-measured on GPT-2,
+> `"explain"` and `"Explain"` both cost 2 tokens — the capitalisation penalty does not exist there. Effect 1
+> (leading space) transfers to both. So the *guard* is general; this particular *mechanism* is not.
+
 Decomposed:
 
 ```
@@ -258,6 +262,58 @@ of the same conversation, so retaining older ones buys nothing at all.
 - The blob store remains unbounded by design: in `EXPERIMENT` mode it is the ledger's content-addressed
   substrate and losing entries would lose results. It is disk-backed in that mode, and a `SERVE`-mode
   deployment should use `BlobStore` rather than `MemoryBlobStore`.
+
+---
+
+### ADR-032 — Cross-vocabulary generalisation: ratios transfer, mechanisms do not
+
+**Context.** Report §4.6 requires re-running the winning configuration on other models "without re-tuning,
+which measures directly whether a calibration transfers" — Gap 5 and Contribution 6. Three LLMs need Ollama,
+which is out of scope. But the **tokenizer** is the part of the configuration that determines nearly
+everything measured here: every token count, M1 tier 3's negative-yield decisions, tier 1's position-0
+behaviour, and M4's prefix survival. That dimension is fully answerable today with two real vocabularies —
+Qwen2.5 (151,665) and GPT-2 (50,257).
+
+Same cells, same corpus, **no re-tuning**.
+
+**Result 1 — reduction ratios transfer almost exactly.**
+
+| cell | Qwen2.5 | GPT-2 |
+|---|---|---|
+| M1 | 0.16% | 0.16% |
+| M2 | 1.72% | 1.72% |
+| M3 | 12.84% | 12.84% |
+| M5 | 14.27% | 14.24% |
+| M1+M2+M3+M5 | 26.46% | 26.37% |
+
+Module ranking is identical. This is expected once stated: a reduction is a *ratio*, and if a vocabulary
+counts all text at roughly a constant factor the ratio cancels. Absolute counts differ substantially —
+"Please explain recursion." is 4 tokens under Qwen and 5 under GPT-2 — while the percentages do not.
+
+**That is a genuinely useful result for the report:** it means the headline reduction figures are more
+portable than the report assumes, and the thing that does *not* port is the calibration underneath them.
+
+**Result 2 — one of ADR-030's two mechanisms does not transfer.**
+
+| claim | Qwen2.5 | GPT-2 | transfers |
+|---|---|---|---|
+| `" happened"` cheaper than `"happened"` | 1 vs 3 | 1 vs 3 | **yes** |
+| `"explain"` cheaper than `"Explain"` | 1 vs 2 | **2 vs 2** | **no** |
+| first-word deletion can raise the count | 11 vs 12 | 7 vs 8 | **yes** |
+
+GPT-2 has no capitalisation penalty for that word. ADR-030 stated the capitalisation mechanism as though it
+were general; it is Qwen-specific. Corrected there.
+
+**Result 3 — the tier-1 zero-yield rate is identical anyway: 7/20 (35%) under both.** Different mechanisms,
+same net rate on this corpus. Worth reporting precisely because it would be easy to present the matching
+rate as evidence the mechanisms match, and they do not.
+
+**Decision.** Keep the guard (it is general), scope the mechanism claim (it is not), and report the
+generalisation study as covering the *tokenizer* dimension explicitly — not the model dimension.
+
+**What this does NOT cover, stated plainly.** Decode speed, answer quality and quantisation are properties of
+the model, not the tokenizer. The tokenizer arm of §4.6 is done; the model arm still needs Ollama. Claiming
+otherwise would be the same category of overreach this ADR just corrected in ADR-030.
 
 ---
 

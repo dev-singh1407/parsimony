@@ -411,6 +411,66 @@ def calibrate_dedup(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
 
 
 @app.command()
+def generalise(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
+    """Does a calibration transfer to another vocabulary? (gap 5, contribution 6)"""
+    from parsimony.eval.generalisation import (
+        check_boundary_effect,
+        check_tier1_yield,
+        sweep_across_tokenizers,
+    )
+
+    corpus = load_corpus(corpus_path)
+    cells = list(factorial_cells(axes=("M1", "M2", "M3", "M5"), always_on=frozenset()))
+
+    with console.status("[bold green]running every cell under each vocabulary...") as status:
+        arms = sweep_across_tokenizers(
+            cells, corpus, progress=lambda m: status.update(f"[bold green]{m}")
+        )
+    live = [a for a in arms if a.available]
+
+    if not live:
+        console.print("[red]No real tokenizer available (offline?) — cannot run this study.[/red]")
+        return
+
+    table = Table(title="Same cells, same corpus, no re-tuning", header_style="bold")
+    table.add_column("cell", no_wrap=True)
+    for a in live:
+        table.add_column(f"{a.short_name}\n(vocab {a.vocab_size:,})", justify="right")
+    for label in ("baseline", "M1", "M2", "M3", "M5", "M1+M2+M3+M5"):
+        vals = [a.reduction(label) for a in live]
+        if any(v is None for v in vals):
+            continue
+        table.add_row(label, *[f"{v:+.2f}%" for v in vals])
+    console.print(table)
+
+    ident = len({tuple(a.ranking()) for a in live}) == 1
+    console.print(
+        f"  module ranking identical across vocabularies: "
+        f"[{'green' if ident else 'red'}]{ident}[/]"
+    )
+
+    bt = Table(title="Does each finding transfer?", header_style="bold")
+    bt.add_column("claim")
+    for a in live:
+        bt.add_column(a.short_name, justify="right")
+    bt.add_column("transfers", justify="center")
+    for check in check_boundary_effect() + check_tier1_yield(corpus):
+        bt.add_row(
+            check.claim,
+            *[check.values.get(a.short_name, "-") for a in live],
+            "[green]yes[/green]" if check.transfers else "[red]NO[/red]",
+        )
+    console.print(bt)
+    console.print(
+        "[dim]Reduction ratios transfer because a ratio cancels a roughly constant vocabulary\n"
+        "factor. The MECHANISMS underneath do not: GPT-2 has no capitalisation penalty, so one\n"
+        "of ADR-030's two effects is Qwen-specific (ADR-032).\n\n"
+        "This covers the TOKENIZER dimension of report 4.6. Decode speed, answer quality and\n"
+        "quantisation are properties of the model and still need Ollama.[/dim]"
+    )
+
+
+@app.command()
 def tokenprobe(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
     """When does shortening text fail to reduce tokens? (M1 tier 3 evidence)"""
     from parsimony.eval.tokenizer_probe import run_probe
