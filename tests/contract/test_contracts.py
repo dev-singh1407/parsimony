@@ -17,7 +17,7 @@ from parsimony.core.config import full_stack
 from parsimony.core.ledger import LedgerRow
 from parsimony.core.proposals import ContextPatch, NoOp, ShortCircuit
 from parsimony.core.types import GenParams
-from parsimony.infra.providers import MockProvider
+from parsimony.infra.providers import DEFAULT_OLLAMA_MODEL, MockProvider, OllamaProvider
 from parsimony.infra.storage import JsonlSink, MemorySink, SqliteSink, read_jsonl
 import numpy as np
 
@@ -73,7 +73,16 @@ class TestStageContract:
 
 
 # --------------------------------------------------------- LLMProvider ------
-@pytest.mark.parametrize("provider", [MockProvider()], ids=["mock"])
+# The real provider joins the same suite when Ollama is up and the model is
+# pulled, and is skipped otherwise so the suite stays green on a machine that
+# has never installed it — CI included. A provider that passes here is
+# substitutable for the mock everywhere the pipeline uses one.
+_PROVIDERS = [pytest.param(MockProvider(), id="mock")]
+if OllamaProvider.available(model=DEFAULT_OLLAMA_MODEL):
+    _PROVIDERS.append(pytest.param(OllamaProvider(), id="ollama"))
+
+
+@pytest.mark.parametrize("provider", _PROVIDERS)
 class TestProviderContract:
     def test_exposes_identity(self, provider):
         assert provider.model_name and provider.model_digest and provider.quantisation

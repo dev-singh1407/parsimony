@@ -13,10 +13,17 @@ literally "mock:v1".
 from __future__ import annotations
 
 import hashlib
+import json
 import time
+import urllib.error
+import urllib.request
 from typing import Iterator
 
+from parsimony.core.errors import ProviderError
 from parsimony.core.types import GenParams, TokenEvent
+
+DEFAULT_OLLAMA_HOST = "http://localhost:11434"
+DEFAULT_OLLAMA_MODEL = "qwen2.5:1.5b-instruct"
 
 # Realistic for a 1B Q4_K_M model on an i5-class CPU. Used to synthesise
 # timestamps, not to actually sleep (a sweep that really waited would take days).
@@ -126,3 +133,184 @@ def _split_pieces(text: str) -> list[str]:
     for i, word in enumerate(text.split(" ")):
         out.append(word if i == 0 else " " + word)
     return out
+
+
+def make_provider(name: str = "mock", *, model: str | None = None, realtime: bool = False):
+    """Build a provider by name.
+
+    Refuses rather than silently falling back to the mock: a run that believes
+    it measured a real model but actually measured a fake one produces numbers
+    that look real and are not, which is the single worst failure this project
+    can have.
+    """
+    key = (name or "mock").strip().lower()
+    if key == "mock":
+        return MockProvider(realtime=realtime)
+    if key == "ollama":
+        provider = OllamaProvider(model or DEFAULT_OLLAMA_MODEL)
+        if not OllamaProvider.available(provider.host):
+            raise ProviderError(
+                f"--provider ollama was requested but nothing is listening at "
+                f"{provider.host}. Start it with `ollama serve`, or run with "
+                f"--provider mock and accept simulated timings."
+            )
+        return provider
+    raise ProviderError(f"unknown provider {name!r} (expected 'mock' or 'ollama')")
+
+
+class OllamaProvider:
+    """A real model over Ollama's local HTTP API.
+
+    Deliberately stdlib-only. The project depends on numpy, tokenizers, typer,
+    rich and pytest; adding `requests` or `ollama` to talk to a localhost socket
+    would buy nothing and cost the dependency discipline that makes the
+    CPU-only claim checkable.
+
+    The identity fields matter more than they look. `model_digest` is what
+    separates a real row from a simulated one in the ledger and what keys the
+    generation memo (ADR-019) — a memo keyed on a name rather than a digest
+    would serve one quantisation's output for another's.
+    """
+
+    def __init__(
+        self,
+        model: str = DEFAULT_OLLAMA_MODEL,
+        host: str = DEFAULT_OLLAMA_HOST,
+        *,
+        timeout: float = 300.0,
+        num_ctx: int | None = None,
+    ) -> None:
+        self.model = model
+        self.host = host.rstrip("/")
+        self.timeout = timeout
+        self.num_ctx = num_ctx
+        self._info: dict | None = None
+
+    # -- identity ----------------------------------------------------------
+
+    def _post(self, path: str, body: dict, *, stream: bool = False, timeout=None):
+        req = urllib.request.Request(
+            f"{self.host}{path}",
+            data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            resp = urllib.request.urlopen(req, timeout=timeout or self.timeout)
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode(errors="replace")[:200]
+            raise ProviderError(f"ollama {path} returned {exc.code}: {detail}") from exc
+        except urllib.error.URLError as exc:
+            raise ProviderError(
+                f"cannot reach ollama at {self.host} ({exc.reason}). "
+                f"Is it running? Try: ollama serve"
+            ) from exc
+        return resp if stream else json.loads(resp.read())
+
+    @property
+    def info(self) -> dict:
+        """Model metadata, fetched once. Cheap, but not free, and the ledger
+        asks for it on every row."""
+        if self._info is None:
+            self._info = self._post("/api/show", {"model": self.model}, timeout=30.0)
+        return self._info
+
+    @property
+    def model_name(self) -> str:
+        return self.model
+
+    @property
+    def quantisation(self) -> str:
+        return (self.info.get("details") or {}).get("quantization_level") or "unknown"
+
+    @property
+    def model_digest(self) -> str:
+        """Content digest, not a label.
+
+        Ollama reports the manifest digest; we prefix it so a ledger row can
+        never be confused with the mock's "mock:v1", and truncate because the
+        full 64 hex chars buy no discrimination in a ledger column.
+        """
+        raw = self.info.get("digest") or ""
+        if not raw:
+            # Older Ollama builds omit `digest` from /api/show. Fall back to a
+            # hash of the fields that actually determine the weights, so the
+            # memo key still changes when the model does.
+            details = self.info.get("details") or {}
+            material = json.dumps(
+                {"model": self.model, **{k: details.get(k) for k in sorted(details)}},
+                sort_keys=True,
+            )
+            raw = hashlib.blake2b(material.encode(), digest_size=16).hexdigest()
+        return f"ollama:{raw[:16]}"
+
+    @property
+    def tokenizer_id(self) -> str:
+        return self.model
+
+    # -- availability ------------------------------------------------------
+
+    @classmethod
+    def available(cls, host: str = DEFAULT_OLLAMA_HOST, *, model: str | None = None) -> bool:
+        """Is Ollama up, and does it have this model pulled?
+
+        Used to skip the real-provider tests rather than fail them, so the suite
+        stays green on a machine that has never installed Ollama — including CI.
+        """
+        try:
+            with urllib.request.urlopen(f"{host.rstrip('/')}/api/tags", timeout=3.0) as r:
+                tags = json.loads(r.read())
+        except Exception:
+            return False
+        if model is None:
+            return True
+        names = {m.get("name", "") for m in tags.get("models", [])}
+        return any(n == model or n.split(":")[0] == model.split(":")[0] for n in names)
+
+    # -- generation --------------------------------------------------------
+
+    def generate(self, prompt: str, params: GenParams) -> Iterator[TokenEvent]:
+        options = {
+            "num_predict": params.num_predict,
+            "temperature": params.temperature,
+            "seed": params.seed,
+        }
+        if params.stop:
+            options["stop"] = list(params.stop)
+        if self.num_ctx is not None:
+            options["num_ctx"] = self.num_ctx
+
+        resp = self._post(
+            "/api/generate",
+            {"model": self.model, "prompt": prompt, "stream": True, "options": options},
+            stream=True,
+        )
+
+        index = 0
+        try:
+            for line in resp:
+                if not line.strip():
+                    continue
+                try:
+                    chunk = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise ProviderError(f"ollama sent a non-JSON line: {line[:120]!r}") from exc
+                if chunk.get("error"):
+                    raise ProviderError(f"ollama: {chunk['error']}")
+
+                piece = chunk.get("response", "")
+                if piece:
+                    # perf_counter_ns AT RECEIPT. This is the whole point of
+                    # streaming rather than taking the response in one blob:
+                    # TTFT and TPOT are only real if measured as tokens arrive.
+                    yield TokenEvent(text=piece, index=index, emitted_at_ns=time.perf_counter_ns())
+                    index += 1
+                    # Ollama honours num_predict, but a provider that overran it
+                    # would silently break the budgeter's accounting, so the
+                    # contract is enforced here too.
+                    if index >= params.num_predict:
+                        break
+                if chunk.get("done"):
+                    break
+        finally:
+            resp.close()

@@ -21,6 +21,7 @@ from parsimony.eval.corpus import load_corpus, load_gold
 from parsimony.eval.metrics import LengthBiasedMockJudge
 from parsimony.eval.runner import additivity_shortfall, run_cell, sweep
 from parsimony.infra.ids import ulid
+from parsimony.infra.providers import make_provider
 from parsimony.infra.storage import JsonlSink, import_jsonl
 from parsimony.infra.tokenization import get_tokenizer
 from parsimony.pipeline.orchestrator import Pipeline
@@ -38,10 +39,13 @@ def chat(
     repeat: bool = typer.Option(False, "--repeat", help="Send it twice to exercise the cache."),
     text: bool = typer.Option(False, "--text/--no-text", "-t",
                               help="Show the text each stage changed, not just the token count."),
+    provider: str = typer.Option("mock", "--provider",
+                                 help="'mock' (simulated timings) or 'ollama' (a real model)."),
+    model: str = typer.Option(None, "--model", help="Ollama model tag."),
 ) -> None:
     """Run one query through the pipeline."""
     cfg = baseline() if plain else full_stack()
-    pipeline = Pipeline(cfg, capture_text=text)
+    pipeline = Pipeline(cfg, provider=make_provider(provider, model=model), capture_text=text)
     counter = get_tokenizer(cfg.tokenizer_id).count
 
     def show(o):
@@ -150,11 +154,21 @@ def bench(
                                  help="Score the four quality measures and the gold subset."),
     bundle: Path = typer.Option(None, "--bundle",
                                 help="Warm-start from an M7 PolicyBundle (gap 6)."),
+    provider: str = typer.Option("mock", "--provider",
+                                 help="'mock' (simulated timings) or 'ollama' (a real model). "
+                                      "Only an 'ollama' run produces real latency."),
+    model: str = typer.Option(None, "--model", help="Ollama model tag."),
 ) -> None:
     """Run the factorial ablation over the corpus and write a ledger."""
     axes = tuple(m.strip().upper() for m in modules.split(",") if m.strip())
     corpus = load_corpus(corpus_path)
     run_id = ulid()
+    prov = make_provider(provider, model=model)
+    console.print(
+        f"[bold]model[/bold]  {prov.model_name} ({prov.model_digest})"
+        + ("  [yellow]simulated timings[/yellow]" if provider == "mock"
+           else "  [green]real timings[/green]")
+    )
 
     console.print(
         f"[bold]corpus[/bold] {len(corpus)} conversations, {corpus.n_requests} requests "
@@ -202,6 +216,7 @@ def bench(
             results = sweep(
                 prepared,
                 corpus,
+                provider=prov,
                 sink=sink,
                 run_id=run_id,
                 warm_start=warm,
