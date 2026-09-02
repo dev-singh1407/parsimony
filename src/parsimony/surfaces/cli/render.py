@@ -8,7 +8,10 @@ later sprint — an invisible stage is an unauditable one.
 
 from __future__ import annotations
 
-from rich.console import Console
+import re
+from difflib import SequenceMatcher
+
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -129,8 +132,98 @@ def summary_panel(outcome, simulated: bool = True) -> Panel:
     return Panel("\n".join(lines), title="Summary", border_style="blue")
 
 
-def print_outcome(console: Console, outcome, show_response: bool = True) -> None:
+_MAX_SHOWN_CHARS = 700
+
+
+def _split_words(text: str) -> list[str]:
+    """Split into words with their surrounding whitespace attached.
+
+    Lossless: "".join(_split_words(s)) == s for every s. The second branch
+    exists for runs with no word in them at all — a bare "\\n\\n" between turns
+    is content the panel must reproduce, and a word-only pattern drops it.
+    """
+    return re.findall(r"\s*\S+\s*|\s+", text)
+
+
+def _diff_text(before: str, after: str, *, show: str) -> Text:
+    """One side of a word-level diff.
+
+    `show="before"` marks deleted words; `show="after"` marks inserted ones.
+    Unchanged words are rendered plainly so the surviving meaning is what the
+    eye lands on first.
+    """
+    a, b = _split_words(before), _split_words(after)
+    out = Text()
+    for tag, i1, i2, j1, j2 in SequenceMatcher(None, a, b).get_opcodes():
+        if tag == "equal":
+            out.append("".join(a[i1:i2]))
+        elif show == "before" and tag in ("delete", "replace"):
+            out.append("".join(a[i1:i2]), style="red strike")
+        elif show == "after" and tag in ("insert", "replace"):
+            out.append("".join(b[j1:j2]), style="bold green")
+    return out
+
+
+def _elide(text: Text) -> Text:
+    """A projector has finite height; a 9-turn history does not."""
+    if len(text.plain) <= _MAX_SHOWN_CHARS:
+        return text
+    clipped = text[:_MAX_SHOWN_CHARS]
+    clipped.append(f"\n[... {len(text.plain) - _MAX_SHOWN_CHARS} more characters]", style="dim")
+    return clipped
+
+
+def text_delta_panels(console: Console, outcome, counter=None) -> None:
+    """Show what each stage did to the text itself.
+
+    The trace table proves a stage removed 19 tokens. This shows *which* 19,
+    which is the difference between a reviewer trusting the number and checking
+    it.
+    """
+    counter = counter or (lambda s: None)
+    for d in outcome.text_deltas:
+        if not d.changed and not d.short_circuited:
+            continue
+
+        if d.short_circuited:
+            console.print(
+                Panel(
+                    _elide(Text(d.before)),
+                    title=f"{d.stage} [{d.module_id}] — served without a model; "
+                          f"this prompt was never sent",
+                    border_style="cyan",
+                )
+            )
+            continue
+
+        n_before, n_after = counter(d.before), counter(d.after)
+        if d.reverted:
+            head = (f"{d.stage} [{d.module_id}] — [bold yellow]edit REVERTED "
+                    f"by the fidelity gate[/bold yellow]")
+            sub_before, sub_after = "kept (what the model sees)", "refused (what it would have lost)"
+            border = "yellow"
+        else:
+            head = f"{d.stage} [{d.module_id}]"
+            sub_before, sub_after = "before", "after"
+            border = "green"
+
+        def _label(name: str, n: int | None) -> str:
+            return f"{name}  —  {n} tokens" if n is not None else name
+
+        body = Group(
+            Panel(_elide(_diff_text(d.before, d.after, show="before")),
+                  title=_label(sub_before, n_before), border_style="dim", title_align="left"),
+            Panel(_elide(_diff_text(d.before, d.after, show="after")),
+                  title=_label(sub_after, n_after), border_style="dim", title_align="left"),
+        )
+        console.print(Panel(body, title=head, border_style=border, title_align="left"))
+
+
+def print_outcome(console: Console, outcome, show_response: bool = True,
+                  show_text: bool = False, counter=None) -> None:
     console.print(trace_table(outcome))
+    if show_text:
+        text_delta_panels(console, outcome, counter)
     console.print(summary_panel(outcome, simulated=outcome.row.model_digest.startswith("mock")))
     if show_response:
         console.print(Panel(outcome.response or "[dim](empty)[/dim]", title="Response",

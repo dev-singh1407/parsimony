@@ -50,12 +50,40 @@ MAX_TRACKED_CONVERSATIONS = 256
 
 
 @dataclass(frozen=True, slots=True)
+class TextDelta:
+    """What a stage did to the text, in words rather than in a token count.
+
+    A trace row saying "-19 tokens" is auditable only to someone who trusts the
+    counter. Showing the text makes the same claim checkable by eye, which is
+    what a demo needs and what a reviewer asks for first.
+
+    Deliberately NOT part of StageTrace or LedgerRow. A sweep writes ~4,500
+    rows; carrying two full payload strings per stage on each would multiply the
+    ledger's size for data no analysis reads, and would force a schema bump that
+    invalidates existing ledger files. This is display-only and off by default.
+    """
+
+    stage: str
+    module_id: str
+    before: str
+    after: str
+    reverted: bool = False
+    short_circuited: bool = False
+
+    @property
+    def changed(self) -> bool:
+        return self.before != self.after
+
+
+@dataclass(frozen=True, slots=True)
 class Outcome:
     response: str
     row: LedgerRow
     ctx: RequestContext
     traces: tuple[StageTrace, ...]
     generated: bool
+    # Populated only when the pipeline was built with capture_text=True.
+    text_deltas: tuple[TextDelta, ...] = ()
 
     @property
     def served_by(self) -> str:
@@ -80,8 +108,11 @@ class Pipeline:
         run_id: str | None = None,
         pass_kind: str = "quality",
         corpus_hash: str | None = None,
+        capture_text: bool = False,
     ) -> None:
         self.cfg = cfg
+        # Display-only, and never on during a sweep: see TextDelta.
+        self.capture_text = capture_text
         self.tokenizer = tokenizer or get_tokenizer(cfg.tokenizer_id)
         self.provider = provider or MockProvider()
         self.provider_large = provider_large
@@ -159,6 +190,7 @@ class Pipeline:
         original_ctx = ctx
 
         traces: list[StageTrace] = []
+        text_deltas: list[TextDelta] = []
         tokens_per_stage: dict[str, int] = {}
         gate_events: list[GateEvent] = []
         cache_stage = None
@@ -218,6 +250,11 @@ class Pipeline:
                     _trace(stage, StageOutcome.SHORT_CIRCUIT, before_tokens, 0, t0,
                            proposal.rationale, proposal.evidence)
                 )
+                if self.capture_text:
+                    text_deltas.append(
+                        TextDelta(stage.name, stage.module_id, ctx.text_payload(), "",
+                                  short_circuited=True)
+                    )
                 short = proposal
                 break
 
@@ -238,6 +275,11 @@ class Pipeline:
                     _trace(stage, StageOutcome.APPLIED, before_tokens, after_tokens, t0,
                            proposal.rationale, proposal.evidence)
                 )
+                if self.capture_text:
+                    text_deltas.append(
+                        TextDelta(stage.name, stage.module_id,
+                                  ctx.text_payload(), candidate.text_payload())
+                    )
                 tokens_per_stage[stage.name] = after_tokens
                 ctx = candidate  # commit
             else:
@@ -246,7 +288,15 @@ class Pipeline:
                     _trace(stage, StageOutcome.REVERTED, before_tokens, before_tokens, t0,
                            verdict.detail, {}, tuple(verdict.events))
                 )
-                # revert == do nothing
+                # revert == do nothing. The candidate is still captured: the
+                # edit the gate refused is the most informative thing the
+                # pipeline produces, and it is invisible in the committed text.
+                if self.capture_text:
+                    text_deltas.append(
+                        TextDelta(stage.name, stage.module_id,
+                                  ctx.text_payload(), candidate.text_payload(),
+                                  reverted=True)
+                    )
 
         # -- generation or short circuit ------------------------------------
 
@@ -361,7 +411,7 @@ class Pipeline:
         )
 
         self._emit(row)
-        return Outcome(response, row, ctx, tuple(traces), short is None)
+        return Outcome(response, row, ctx, tuple(traces), short is None, tuple(text_deltas))
 
     # -- helpers -----------------------------------------------------------
 

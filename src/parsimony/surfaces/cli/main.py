@@ -22,6 +22,7 @@ from parsimony.eval.metrics import LengthBiasedMockJudge
 from parsimony.eval.runner import additivity_shortfall, run_cell, sweep
 from parsimony.infra.ids import ulid
 from parsimony.infra.storage import JsonlSink, import_jsonl
+from parsimony.infra.tokenization import get_tokenizer
 from parsimony.pipeline.orchestrator import Pipeline
 from parsimony.surfaces.cli.render import print_outcome, trace_table
 
@@ -35,28 +36,33 @@ def chat(
     trace: bool = typer.Option(True, "--trace/--no-trace", help="Show the per-stage trace."),
     plain: bool = typer.Option(False, "--baseline", help="Run with every module disabled."),
     repeat: bool = typer.Option(False, "--repeat", help="Send it twice to exercise the cache."),
+    text: bool = typer.Option(False, "--text/--no-text", "-t",
+                              help="Show the text each stage changed, not just the token count."),
 ) -> None:
     """Run one query through the pipeline."""
     cfg = baseline() if plain else full_stack()
-    pipeline = Pipeline(cfg)
+    pipeline = Pipeline(cfg, capture_text=text)
+    counter = get_tokenizer(cfg.tokenizer_id).count
 
-    outcome = pipeline.run(query)
-    if trace:
-        print_outcome(console, outcome)
-    else:
-        console.print(outcome.response)
+    def show(o):
+        if trace:
+            print_outcome(console, o, show_text=text, counter=counter)
+        else:
+            console.print(o.response)
+
+    show(pipeline.run(query))
 
     if repeat:
         console.print(Rule("second identical request"))
-        again = pipeline.run(query)
-        if trace:
-            print_outcome(console, again)
-        else:
-            console.print(again.response)
+        show(pipeline.run(query))
 
 
 @app.command()
-def demo() -> None:
+def demo(
+    text: bool = typer.Option(True, "--text/--no-text",
+                              help="Show the text each stage changed. On by default: this is "
+                                   "the walkthrough, and a token count alone is not evidence."),
+) -> None:
     """Scripted demonstration of the pipeline (the review walkthrough)."""
     console.print(
         Panel(
@@ -68,12 +74,17 @@ def demo() -> None:
         )
     )
 
-    pipeline = Pipeline(full_stack())
+    demo_cfg = full_stack()
+    pipeline = Pipeline(demo_cfg, capture_text=text)
+    counter = get_tokenizer(demo_cfg.tokenizer_id).count
+
+    def walk(outcome, **kw):
+        print_outcome(console, outcome, show_text=text, counter=counter, **kw)
 
     console.print(Rule("[bold]1. A query no model should ever see[/bold]"))
     console.print("[dim]The routing literature always escalates to a model. The cheapest tier "
                   "answers without one.[/dim]\n")
-    print_outcome(console, pipeline.run("What is 847 * 23?"))
+    walk(pipeline.run("What is 847 * 23?"))
 
     console.print(Rule("[bold]2. Boilerplate is tokens you paid for[/bold]"))
     verbose = (
@@ -81,18 +92,17 @@ def demo() -> None:
         "I would like to know how it works. Thanks in advance!"
     )
     console.print(f"[dim]{verbose}[/dim]\n")
-    print_outcome(console, pipeline.run(verbose))
+    walk(pipeline.run(verbose))
 
     console.print(Rule("[bold]3. The same question, asked again[/bold]"))
-    print_outcome(console, pipeline.run(verbose))
+    walk(pipeline.run(verbose))
 
     console.print(Rule("[bold]4. The fidelity gate refusing a saving[/bold]"))
     console.print(
         "[dim]Two near-duplicate sentences, but one carries a number the other does not. "
         "The compressor tries to drop it; the gate reverts the edit.[/dim]\n"
     )
-    print_outcome(
-        console,
+    walk(
         pipeline.run("Explain the deadline. The deadline is 15 March. The deadline is 16 March."),
         show_response=False,
     )
