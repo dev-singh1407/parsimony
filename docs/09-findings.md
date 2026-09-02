@@ -26,7 +26,11 @@ Full 2⁴ factorial over M1/M2/M3/M5, 151 conversations, 263 requests, 17 cells.
 | **M1** compressor | +0.14 pp | 0.000 |
 | M3×M5 interaction | **−1.14 pp** | 0.004 |
 
-Full stack reaches **+33.5%** total token reduction. **Every interaction term is negative.**
+Full stack reaches **+33.5%** total token reduction. **Every interaction term that is non-zero is negative**
+— M3×M5 −1.14, M2×M5 −0.10, M1×M5 −0.02. The other eight are zero to six decimal places, so the honest
+statement is not "the modules always interfere" but "where they interact at all, they interfere." The three
+non-zero terms all involve M5, which is the tell: M5 shortens output, and only modules that change what there
+is to shorten can overlap with it.
 
 > **Additivity shortfall: 2.53 percentage points, 95% CI [+0.93, +3.99].**
 
