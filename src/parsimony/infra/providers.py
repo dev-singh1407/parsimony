@@ -185,6 +185,12 @@ class OllamaProvider:
         self.timeout = timeout
         self.num_ctx = num_ctx
         self._info: dict | None = None
+        # Server-reported timings from the most recent generate(). Ollama
+        # separates prompt_eval (prefill) from eval (decode), which wall-clock
+        # TTFT cannot: TTFT conflates prefill with HTTP and scheduling overhead.
+        # Research gap 2 is the prefill/decode split, so the authoritative
+        # numbers are worth keeping rather than re-deriving.
+        self.last_stats: dict = {}
 
     # -- identity ----------------------------------------------------------
 
@@ -267,6 +273,42 @@ class OllamaProvider:
         names = {m.get("name", "") for m in tags.get("models", [])}
         return any(n == model or n.split(":")[0] == model.split(":")[0] for n in names)
 
+    # -- measurement -------------------------------------------------------
+
+    def probe(self, prompt: str, *, num_predict: int = 4) -> dict:
+        """One non-streaming call, returning the server's own timings.
+
+        Separate from generate() on purpose. generate() stops yielding once
+        num_predict is reached, which means it can break before the terminating
+        frame arrives — and that frame is where the timings live. Draining the
+        stream just to collect them would make every real generation pay for a
+        measurement it does not use.
+
+        Returns prompt_eval_* (prefill) and eval_* (decode) separately, which is
+        the whole of research gap 2 and is not recoverable from wall-clock TTFT.
+        """
+        body = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"num_predict": num_predict, "temperature": 0.0, "seed": 0},
+        }
+        if self.num_ctx is not None:
+            body["options"]["num_ctx"] = self.num_ctx
+        out = self._post("/api/generate", body)
+        if out.get("error"):
+            raise ProviderError(f"ollama: {out['error']}")
+        self.last_stats = {
+            k: out[k]
+            for k in (
+                "prompt_eval_count", "prompt_eval_duration",
+                "eval_count", "eval_duration",
+                "load_duration", "total_duration", "done_reason",
+            )
+            if k in out
+        }
+        return self.last_stats
+
     # -- generation --------------------------------------------------------
 
     def generate(self, prompt: str, params: GenParams) -> Iterator[TokenEvent]:
@@ -287,6 +329,7 @@ class OllamaProvider:
         )
 
         index = 0
+        self.last_stats = {}
         try:
             for line in resp:
                 if not line.strip():
@@ -311,6 +354,15 @@ class OllamaProvider:
                     if index >= params.num_predict:
                         break
                 if chunk.get("done"):
+                    self.last_stats = {
+                        k: chunk[k]
+                        for k in (
+                            "prompt_eval_count", "prompt_eval_duration",
+                            "eval_count", "eval_duration",
+                            "load_duration", "total_duration", "done_reason",
+                        )
+                        if k in chunk
+                    }
                     break
         finally:
             resp.close()

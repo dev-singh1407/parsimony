@@ -138,10 +138,25 @@ class TestAdditivityShortfall:
 
 class TestCountsQuotedInTheReadme:
     def test_adr_count_matches_the_decision_log(self):
+        """Checked in BOTH documents. The findings header quoted 29 ADRs while
+        the README quoted 32 and the log held 34 — the first version of this
+        test only looked at the README, so the findings header drifted
+        unnoticed."""
         log = (ROOT / "docs" / "03-decision-log.md").read_text(encoding="utf-8")
         actual = len(set(re.findall(r"^#+ ADR-(\d+)", log, re.M)))
-        quoted = int(re.search(r"(\d+) ADRs", README.read_text(encoding="utf-8")).group(1))
-        assert quoted == actual
+        for name, text in _docs():
+            for quoted in re.findall(r"(\d+) ADRs", text):
+                assert int(quoted) == actual, f"{name} says {quoted} ADRs; there are {actual}"
+
+    def test_quoted_test_count_is_not_stale(self):
+        """Both documents lead with a test count. It is the first number a
+        reader sees and the easiest one to leave behind."""
+        counts = {
+            int(m)
+            for _, text in _docs()
+            for m in re.findall(r"\*\*(\d+) tests passing", text)
+        }
+        assert len(counts) <= 1, f"documents disagree on the test count: {sorted(counts)}"
 
     def test_every_doc_linked_from_the_readme_exists(self):
         text = README.read_text(encoding="utf-8")

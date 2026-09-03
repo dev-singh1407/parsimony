@@ -21,7 +21,7 @@ VIT University · B.Tech BCSE497J Project I · Guide: Dr Sathya K
 python reproduce.py --out figures
 ```
 
-**500 tests passing.** Every table below regenerates from a live run in ~40 s. Setup and commands:
+**595 tests passing.** Every table below regenerates from a live run in ~40 s. Setup and commands:
 [`docs/08-setup.md`](docs/08-setup.md).
 
 | Module | State |
@@ -39,13 +39,14 @@ Plus: ledger v1 with dual sinks, generation memoisation, factorial sweep runner,
 bootstrap/effect-size/Pareto statistics, threshold calibration, a cross-vocabulary generalisation study, and
 `reproduce.py`.
 
-**Deferred by request:** Ollama and real model hosting; the dashboard, OpenAI-compatible proxy and browser
-extension.
+**Deferred by request:** the dashboard, OpenAI-compatible proxy and browser extension.
 
-**What is real:** exact token counts under two real vocabularies (Qwen2.5 and GPT-2), every module's logic, the gate and its
-reverts, the cache verifier, the ablation harness and all statistics. **What is simulated:** model responses
-and every latency figure — `MockProvider` synthesises TTFT/TPOT. Every ledger row records
-`model_digest = "mock:v1"`, so no simulated run can later be mistaken for a real one.
+**Runs against a real model.** `qwen2.5:1.5b-instruct` (Q4_K_M) via Ollama, CPU-only, offline — the same
+model whose vocabulary the token counts already used, so attaching it invalidated nothing. `--provider
+ollama` selects it; `--provider mock` keeps the deterministic stand-in for fast, reproducible sweeps. A run
+that asks for the real model and cannot reach it **refuses** rather than falling back, because a run that
+believes it measured a real model and actually measured a fake one is the worst failure available here.
+Every ledger row carries the provider's content digest, so the two can never be confused after the fact.
 
 ### Headline results (151 conversations, 263 requests, 17 cells)
 
@@ -61,7 +62,23 @@ Full stack reaches **+33.5%** total token reduction. **Every interaction term th
 interact at all, they eat each other's lunch rather than compounding. The additivity shortfall is
 **2.53 pp, 95% CI [+0.93, +3.99]**, which excludes zero: that is Contribution 1, measured rather than assumed.
 
-### Four findings that changed the design
+### On a real model, prefill is 92–99% of the time
+
+Measured against `qwen2.5:1.5b-instruct` on a Ryzen 7 CPU, reading Ollama's own prefill/decode split rather
+than wall-clock TTFT:
+
+| input tokens | prefill | decode | prefill share |
+|---|---|---|---|
+| 146 | 1,360 ms | 122 ms | 91.7% |
+| 474 | 3,902 ms | 165 ms | 95.9% |
+| 1,338 | 11,609 ms | 136 ms | 98.8% |
+
+Prefill is linear at **~8.5 ms per input token**. That converts every token result in this project into wall
+clock: the full stack's 11,836 saved input tokens are **100.6 seconds of prefill across the corpus, 383 ms
+per request**. The old `MockProvider` assumed 120 ms TTFT — understating the prompt side by an order of
+magnitude, in the direction that mattered (ADR-034).
+
+### Five findings that changed the design
 
 **The published cache thresholds are unsafe here (ADR-024, ADR-027).** The adversarial negation pair sits at
 cosine 0.924 — *higher than every genuine paraphrase*. The literature's "safe" 0.85–0.92 would auto-accept it
@@ -69,9 +86,11 @@ and serve the opposite answer. Measurement drove the verifier from a 26.7% false
 the fix was three checks nothing in the caching literature performs: operative modifiers (min/max),
 morphological and lexical negation, and alphanumeric identifiers.
 
-**Position-aware placement halves KV prefix reuse for zero token difference (ADR-025).** 94.4 → 47.6 prefix
-tokens reused, with the same turns and the same token count. Every metric in the compression literature
-scores those two configurations identically.
+**Position-aware placement is worth ~0 tokens and ~18 seconds (ADR-025, ADR-034).** Moving one volatile token
+to the head of a prompt — a "turn 3 of 7" preamble — changes the token count by 0.5% and the steady-state
+prefill cost from **212 ms to 18,914 ms**. Ollama reuses the KV cache across requests, so a stable prefix
+gets **98.5%** reuse and a volatile head gets **0.5%**. Every metric in the compression literature scores
+those two configurations identically.
 
 **Negative yield is real but not where the report claims (ADR-026).** Across 495 word deletions and every
 lexicon substitution, none raised the token count — modern BPE encodes the leading space, so whitespace-
@@ -86,6 +105,13 @@ BPE position-0 effects, and only one survives. `"explain"` costs 1 token against
 but GPT-2 charges 2 for both. Half of that ADR was a Qwen fact wearing a general claim's clothes, and this is
 the study that undressed it.
 
+**"Self-improving" is a property of the traffic, not of the module (ADR-033).** M7 mines a policy bundle from
+past conversations; measured properly — mine from one half of the conversations, test on a disjoint half —
+it delivers **+0.00 pp at 0% traffic recurrence and +17.83 pp at 57%**, with zero extra fidelity-gate fires
+at every level. The ablation corpus sits at **1.9% recurrence** because it was authored for ablation
+diversity, which is why M7 shows nothing in the headline table. That is a fact about the corpus, not the
+module — the same distinction as ADR-028.
+
 ## Documents
 
 | Doc | Contents |
@@ -93,7 +119,7 @@ the study that undressed it.
 | [`docs/00-architecture.md`](docs/00-architecture.md) | Layering, core data model, orchestrator, stage ordering, repo layout, cross-cutting concerns |
 | [`docs/01-pipeline-stages.md`](docs/01-pipeline-stages.md) | The eight processing stages, each with objective / inputs / outputs / techniques / libraries / pros / cons / alternatives / recommendation / integration |
 | [`docs/02-module-specs.md`](docs/02-module-specs.md) | M1–M8 internals and ablation wiring |
-| [`docs/03-decision-log.md`](docs/03-decision-log.md) | 32 ADRs with justification and consequences. **The intellectual core** — several record where measurement contradicted the plan |
+| [`docs/03-decision-log.md`](docs/03-decision-log.md) | 34 ADRs with justification and consequences. **The intellectual core** — several record where measurement contradicted the plan |
 | [`docs/04-roadmap.md`](docs/04-roadmap.md) | Re-planned 12-week schedule, sprint plan, milestone gates, scope-cut order, risks |
 | [`docs/05-evaluation-harness.md`](docs/05-evaluation-harness.md) | The compute budget problem and its fix; sweep runner; four quality measures; statistics; validity threats |
 | [`docs/06-contracts.md`](docs/06-contracts.md) | Complete L0 type and protocol definitions + the ledger schema. **Review this first** |

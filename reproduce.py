@@ -340,6 +340,42 @@ def render_energy(ctx: Context) -> str:
     )
 
 
+def render_learning(ctx: Context) -> str:
+    """Gap 6: does what M7 mines help on conversations it never saw?"""
+    from parsimony.eval.learning import recurrence_rate, recurrence_sweep
+
+    points = recurrence_sweep(
+        ctx.corpus, full_stack(), rates=(0.0, 0.2, 0.4, 0.6, 0.8, 0.9)
+    )
+    headers = ["recurrence", "cache seeds", "cold", "warm", "transfer (pp)",
+               "extra hits", "extra gate fires"]
+    rows = []
+    for p in points:
+        s = p.study
+        cold = (s.cold.tokens_in_baseline - s.cold.tokens_in_final) / s.cold.tokens_in_baseline * 100
+        warm = (s.warm.tokens_in_baseline - s.warm.tokens_in_final) / s.warm.tokens_in_baseline * 100
+        rows.append([
+            f"{p.actual:.1f}%", str(len(s.bundle.cache_seed)),
+            f"{cold:.2f}%", f"{warm:.2f}%", f"{s.transfer_pp:+.2f}",
+            f"{s.extra_cache_hits:+d}", f"{s.extra_gate_fires:+d}",
+        ])
+    _write_csv(ctx.out / "learning.csv", headers, rows)
+
+    return (
+        _table(headers, rows)
+        + f"\n\nThe ablation corpus's own recurrence is **{recurrence_rate(ctx.corpus):.1f}%** — it was "
+        "authored for ablation diversity, six classes of deliberately distinct conversations, which is the "
+        "right shape for M1/M2/M3/M5 and the wrong shape for a module that learns from repetition. That is "
+        "why M7 contributes nothing to the headline ablation: a fact about the corpus, not the module "
+        "(ADR-033, and the same distinction as ADR-028).\n\n"
+        "The **exact zero at 0% recurrence** is what makes the rest credible — with nothing repeated the "
+        "bundle is empty and the measurement returns precisely +0.00 pp. **Extra gate fires are zero at "
+        "every level**: warm-starting never bought tokens by serving a wrong answer.\n\n"
+        "Traces are synthetic in their *repetition structure only*; every question is a real corpus "
+        "question and every answer a real pipeline answer."
+    )
+
+
 def render_generalisation(ctx: Context) -> str:
     """Report 4.6's transfer question, on the tokenizer dimension."""
     from parsimony.core.config import factorial_cells as _cells
@@ -441,6 +477,10 @@ SECTIONS: tuple[Section, ...] = (
             ("tokens_in_final", "tokens_out"), render_calibration_table),
     Section("energy", "Energy and cost equivalent",
             ("joules_estimated", "usd_equivalent"), render_energy),
+    # bundle_hash is not a ledger field; it feeds config_hash, which is — so a
+    # warm run is distinguishable from a cold one without a separate column.
+    Section("learning", "M7 transfer vs traffic recurrence",
+            ("config_hash", "cache_hit", "tokens_in_final"), render_learning),
     Section("generalisation", "Cross-vocabulary generalisation",
             ("tokenizer_id", "tokens_in_final", "tokens_out"), render_generalisation),
     Section("tokenprobe", "Negative-yield probe", (), render_tokenprobe),

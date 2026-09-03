@@ -841,3 +841,146 @@ project is trying to characterise.
 - Strengthens Contribution 6 beyond its original claim. The report proposes a calibration table of safe
   settings per model. This finding says something stronger: for some module/encoder combinations **no safe
   setting exists**, and a calibration table that only ever reports a number would hide that.
+
+---
+
+### ADR-033 — M7's value is a property of the traffic, not of the module
+
+**Context.** The project is titled "a stacked, **self-improving** optimisation layer". M7 was built — it
+mines a `PolicyBundle` from logs, `warm_start` loads one into a live pipeline, and the CLI exposes both — but
+nothing in `reproduce.py` ever ran it. "Self-improving" rested on code rather than on a number, which is the
+one claim in the title a reviewer can check in ten seconds.
+
+The obvious measurement is worthless. Replaying a bundle over the conversations it was mined from is
+guaranteed to hit, because the cache seed contains those exact questions; that measures memorisation. The
+real question is whether a bundle mined from one set of conversations helps on a **disjoint** set.
+
+**Decision.** Split by conversation, stratified by class, mine from one half, and measure the other half cold
+against warm — then repeat that across a range of traffic recurrence rates.
+
+**What the first run showed, and why it changed the design.** On the real corpus, transfer was **+0.17 pp**
+from a bundle containing 2 cache seeds, 1 redundancy phrase, 0 templates and an **empty** standing-context
+digest. Before reporting "M7 does not transfer", we measured the corpus:
+
+> **1.9% of user turns repeat a question asked earlier.** Four questions, across 263 turns.
+
+M7 mines repetition. The ablation corpus was authored for *ablation diversity* — six classes of deliberately
+distinct conversations — which is exactly the right shape for measuring M1/M2/M3/M5 and exactly the wrong
+shape for measuring a module that learns from recurrence. This is the same distinction as ADR-028: **M7 is
+corpus-limited, not technique-limited.**
+
+So the deliverable is not a number but a curve.
+
+| actual recurrence | seeds | cold | warm | transfer | extra hits | extra gate fires |
+|---|---|---|---|---|---|---|
+| 0.0% | 0 | 7.21% | 7.21% | **+0.00 pp** | 0 | 0 |
+| 7.5% | 3 | 11.18% | 12.49% | +1.31 pp | +1 | 0 |
+| 22.5% | 8 | 14.99% | 20.41% | +5.43 pp | +4 | 0 |
+| 33.3% | 10 | 23.38% | 31.93% | +8.55 pp | +6 | 0 |
+| 45.0% | 12 | 33.28% | 47.99% | +14.70 pp | +10 | 0 |
+| 57.5% | 16 | 45.69% | 63.52% | **+17.83 pp** | +12 | 0 |
+
+**Justification.** A single number for "does learning transfer" is not answerable, because the answer depends
+entirely on the traffic. Turning it into a calibration curve is the same deliverable the project promises
+everywhere else, extended from *which modules for which query class* to *which modules for which traffic
+shape*.
+
+The **exact zero at 0% recurrence is what makes the rest credible**. With nothing repeated there is nothing
+to mine, the bundle is empty, and the measurement returns precisely +0.00 pp and 0 extra hits. A study whose
+null condition does not come out null is measuring its own plumbing.
+
+**Extra gate fires are zero at every level.** A seeded cache can serve an answer mined from a *different*
+question, so warm-starting could have bought tokens by serving wrong answers. It did not.
+
+**Two integrity notes.**
+
+- Traces are **synthetic in their repetition structure only**. Every question is a real corpus question and
+  every answer a real pipeline answer; what is imposed is how often questions recur. Modelled as a hot set
+  plus a long tail, because that is the shape assistant traffic actually takes — a support desk, a docs bot
+  and a classroom tool all see a few questions repeatedly against a tail of one-offs.
+- The first generator sampled the tail **with** replacement, so the birthday paradox manufactured repeats on
+  its own: a trace requested at 0% recurrence measured **25%** actual recurrence. The x-axis was detached
+  from the thing it claimed to vary, and the curve would have been meaningless. Tail draws are now without
+  replacement, and both the target and the *measured* rate are reported.
+
+**Consequences.**
+
+- "Self-improving" is now a measured claim with a stated precondition: M7 pays above roughly 5-10% traffic
+  recurrence and is worth nothing below it.
+- The headline ablation's silence on M7 is explained rather than hidden. It is a fact about the corpus.
+- Gives the report a defensible deployment recommendation: mine bundles for repetitive workloads
+  (support, documentation, teaching), not for exploratory ones.
+
+---
+
+### ADR-034 — Prefill dominates on CPU, so input reduction buys the expensive half
+
+**Context.** ADR-007 deferred the real provider, and every latency number until now came from
+`MockProvider`'s two constants (120 ms TTFT, 65 ms/token). The project's core argument is a chain — *shorter
+prompt, fewer tokens, less time and energy* — of which only the first link was ever measured. Research gap
+2 is precisely the prefill/decode split, and it was unanswerable by construction.
+
+With `qwen2.5:1.5b-instruct` (Q4_K_M) on a Ryzen 7 5800HS it is answerable.
+
+**Decision.** Read Ollama's server-reported `prompt_eval_duration` and `eval_duration` rather than wall-clock
+TTFT. TTFT conflates prefill with HTTP and scheduling overhead; the gap is specifically about the split.
+
+**Findings.**
+
+| input tokens | prefill | decode | ms / input token | prefill share |
+|---|---|---|---|---|
+| 146 | 1,360 ms | 122 ms | 9.31 | 91.7% |
+| 257 | 2,119 ms | 124 ms | 8.25 | 94.5% |
+| 474 | 3,902 ms | 165 ms | 8.23 | 95.9% |
+| 906 | 7,691 ms | 131 ms | 8.49 | 98.3% |
+| 1,338 | 11,609 ms | 136 ms | 8.68 | 98.8% |
+
+Prefill is linear in input length at roughly **8.5 ms per input token** and accounts for **92-99%** of
+total time. Decode is nearly constant. **The simulation was wrong in the direction that mattered**: it
+assumed 120 ms TTFT, understating the prompt side by more than an order of magnitude, and 65 ms/token
+decode against a real 37-47 ms.
+
+Applying the measured rate to the existing ablation converts every token result into wall clock:
+
+| cell | input tokens saved | prefill saved (corpus) | per request |
+|---|---|---|---|
+| M5 | 3,660 | 31.1 s | 118 ms |
+| M3 | 6,469 | 55.0 s | 209 ms |
+| M1+M2+M3+M5 | 9,308 | 79.1 s | 301 ms |
+| **full stack +M4+M6** | **11,836** | **100.6 s** | **383 ms** |
+
+**Second finding — prompt order has a wall-clock price.** ADR-025 measured position-aware placement in
+*prefix tokens reused*, a proxy nobody outside this project reports. Ollama reuses the KV cache across
+requests, so the proxy has a price:
+
+| arrangement | tokens | first call | steady state | reuse |
+|---|---|---|---|---|
+| stable prefix (M4) | 1,490 | 14,569 ms | **212 ms** | **98.5%** |
+| volatile head | 1,497 | 19,014 ms | **18,914 ms** | **0.5%** |
+
+Same content, 7 tokens apart (0.5%), **~80x the steady-state cost**. Every metric in the compression
+literature scores these two configurations identically. Reproduced across runs: 98.5%/98.7% against
+0.5%/-4.7%.
+
+**Three measurement traps, all of which produced a plausible flat line rather than an error.**
+
+1. **Prefix reuse.** Consecutive probes sharing a prefix let the server skip prefill entirely. The first
+   attempt reported a flat ~2,100 ms TTFT across an 85x range of prompt sizes.
+2. **Context truncation.** With `num_ctx` unset, 7,000- and 14,000-token prompts were both silently cut to
+   2,050 tokens — and because truncation removes the *head*, it deleted the unique marker and made two
+   different prompts identical, reporting 0.03 ms/token. The window is now explicit and any prompt whose
+   measured token count falls short of the request is dropped with a reason.
+3. **Cache persistence across processes.** Ollama's KV cache outlives the Python process, so with fixed
+   prompts only the very first execution measures prefill. A re-run reported 0.37 ms/token against the first
+   run's 8.25, and turned the prefix arms into nonsense (-10,092% "reuse"). Every run now carries a fresh
+   nonce. **A measurement valid only the first time it is ever executed would have failed live in front of a
+   reviewer running the demo twice.**
+
+**Consequences.**
+
+- The project's central claim stops being an assumption. On CPU, input tokens *are* the dominant cost, and
+  the simulation understated how much.
+- M4 graduates from a proxy metric to a wall-clock result, and its payoff is far larger than the token
+  counts suggested — because it is worth ~0 tokens and ~18 seconds.
+- Every latency figure produced before this ADR should be read as pipeline-correctness evidence only, which
+  is what `model_digest = "mock:v1"` was always there to signal.

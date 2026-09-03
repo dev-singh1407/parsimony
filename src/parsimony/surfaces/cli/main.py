@@ -436,6 +436,105 @@ def calibrate_dedup(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
 
 
 @app.command()
+def learning(
+    corpus_path: Path = typer.Option(None, "--corpus"),
+    rates: str = typer.Option("0,0.2,0.4,0.6,0.8,0.9", "--rates",
+                              help="Recurrence rates to sweep."),
+    conversations: int = typer.Option(120, "--conversations"),
+) -> None:
+    """Does what M7 learns transfer to unseen conversations? (gap 6)"""
+    from parsimony.eval.learning import recurrence_rate, recurrence_sweep
+
+    corpus = load_corpus(corpus_path)
+    console.print(
+        f"[bold]corpus[/bold] {len(corpus)} conversations, recurrence "
+        f"[cyan]{recurrence_rate(corpus):.1f}%[/cyan] — authored for ablation diversity, "
+        f"which leaves M7 almost nothing to mine."
+    )
+
+    parsed = tuple(float(r) for r in rates.split(",") if r.strip())
+    with console.status("[bold green]sweeping") as status:
+        points = recurrence_sweep(
+            corpus, full_stack(), rates=parsed, n_conversations=conversations,
+            progress=lambda m: status.update(f"[bold green]{m}"),
+        )
+
+    table = Table(title="M7 transfer vs traffic recurrence", header_style="bold")
+    for col, just in (("recurrence", "right"), ("seeds", "right"), ("cold", "right"),
+                      ("warm", "right"), ("transfer", "right"), ("+hits", "right"),
+                      ("+gate", "right"), ("verdict", "left")):
+        table.add_column(col, justify=just)
+    for p in points:
+        s = p.study
+        cold = (s.cold.tokens_in_baseline - s.cold.tokens_in_final) / s.cold.tokens_in_baseline * 100
+        warm = (s.warm.tokens_in_baseline - s.warm.tokens_in_final) / s.warm.tokens_in_baseline * 100
+        table.add_row(
+            f"{p.actual:.1f}%", str(len(s.bundle.cache_seed)), f"{cold:.2f}%", f"{warm:.2f}%",
+            f"[bold green]{s.transfer_pp:+.2f} pp[/bold green]" if s.transfer_pp > 0
+            else f"{s.transfer_pp:+.2f} pp",
+            f"{s.extra_cache_hits:+d}",
+            f"[red]{s.extra_gate_fires:+d}[/red]" if s.extra_gate_fires > 0
+            else f"{s.extra_gate_fires:+d}",
+            s.verdict,
+        )
+    console.print(table)
+    console.print(
+        "[dim]Traces are synthetic in their REPETITION STRUCTURE only: every question is a real\n"
+        "corpus question and every answer a real pipeline answer. Modelled as a hot set plus a\n"
+        "long tail, the shape assistant traffic actually takes.[/dim]"
+    )
+
+
+@app.command()
+def latency(
+    model: str = typer.Option(None, "--model", help="Ollama model tag."),
+) -> None:
+    """Where the time goes: prefill vs decode, and what prompt order costs (gap 2)."""
+    from parsimony.eval.latency import prefill_scaling, prefix_reuse
+
+    provider = make_provider("ollama", model=model)
+    console.print(f"[bold]model[/bold] {provider.model_name} ({provider.quantisation})")
+
+    with console.status("[bold green]measuring prefill") as status:
+        points = prefill_scaling(provider, progress=lambda m: status.update(f"[bold green]{m}"))
+
+    t = Table(title="Prefill dominates on CPU", header_style="bold")
+    for c in ("input tokens", "prefill", "decode", "ms / input token", "prefill share"):
+        t.add_column(c, justify="right")
+    for p in points:
+        t.add_row(f"{p.prompt_tokens}", f"{p.prefill_ms:.0f} ms", f"{p.decode_ms:.0f} ms",
+                  f"{p.ms_per_prompt_token:.2f}", f"{p.prefill_share:.1f}%")
+    console.print(t)
+
+    if points:
+        rate = sum(p.ms_per_prompt_token for p in points) / len(points)
+        console.print(
+            f"[bold]Every input token removed is worth ~{rate:.1f} ms.[/bold] "
+            f"[dim]MockProvider assumed 120 ms TTFT and 65 ms/token, so the simulation "
+            f"understated the prompt side.[/dim]\n"
+        )
+
+    with console.status("[bold green]measuring prefix reuse") as status:
+        arms = prefix_reuse(provider, progress=lambda m: status.update(f"[bold green]{m}"))
+
+    t2 = Table(title="What a volatile token at position 0 costs (ADR-025)", header_style="bold")
+    for c in ("arrangement", "tokens", "first call", "steady state", "reuse"):
+        t2.add_column(c, justify="right")
+    t2.columns[0].justify = "left"
+    for a in arms:
+        t2.add_row(a.label, str(a.prompt_tokens), f"{a.first_ms:.0f} ms",
+                   f"{a.steady_ms:.0f} ms", f"{a.reuse_pct:.1f}%")
+    console.print(t2)
+    if len(arms) == 2 and arms[1].steady_ms > 0:
+        console.print(
+            f"[bold yellow]Same content, {abs(arms[0].prompt_tokens - arms[1].prompt_tokens)} "
+            f"tokens apart, {arms[1].steady_ms / max(1e-9, arms[0].steady_ms):.0f}x the cost."
+            f"[/bold yellow] [dim]Every metric in the compression literature scores these two "
+            f"configurations identically.[/dim]"
+        )
+
+
+@app.command()
 def generalise(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
     """Does a calibration transfer to another vocabulary? (gap 5, contribution 6)"""
     from parsimony.eval.generalisation import (

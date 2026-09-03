@@ -1,16 +1,20 @@
 # Parsimony — Findings to date
 
-**Status:** all eight modules built · **480 tests passing** · every number below regenerates with
+**Status:** all eight modules built · **595 tests passing** · every number below regenerates with
 `python reproduce.py`
 
-This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (29 ADRs);
+This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (34 ADRs);
 this document is what those decisions *found*.
 
-**One caveat governs everything here.** Generation runs against `MockProvider`, not a real model. Token
-counts, module logic, the fidelity gate, the cache verifier, the statistics and every behavioural metric are
-real. **Latency and energy figures are simulated** and are marked as such wherever they appear; every ledger
-row records `model_digest = "mock:v1"` so no simulated run can later be mistaken for a real one. Attaching
-Ollama makes the latency claims real without changing any of the findings below.
+**Which numbers came from where.** Sections 1–7 and 9 run against `MockProvider`, a deterministic stand-in:
+token counts, module logic, the fidelity gate, the cache verifier and every statistic are real, and the
+sweeps are reproducible because the mock is. **Section 8 is measured against a real model** —
+`qwen2.5:1.5b-instruct` (Q4_K_M) on CPU via Ollama — and that is where every latency claim now comes from.
+
+The distinction is enforced, not asserted: each ledger row carries the provider's content digest, `mock:v1`
+against `ollama:<digest>`, so no simulated run can be mistaken for a real one after the fact. Attaching the
+real model changed **no** token result, because the tokenizer was already Qwen2.5's. It changed the latency
+picture substantially, and §8 says how.
 
 ---
 
@@ -252,7 +256,80 @@ worth reporting because the matching number would otherwise be read as agreement
 **Scope, stated plainly:** this is the tokenizer dimension of §4.6. Decode speed, answer quality and
 quantisation belong to the model and still need a real provider.
 
-## 8. Two limitations we can name precisely
+## 8. On a real model, the prompt side is the expensive half
+
+Everything before this section was measured against `MockProvider`, which invents TTFT and TPOT from two
+constants. `qwen2.5:1.5b-instruct` (Q4_K_M) now runs locally on CPU — the same model whose vocabulary the
+token counts already used, so attaching it invalidated nothing.
+
+Reading Ollama's own prefill/decode split rather than wall-clock TTFT (which conflates prefill with HTTP and
+scheduling overhead):
+
+| input tokens | prefill | decode | ms / input token | prefill share |
+|---|---|---|---|---|
+| 146 | 1,360 ms | 122 ms | 9.31 | 91.7% |
+| 257 | 2,119 ms | 124 ms | 8.25 | 94.5% |
+| 474 | 3,902 ms | 165 ms | 8.23 | 95.9% |
+| 906 | 7,691 ms | 131 ms | 8.49 | 98.3% |
+| 1,338 | 11,609 ms | 136 ms | 8.68 | 98.8% |
+
+**Prefill is linear at ~8.5 ms per input token and is 92–99% of total time.** This is research gap 2, and it
+is the empirical foundation the project previously had to assume: on CPU, input tokens *are* the cost.
+
+The simulation was wrong in the direction that mattered — it assumed 120 ms TTFT, understating the prompt
+side by more than an order of magnitude, and 65 ms/token decode against a real 37–47 ms.
+
+Applying the measured rate converts every token result into wall clock:
+
+| cell | input tokens saved | prefill saved | per request |
+|---|---|---|---|
+| M5 | 3,660 | 31.1 s | 118 ms |
+| M3 | 6,469 | 55.0 s | 209 ms |
+| M1+M2+M3+M5 | 9,308 | 79.1 s | 301 ms |
+| **full stack** | **11,836** | **100.6 s** | **383 ms** |
+
+**And prompt order has a price.** ADR-025 measured position-aware placement in *prefix tokens reused*, a
+proxy nobody outside this project reports. Ollama reuses the KV cache across requests, so:
+
+| arrangement | tokens | first call | steady state | reuse |
+|---|---|---|---|---|
+| stable prefix (M4) | 1,490 | 14,569 ms | **212 ms** | **98.5%** |
+| volatile head | 1,497 | 19,014 ms | **18,914 ms** | **0.5%** |
+
+Same content, 7 tokens apart, **~80× the steady-state cost**. M4 is worth roughly zero tokens and eighteen
+seconds.
+
+Three traps were caught on the way, each of which produced a plausible flat line rather than an error:
+consecutive probes sharing a prefix; silent context truncation deleting the unique head and making two
+prompts identical; and Ollama's KV cache outliving the Python process, so only the first-ever execution
+measured prefill. Every run now carries a fresh nonce (ADR-034).
+
+## 9. "Self-improving" is a property of the traffic
+
+M7 mines a policy bundle from past conversations. Measured honestly — mine from one half of the
+conversations, measure on a **disjoint** half, cold against warm:
+
+| recurrence | seeds | cold | warm | transfer | extra hits | extra gate fires |
+|---|---|---|---|---|---|---|
+| 0.0% | 0 | 7.21% | 7.21% | **+0.00 pp** | 0 | 0 |
+| 7.5% | 3 | 11.18% | 12.49% | +1.31 pp | +1 | 0 |
+| 22.5% | 8 | 14.99% | 20.41% | +5.43 pp | +4 | 0 |
+| 33.3% | 10 | 23.38% | 31.93% | +8.55 pp | +6 | 0 |
+| 45.0% | 12 | 33.28% | 47.99% | +14.70 pp | +10 | 0 |
+| 57.5% | 16 | 45.69% | 63.52% | **+17.83 pp** | +12 | 0 |
+
+The **exact zero at 0% recurrence** is what makes the rest credible: nothing repeated, nothing mined, nothing
+gained. A study whose null condition does not come out null is measuring its own plumbing.
+
+**Extra gate fires are zero at every level.** A seeded cache can serve an answer mined from a different
+question, so warm-starting could have bought tokens by serving wrong answers. It did not.
+
+**Why M7 contributes nothing to the headline ablation:** the corpus's recurrence is **1.9%** — four repeated
+questions across 263 turns. It was authored for ablation diversity, the right shape for M1/M2/M3/M5 and the
+wrong shape for a module that learns from repetition. That is a fact about the corpus, not the module — the
+same distinction as §8's encoder finding.
+
+## 10. Two limitations we can name precisely
 
 **M1 tier 2 is encoder-limited, not technique-limited (ADR-028).** Intended near-duplicates span:
 
@@ -289,7 +366,7 @@ examine, because the exact tier looks unambiguously safe.
 
 ---
 
-## What is not yet measured
+## 11. What is not yet measured
 
 - **Real latency.** Everything runs on `MockProvider`. TTFT/TPOT, the prefill/decode split behind Gap 2, and
   the energy column become real the moment a provider is attached. The two-pass sweep (memoised quality
