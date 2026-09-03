@@ -78,6 +78,13 @@ clock: the full stack's 11,836 saved input tokens are **100.6 seconds of prefill
 per request**. The old `MockProvider` assumed 120 ms TTFT — understating the prompt side by an order of
 magnitude, in the direction that mattered (ADR-034).
 
+And it costs nothing in accuracy. On the 40 gold items the real model scores **90.0% at baseline and 95.0%
+with the full stack**, paired per item: 36 both correct, 2 both wrong, **0 that the baseline got right and
+the full stack got wrong**. Removing a third of the tokens lost no answers. The two gains are arithmetic
+routed to M6's deterministic tier; two discordant pairs is not significant (exact McNemar p = 0.50), so the
+claim is *no measurable degradation* rather than improvement. The old 5% gold column was the mock being
+unable to answer at all.
+
 ### Five findings that changed the design
 
 **The published cache thresholds are unsafe here (ADR-024, ADR-027).** The adversarial negation pair sits at

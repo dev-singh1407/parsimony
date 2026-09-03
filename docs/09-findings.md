@@ -304,6 +304,36 @@ consecutive probes sharing a prefix; silent context truncation deleting the uniq
 prompts identical; and Ollama's KV cache outliving the Python process, so only the first-ever execution
 measured prefill. Every run now carries a fresh nonce (ADR-034).
 
+### Compression does not cost accuracy
+
+The gold column read 5% for almost every cell. That was `MockProvider` being unable to answer questions at
+all, not a pipeline failure — and it made the most important quality question unanswerable. With a real
+model, scored on the same 40 gold items:
+
+| provider | cell | gold accuracy |
+|---|---|---|
+| mock | baseline | 2/40 — 5.0% |
+| mock | full stack | 14/40 — 35.0% |
+| **real** | **baseline** | **36/40 — 90.0%** |
+| **real** | **full stack** | **38/40 — 95.0%** |
+
+Paired, per item:
+
+| | count |
+|---|---|
+| both correct | 36 |
+| both wrong | 2 |
+| **baseline right, full stack wrong** | **0** |
+| baseline wrong, full stack right | 2 |
+
+**Zero regressions.** Removing a third of the tokens did not lose a single answer the baseline got right.
+That is the claim worth making, and it is the one this project exists to test.
+
+The two gains are `847 * 23` and a date difference — both routed to M6's deterministic tier, which computes
+exactly and sends the model nothing. Two discordant pairs is not statistically significant (exact McNemar,
+two-sided **p = 0.50**), so the *statistical* claim stops at "no measurable degradation". The mechanism,
+though, is not chance: a calculator will beat a 1.5B model at three-digit multiplication every time.
+
 ## 9. "Self-improving" is a property of the traffic
 
 M7 mines a policy bundle from past conversations. Measured honestly — mine from one half of the

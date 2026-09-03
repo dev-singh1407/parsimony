@@ -201,17 +201,43 @@ A module is done when all seven hold:
 
 ---
 
-## 6. Immediate next actions
 
-1. **Confirm project location.** These docs are at `final year/parsimony/`. The `nlp/` repo is StockSentinel
-   and unrelated — Parsimony should be its own git repository.
-2. **Review the L0 contracts before anything is built on them** — the complete definitions are in
-   [`06-contracts.md`](06-contracts.md). Changing `RequestContext` in week 6 costs a re-run of every
-   experiment; changing it on day 2 is free. This is the highest-value hour of review available right now.
-3. **Take the three open questions to the guide** (`00-architecture.md` §10): the router/cache ordering
-   deviation, the seeds-at-temperature-0 relabelling, and the embedding-model confound for Gap 3. All three
-   are cheap to resolve now and awkward to resolve in October.
-4. **Start the corpus immediately** — authoring guide, per-class rules, team split and freeze procedure are
-   in [`07-corpus-spec.md`](07-corpus-spec.md). It is the only deliverable with no technical dependencies,
-   all three of you can work it in parallel today, and per ADR-015 it must be frozen and hashed before the
-   first sweep. Target: 30 conversations (5 per class) by 9 Aug to unblock Sprint 0's baseline.
+## 6. Where the project actually stands
+
+Updated 4 September 2026, ahead of the 9 September review.
+
+**Done, measured, and reproducible.** All eight modules; the 2⁴ factorial ablation with bootstrap intervals
+and effect sizes; the three-zone cache verifier at a 0.0% false-hit rate; the corpus frozen and hashed;
+596 tests; `reproduce.py` regenerating fourteen CSVs and a full report in about forty seconds; 34 ADRs.
+
+**Closed since the last revision of this section.**
+
+| Gap | Was | Now |
+|---|---|---|
+| Gap 2 — prefill/decode split | unanswerable under `MockProvider` | prefill is 92–99% of time, linear at ~8.5 ms/input token (ADR-034) |
+| Gap 5 — does a calibration transfer? | one vocabulary | two real vocabularies; ratios transfer, mechanisms do not (ADR-032) |
+| Gap 6 — does mined policy transfer? | M7 built but never run | +0.00 pp at 0% recurrence to +17.83 pp at 57% (ADR-033) |
+| Real model | deferred | `qwen2.5:1.5b-instruct` Q4_K_M, CPU-only, offline |
+| Answer quality | 5% gold — a mock artefact | 90% baseline, 95% full stack, **zero regressions** |
+
+**Open, in priority order.**
+
+1. **Widen the true-hit denominator.** 21 control pairs is thin for a 33.3% true-hit rate; it should roughly
+   double. Pure authoring, no technical dependency, and the one task the whole team can parallelise.
+2. **Swap the lexical encoder for MiniLM.** ADR-028 quantifies the case: tier 2's near-zero contribution is
+   an encoder property, and no threshold recovers the pairs it should be merging. This is the single largest
+   available improvement to a module that currently does nothing.
+3. **Run the full sweep against the real model.** The token results will not move — the tokenizer was
+   already Qwen2.5's — but the timing and energy columns become real throughout rather than only in §8 of
+   the findings. Budget it: generation memoisation avoids 78.2% of calls, but the unmemoised timing pass is
+   the expensive one.
+4. **A real judge.** The current model-as-judge is a deliberate length-biased stand-in, built so the
+   swap-disagreement machinery could be shown to detect bias. With a real model available it can be
+   replaced, and the disagreement rate becomes a quality signal instead of a demonstration.
+5. **Escalation with a second model.** M6's `MODEL_LARGE` tier has nowhere to escalate to while only one
+   model is installed; `_provider_for` records the tier honestly rather than pretending, so this is a
+   measurement waiting on a download.
+
+**Explicitly out of scope for Project I:** the dashboard, the OpenAI-compatible proxy, and the browser
+extension. They are surfaces over results that already exist, and none of them would answer a research
+question.
