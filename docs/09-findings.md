@@ -51,7 +51,8 @@ rather than importance (ADR-021).
 
 ## 2. The published cache thresholds are unsafe at this scale
 
-Measured on 45 adversarial pairs (one operative token apart) plus 21 controls.
+Measured on 45 adversarial pairs (one operative token apart) plus **45 controls** — pairs that mean the same
+thing and *should* hit.
 
 The adversarial **negation** pair sits at cosine **0.924** — *higher than every genuine paraphrase in the
 set*:
@@ -91,10 +92,17 @@ Raising the threshold cannot substitute: similarity alone does not reach the <2%
 in the sweep, because adversarial pairs sit above genuine paraphrases. The verifier is four set comparisons
 costing microseconds, where the literature reaches for a cross-encoder.
 
-**Cost, stated plainly.** At the safe operating point (τ_hi = 0.97) the true-hit rate is 33.3% (7/21
-controls). The cache is safe and conservative; two thirds of legitimate paraphrases are missed. Loosening to
-0.90 buys 4.8 points of true hits for 8.9% false hits — a bad trade, which is how 0.95–0.97 was chosen from
-data rather than preference.
+**Cost, stated plainly.** At the safe operating point (τ_hi = 0.97) the true-hit rate is **22.2% (10/45
+controls)**. The cache is safe and conservative; more than three quarters of legitimate paraphrases are
+missed. Loosening to 0.90 buys **2.2 points** of true hits for **8.9%** false hits — a plainly bad trade,
+which is how 0.95–0.97 was chosen from data rather than preference.
+
+> **The controls were doubled, and the true-hit rate fell.** On the original 21 controls this figure read
+> 33.3% (7/21). Twenty-four further controls — synonymous superlatives, abbreviation/expansion pairs, digit
+> versus spelled ordinals, clause reordering — took it to 22.2%, because the added pairs are harder than the
+> ones already there. **The false-hit rate did not move: 0/45, 0.0%, unchanged.** So the safety claim
+> survives a doubled denominator and the *benefit* claim was optimistic on a thin one. A 21-control
+> denominator also moved 4.8 points per pair, which is too coarse to choose a threshold with.
 
 ---
 
@@ -405,7 +413,9 @@ examine, because the exact tier looks unambiguously safe.
 - **A real judge.** The model-as-judge is a length-biased stand-in — deliberately, so the swap-disagreement
   machinery can be shown to detect bias. Its 91–98% disagreement rate on near-identical answers is the
   machinery working, not a quality signal.
-- **True-hit rate at scale.** 21 control pairs is a thin denominator; it should roughly double.
+- **True-hit rate at scale.** Now 45 controls against 45 adversarial. The false-hit rate held at 0.0%
+  and the true-hit rate fell to 22.2%, so the remaining question is not the denominator but the encoder:
+  the missed paraphrases are the same lexical-similarity failure ADR-028 quantifies.
 
 ## Reproducing all of it
 

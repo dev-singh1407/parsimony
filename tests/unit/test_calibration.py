@@ -144,15 +144,26 @@ def embedder():
 
 class TestCalibrationSweep:
     def test_corpus_has_the_declared_composition(self, pairs):
+        """All four operative classes must be present. Additional control-only
+        classes are allowed: `paraphrase` pairs differ in no operative token at
+        all, which is a distinct kind of control and the plainest case the cache
+        must hit."""
         counts: dict[str, int] = {}
         for p in pairs:
             counts[p.operative] = counts.get(p.operative, 0) + 1
-        assert set(counts) == {"negation", "number", "entity", "modifier"}
-        assert len(pairs) >= 60
+        assert {"negation", "number", "entity", "modifier"} <= set(counts)
+        assert len(pairs) >= 88
 
     def test_includes_control_pairs(self, pairs):
-        """Without controls, 'reject everything' scores a perfect false-hit rate."""
-        assert sum(1 for p in pairs if not p.answers_differ) >= 20
+        """Without controls, 'reject everything' scores a perfect false-hit rate.
+
+        Balanced against the adversarial half: a true-hit rate quoted over 21
+        controls moves 4.8 points per pair, which is too coarse to choose a
+        threshold with."""
+        controls = sum(1 for p in pairs if not p.answers_differ)
+        adversarial = sum(1 for p in pairs if p.answers_differ)
+        assert controls >= 40
+        assert abs(controls - adversarial) <= 5, "the two halves should stay balanced"
 
     def test_default_configuration_meets_the_false_hit_target(self, pairs, embedder):
         """Report 3.3 sets the target below 2%."""

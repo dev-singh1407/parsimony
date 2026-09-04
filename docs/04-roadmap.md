@@ -219,22 +219,21 @@ and effect sizes; the three-zone cache verifier at a 0.0% false-hit rate; the co
 | Gap 6 — does mined policy transfer? | M7 built but never run | +0.00 pp at 0% recurrence to +17.83 pp at 57% (ADR-033) |
 | Real model | deferred | `qwen2.5:1.5b-instruct` Q4_K_M, CPU-only, offline |
 | Answer quality | 5% gold — a mock artefact | 90% baseline, 95% full stack, **zero regressions** |
+| True-hit denominator | 21 controls | 45 controls, balanced against 45 adversarial; false-hit rate unchanged at 0.0% |
 
 **Open, in priority order.**
 
-1. **Widen the true-hit denominator.** 21 control pairs is thin for a 33.3% true-hit rate; it should roughly
-   double. Pure authoring, no technical dependency, and the one task the whole team can parallelise.
-2. **Swap the lexical encoder for MiniLM.** ADR-028 quantifies the case: tier 2's near-zero contribution is
+1. **Swap the lexical encoder for MiniLM.** ADR-028 quantifies the case: tier 2's near-zero contribution is
    an encoder property, and no threshold recovers the pairs it should be merging. This is the single largest
    available improvement to a module that currently does nothing.
-3. **Run the full sweep against the real model.** The token results will not move — the tokenizer was
+2. **Run the full sweep against the real model.** The token results will not move — the tokenizer was
    already Qwen2.5's — but the timing and energy columns become real throughout rather than only in §8 of
    the findings. Budget it: generation memoisation avoids 78.2% of calls, but the unmemoised timing pass is
    the expensive one.
-4. **A real judge.** The current model-as-judge is a deliberate length-biased stand-in, built so the
+3. **A real judge.** The current model-as-judge is a deliberate length-biased stand-in, built so the
    swap-disagreement machinery could be shown to detect bias. With a real model available it can be
    replaced, and the disagreement rate becomes a quality signal instead of a demonstration.
-5. **Escalation with a second model.** M6's `MODEL_LARGE` tier has nowhere to escalate to while only one
+4. **Escalation with a second model.** M6's `MODEL_LARGE` tier has nowhere to escalate to while only one
    model is installed; `_provider_for` records the tier honestly rather than pretending, so this is a
    measurement waiting on a download.
 
