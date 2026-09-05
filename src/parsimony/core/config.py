@@ -217,7 +217,13 @@ class ParsimonyConfig:
     # Lexical embedder by default — no PyTorch. "all-MiniLM-L6-v2" swaps in
     # behind the same protocol once the models extra is installed; every
     # similarity threshold must then be recalibrated (see infra/embedding.py).
-    embedder_id: str = "hashing-v1"
+    #
+    # content-v1 over hashing-v1 (ADR-035): stopword removal and stemming, both
+    # still purely lexical. At the SAME tau_hi = 0.97 it holds the false-hit
+    # rate at 0.0% and raises true hits 22.2% -> 28.9%. It is also safe at 0.92
+    # (31.1% true), but 0.90 is not (4.4% false), so the default stays at 0.97
+    # rather than sitting one adversarial pair away from the cliff.
+    embedder_id: str = "content-v1"
     system_prompt: str = "You are a concise, accurate assistant."
     # Standing facts mined by M7. Part of M4's invariant zone, so it is
     # byte-stable across turns and lengthens the reusable KV prefix.

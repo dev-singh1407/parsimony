@@ -984,3 +984,99 @@ literature scores these two configurations identically. Reproduced across runs: 
   counts suggested — because it is worth ~0 tokens and ~18 seconds.
 - Every latency figure produced before this ADR should be read as pipeline-correctness evidence only, which
   is what `model_digest = "mock:v1"` was always there to signal.
+
+---
+
+### ADR-035 — A content-aware lexical encoder, and what fixing it did to Contribution 1
+
+**Context.** ADR-028 measured M1 tier 2's near-zero contribution as an **encoder** property rather than a
+technique failure: the paraphrases tier 2 exists to merge scored barely above unrelated text — "The recipe
+needs 250 g of flour" against "You will need 250 g flour for this" at **0.321**. The stated fix was MiniLM,
+which pulls PyTorch: ~2 GB and real memory pressure on the target 8 GB machine.
+
+**Decision.** Fix it lexically instead. `ContentEmbedder` (`content-v1`) subclasses `HashingEmbedder` and
+changes two things, both cheap and neither requiring a dependency:
+
+- **drop stopwords**, so the vector describes subject matter rather than syntax;
+- **stem what remains** with crude suffix stripping, so "monthly" meets "month" and "comes" meets "come".
+
+Character n-grams are then taken over the *content* string rather than the raw one, so "rain"/"rainfall"
+still collides without spending vector capacity on " is ", " to " and " the ".
+
+**The trap, which cost a full measurement cycle.** The first stopword list was the ordinary one — and
+ordinary stopword lists are built for **information retrieval**, where negation is noise because a document
+about safety is relevant to a query about safety either way. A cache verifier has the opposite problem.
+With "not" and "no" stripped:
+
+```
+"Is it safe to mix bleach and vinegar?"      content: [safe, mix, bleach, vinegar]
+"Is it NOT safe to mix bleach and vinegar?"  content: [safe, mix, bleach, vinegar]
+                                             cosine:  1.000
+```
+
+Five adversarial pairs became **bit-identical vectors for opposite questions**, putting an **11.1% false-hit
+floor under every threshold including 0.99** — the encoder had no safe operating point at all. Negation and
+the quantifiers "all", "any", "some", "every" are operative tokens in exactly the sense ADR-027 means, and
+are now excluded from the list by name, with a test per word.
+
+**Result, after the fix.**
+
+| τ_hi | hashing-v1 false / true | content-v1 false / true |
+|---|---|---|
+| 0.90 | 8.9% / 24.4% | 4.4% / 35.6% |
+| 0.92 | 4.4% / 24.4% | **0.0% / 31.1%** |
+| 0.95 | 0.0% / 22.2% | 0.0% / 28.9% |
+| 0.97 | **0.0% / 22.2%** | **0.0% / 28.9%** |
+
+At the same τ_hi = 0.97 the false-hit rate stays at **0.0%** and true hits rise **22.2% → 28.9%**. The
+ADR-028 pairs improve from 0.729/0.412/0.321 to 0.738/0.561/**0.847**.
+
+**τ_hi stays at 0.97, not 0.92.** 0.92 is also safe on this corpus and buys 2.2 more points, but 0.90 is not
+(4.4% false), so 0.92 sits one adversarial pair from the cliff. A threshold step of margin is worth more than
+2.2 points of true-hit rate in a component whose failure mode is serving the opposite answer.
+
+**Consequence for the pipeline.** Cache hits 9 → 11, full-stack reduction 33.5% → **33.9%**, on a corpus
+whose recurrence is only 1.9% (ADR-033) — the cache has very little to work with here, so this understates
+the gain on repetitive traffic.
+
+**Consequence for Contribution 1, which must be stated plainly.**
+
+| | hashing-v1 | content-v1 |
+|---|---|---|
+| M2 main effect | +1.61 pp | +1.94 pp |
+| M3×M5 interaction | −1.14 | −0.70 |
+| **additivity shortfall** | **2.53 pp, 95% CI [+0.93, +3.99]** | **1.63 pp, 95% CI [−0.02, +3.23]** |
+
+Improving the encoder **weakened the headline claim**. A better cache contributes more independently and
+overlaps the other modules less, so the shortfall shrank and its interval now touches zero: under
+`content-v1` the shortfall is no longer distinguishable from zero at 95%.
+
+The worse encoder was **not** reinstated to protect the result. Choosing a component known to be inferior
+because it produces a more publishable number is the failure mode this entire project is written against —
+the same instinct that would have had us quote the literature's 0.85 threshold and never run the adversarial
+set.
+
+**What this actually shows.** The additivity shortfall is not a constant of the technique stack; it is a
+property of a *configuration*. That is Contribution 6's claim — a calibration table per configuration rather
+than one universal number — arriving unbidden in Contribution 1's territory. The defensible statement is
+therefore stronger and narrower than the original:
+
+> Savings do not compound, and **by how much they fail to compound depends on the components**. Under a
+> weak encoder the shortfall is 2.53 pp and clearly non-zero; improve the encoder and it falls to 1.63 pp
+> with an interval touching zero, because a cache that hits more often overlaps its neighbours less.
+
+Both configurations are reported. Reporting only the flattering one would be the same error in a different
+direction.
+
+**Consequences.**
+
+- `content-v1` is the default; `hashing-v1` remains selectable and is still what the contract suite and the
+  comparison table exercise, so both calibrations stay live.
+- Every threshold in the project is per-encoder, and the two encoders' ids differ so one's calibration can
+  never be read as the other's.
+- ADR-028's recommendation is **partly discharged**: the encoder was the bottleneck, and a lexical fix
+  recovers a large part of the gap at zero dependency cost. MiniLM remains the larger remaining step, and
+  the case for it is now weaker than ADR-028 implied.
+- The one M3 test that pinned which of two on-topic turns ranked highest was decided by a 0.02 margin under
+  the old encoder and reverses under the new one. It now asserts topicality rather than the winner, because
+  pinning a near-tie is testing a coin flip.

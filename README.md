@@ -21,7 +21,7 @@ VIT University · B.Tech BCSE497J Project I · Guide: Dr Sathya K
 python reproduce.py --out figures
 ```
 
-**595 tests passing.** Every table below regenerates from a live run in ~40 s. Setup and commands:
+**620 tests passing.** Every table below regenerates from a live run in ~40 s. Setup and commands:
 [`docs/08-setup.md`](docs/08-setup.md).
 
 | Module | State |
@@ -52,15 +52,28 @@ Every ledger row carries the provider's content digest, so the two can never be 
 
 | effect | estimate | partial η² |
 |---|---|---|
-| M5 output budgeter | +13.01 pp | 0.546 |
-| M3 history manager | +11.69 pp | 0.441 |
-| M2 semantic cache | +1.61 pp | 0.008 |
-| M1 compressor | +0.14 pp | 0.000 |
+| M5 output budgeter | +13.44 pp | 0.556 |
+| M3 history manager | +11.82 pp | 0.430 |
+| M2 semantic cache | +1.94 pp | 0.012 |
+| M1 compressor | +0.23 pp | 0.000 |
 
-Full stack reaches **+33.5%** total token reduction. **Every interaction term that is non-zero is negative**
-(M3×M5 −1.14, M2×M5 −0.10, M1×M5 −0.02; the remaining 8 are zero to six decimal places) — where the modules
-interact at all, they eat each other's lunch rather than compounding. The additivity shortfall is
-**2.53 pp, 95% CI [+0.93, +3.99]**, which excludes zero: that is Contribution 1, measured rather than assumed.
+Full stack reaches **+33.9%** total token reduction. The two material interaction terms are both
+negative — **M3×M5 −0.70** and **M2×M5 −0.11** — so where the modules interact at all, they eat each other's
+lunch rather than compounding. Every other term sits within ±0.02, indistinguishable from zero at this
+sample size.
+
+**The additivity shortfall depends on the configuration, and that is the sharper result.** Improving the
+encoder (ADR-035) made the cache hit more often, which made it overlap its neighbours *less*:
+
+| encoder | M2 effect | M3×M5 | additivity shortfall |
+|---|---|---|---|
+| `hashing-v1` | +1.61 pp | −1.14 | 2.53 pp, 95% CI **[+0.93, +3.99]** |
+| `content-v1` (default) | +1.94 pp | −0.70 | 1.63 pp, 95% CI **[−0.02, +3.23]** |
+
+So savings do not compound — but *by how much they fail to compound* is a property of the components, not a
+constant of the technique stack. Under the better encoder the shortfall is no longer distinguishable from
+zero at 95%. The weaker encoder was not reinstated to protect the interval: picking a component known to be
+worse because it yields a more publishable number is the failure mode this project is written against.
 
 ### On a real model, prefill is 92–99% of the time
 
@@ -126,7 +139,7 @@ module — the same distinction as ADR-028.
 | [`docs/00-architecture.md`](docs/00-architecture.md) | Layering, core data model, orchestrator, stage ordering, repo layout, cross-cutting concerns |
 | [`docs/01-pipeline-stages.md`](docs/01-pipeline-stages.md) | The eight processing stages, each with objective / inputs / outputs / techniques / libraries / pros / cons / alternatives / recommendation / integration |
 | [`docs/02-module-specs.md`](docs/02-module-specs.md) | M1–M8 internals and ablation wiring |
-| [`docs/03-decision-log.md`](docs/03-decision-log.md) | 34 ADRs with justification and consequences. **The intellectual core** — several record where measurement contradicted the plan |
+| [`docs/03-decision-log.md`](docs/03-decision-log.md) | 35 ADRs with justification and consequences. **The intellectual core** — several record where measurement contradicted the plan |
 | [`docs/04-roadmap.md`](docs/04-roadmap.md) | Re-planned 12-week schedule, sprint plan, milestone gates, scope-cut order, risks |
 | [`docs/05-evaluation-harness.md`](docs/05-evaluation-harness.md) | The compute budget problem and its fix; sweep runner; four quality measures; statistics; validity threats |
 | [`docs/06-contracts.md`](docs/06-contracts.md) | Complete L0 type and protocol definitions + the ledger schema. **Review this first** |

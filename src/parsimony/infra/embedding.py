@@ -150,7 +150,113 @@ class SentenceTransformerEmbedder:
         )
 
 
+# Function words carry syntax, not subject matter. "Rent is 1200 per month" and
+# "Monthly rent comes to 1200" share their whole content — rent, 1200, month —
+# and disagree on nothing but these.
+#
+# WHAT IS DELIBERATELY *NOT* HERE, and why this list cannot be lifted from a
+# search library. A stopword list is built for retrieval, where negation and
+# quantification are noise because a document about safety is relevant to a
+# query about safety either way. A cache verifier has the opposite problem:
+# those words are the entire signal. Including "not" and "no" here embedded
+# "Is it safe to mix bleach and vinegar?" and "Is it NOT safe to mix bleach and
+# vinegar?" to cosine 1.000 — bit-identical vectors for opposite questions —
+# and put a 11.1% false-hit floor under every threshold, including 0.99. The
+# same argument bars the quantifiers "all", "any", "some" and "every", which
+# are operative in exactly the way min/max are (ADR-027).
+_STOPWORDS = frozenset("""
+a an the this that these those is are was were be been being am do does did
+doing have has had having i me my we our you your he him his she her it its
+they them their what which who whom when where why how
+to of in on at by for with from into about as
+and or but if then than so because
+can could will would shall should may might must
+please kindly just really very much
+me tell explain give show
+""".split())
+
+# Order matters: longest first, so "ingly" is not left as "ly" -> "l".
+_SUFFIXES = (
+    "ational", "iveness", "fulness", "ousness", "ization", "ation", "ments",
+    "ement", "ment", "ness", "ical", "ing", "ies", "ied", "ily", "ly", "ed",
+    "es", "s",
+)
+
+
+def _stem(word: str) -> str:
+    """Suffix stripping, deliberately crude.
+
+    Not a linguistic stemmer — a Porter implementation would be a dependency or
+    300 lines, and the job here is only to make "monthly"/"month" and
+    "comes"/"come" collide. Words of four characters or fewer are left alone,
+    because stripping "is" to "i" destroys more than it merges.
+    """
+    if len(word) <= 4 or word.isdigit():
+        return word
+    for suffix in _SUFFIXES:
+        if word.endswith(suffix) and len(word) - len(suffix) >= 3:
+            return word[: -len(suffix)]
+    return word
+
+
+class ContentEmbedder(HashingEmbedder):
+    """HashingEmbedder restricted to content, with stemming.
+
+    ADR-028 measured tier 2 as encoder-limited: intended near-duplicates like
+    "Rent is 1200 per month" / "Monthly rent comes to 1200" scored 0.412, barely
+    above unrelated text, because character n-grams over the whole string are
+    dominated by function words and inflection.
+
+    Two changes, both cheap and both lexical:
+
+    - drop stopwords, so the vector describes the subject rather than the syntax
+    - stem what remains, so "monthly" meets "month" and "comes" meets "come"
+
+    Character n-grams are taken over the *content* string rather than the raw
+    one, so they still catch "rain"/"rainfall" without spending capacity on
+    " is ", " to " and " the ".
+
+    This raises similarity for genuine paraphrases. Whether it also raises it
+    for adversarial pairs — which would be no gain at all — is measured, not
+    assumed: see `parsimony encoder`.
+    """
+
+    def __init__(self, *args, word_weight: float = 3.0, **kwargs) -> None:
+        # Content words are the signal here, so they outweigh n-grams more
+        # heavily than in the base encoder.
+        super().__init__(*args, word_weight=word_weight, **kwargs)
+
+    @property
+    def id(self) -> str:
+        return "content-v1-" + super().id.removeprefix("hashing-v1-")
+
+    def _features(self, text: str) -> Counter[str]:
+        norm = _NORM_RE.sub(" ", text.lower())
+        content = [
+            _stem(w) for w in _WORD_RE.findall(norm) if w not in _STOPWORDS
+        ]
+        if not content:
+            # Everything was a stopword. Falling back to the raw text keeps
+            # degenerate queries ("what is it?") from all embedding to the zero
+            # vector and colliding in the index.
+            return super()._features(text)
+
+        feats: Counter[str] = Counter()
+        for word in content:
+            feats[f"w:{word}"] += self._word_weight
+
+        padded = f" {' '.join(content)} "
+        for n in self._char_ngrams:
+            if len(padded) < n:
+                continue
+            for i in range(len(padded) - n + 1):
+                feats[f"c{n}:{padded[i : i + n]}"] += 1
+        return feats
+
+
 def get_embedder(embedder_id: str = "hashing-v1"):
+    if embedder_id.startswith("content"):
+        return ContentEmbedder()
     if embedder_id.startswith("hashing"):
         return HashingEmbedder()
     return SentenceTransformerEmbedder(embedder_id)

@@ -1,9 +1,9 @@
 # Parsimony — Findings to date
 
-**Status:** all eight modules built · **595 tests passing** · every number below regenerates with
+**Status:** all eight modules built · **620 tests passing** · every number below regenerates with
 `python reproduce.py`
 
-This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (34 ADRs);
+This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (35 ADRs);
 this document is what those decisions *found*.
 
 **Which numbers came from where.** Sections 1–7 and 9 run against `MockProvider`, a deterministic stand-in:
@@ -24,24 +24,37 @@ Full 2⁴ factorial over M1/M2/M3/M5, 151 conversations, 263 requests, 17 cells.
 
 | effect | estimate | partial η² |
 |---|---|---|
-| **M5** output budgeter | +13.01 pp | 0.546 |
-| **M3** history manager | +11.69 pp | 0.441 |
-| **M2** semantic cache | +1.61 pp | 0.008 |
-| **M1** compressor | +0.14 pp | 0.000 |
-| M3×M5 interaction | **−1.14 pp** | 0.004 |
+| **M5** output budgeter | +13.44 pp | 0.556 |
+| **M3** history manager | +11.82 pp | 0.430 |
+| **M2** semantic cache | +1.94 pp | 0.012 |
+| **M1** compressor | +0.23 pp | 0.000 |
+| M3×M5 interaction | **−0.70 pp** | 0.002 |
 
-Full stack reaches **+33.5%** total token reduction. **Every interaction term that is non-zero is negative**
-— M3×M5 −1.14, M2×M5 −0.10, M1×M5 −0.02. The other eight are zero to six decimal places, so the honest
-statement is not "the modules always interfere" but "where they interact at all, they interfere." The three
-non-zero terms all involve M5, which is the tell: M5 shortens output, and only modules that change what there
-is to shorten can overlap with it.
+Full stack reaches **+33.9%** total token reduction. The two material interaction terms are both negative —
+**M3×M5 −0.70** and **M2×M5 −0.11** — and both involve M5, which is the tell: M5 shortens output, so only
+modules that change what there is to shorten can overlap with it. Every other term sits within ±0.02 and is
+indistinguishable from zero here, so the honest statement is not "the modules always interfere" but "where
+they interact at all, they interfere."
 
-> **Additivity shortfall: 2.53 percentage points, 95% CI [+0.93, +3.99].**
+> **Additivity shortfall: 1.63 percentage points, 95% CI [−0.02, +3.23].**
 
-The interval excludes zero, so the shortfall is a real effect rather than noise. This is Contribution 1: no
-published study runs these modules in one pipeline, so the field has no evidence about whether their savings
-compound. They do not — and the largest overlap is M3×M5, because trimming history and shortening output
-both reduce the same conversation.
+This is Contribution 1, and the honest version of it is more interesting than the original. No published
+study runs these modules in one pipeline, so the field has no evidence about whether their savings compound.
+They do not. But **how much they fail to compound is a property of the configuration, not a constant**:
+
+| encoder | M2 effect | M3×M5 | additivity shortfall |
+|---|---|---|---|
+| `hashing-v1` | +1.61 pp | −1.14 | 2.53 pp, **[+0.93, +3.99]** — excludes zero |
+| `content-v1` (default) | +1.94 pp | −0.70 | 1.63 pp, **[−0.02, +3.23]** — touches zero |
+
+Improving the encoder (ADR-035) made the cache hit more often, so it overlapped its neighbours less and the
+shortfall shrank until its interval reached zero. **The weaker encoder was not reinstated to protect the
+result.** Choosing a component known to be inferior because it produces a more publishable number is the
+failure mode this project is written against — the same instinct that would have had us quote the
+literature's 0.85 cache threshold and never run the adversarial set.
+
+The largest overlap remains M3×M5 under both encoders, because trimming history and shortening output both
+reduce the same conversation.
 
 Effect size is reported rather than p-values. With a saturated single-replicate design there are no residual
 degrees of freedom to test against, and at this number of observations a p-value would report sample size
@@ -92,17 +105,31 @@ Raising the threshold cannot substitute: similarity alone does not reach the <2%
 in the sweep, because adversarial pairs sit above genuine paraphrases. The verifier is four set comparisons
 costing microseconds, where the literature reaches for a cross-encoder.
 
-**Cost, stated plainly.** At the safe operating point (τ_hi = 0.97) the true-hit rate is **22.2% (10/45
-controls)**. The cache is safe and conservative; more than three quarters of legitimate paraphrases are
-missed. Loosening to 0.90 buys **2.2 points** of true hits for **8.9%** false hits — a plainly bad trade,
-which is how 0.95–0.97 was chosen from data rather than preference.
+**Cost, stated plainly.** At the operating point (τ_hi = 0.97) the true-hit rate is **28.9% (13/45
+controls)** with the default `content-v1` encoder. The cache is safe and conservative; roughly seven in ten
+legitimate paraphrases are still missed.
 
-> **The controls were doubled, and the true-hit rate fell.** On the original 21 controls this figure read
-> 33.3% (7/21). Twenty-four further controls — synonymous superlatives, abbreviation/expansion pairs, digit
+| τ_hi | false hits | true hits |
+|---|---|---|
+| 0.90 | **4.4%** | 35.6% |
+| 0.92 | 0.0% | 31.1% |
+| **0.97 (default)** | **0.0%** | **28.9%** |
+
+τ_hi stays at 0.97 rather than 0.92, even though 0.92 is also safe here and buys 2.2 more points. 0.90 is
+*not* safe, so 0.92 sits one threshold step from a 4.4% false-hit rate. In a component whose failure mode is
+serving the opposite answer, a step of margin is worth more than 2.2 points of hit rate (ADR-035).
+
+Two revisions to this number are worth recording, because they moved it in opposite directions.
+
+> **Doubling the controls lowered it.** On the original 21 controls the rate read 33.3% (7/21) under
+> `hashing-v1`. Twenty-four further controls — synonymous superlatives, abbreviation/expansion pairs, digit
 > versus spelled ordinals, clause reordering — took it to 22.2%, because the added pairs are harder than the
-> ones already there. **The false-hit rate did not move: 0/45, 0.0%, unchanged.** So the safety claim
-> survives a doubled denominator and the *benefit* claim was optimistic on a thin one. A 21-control
-> denominator also moved 4.8 points per pair, which is too coarse to choose a threshold with.
+> ones already there. **The false-hit rate did not move: 0.0%, unchanged.** The safety claim survived a
+> doubled denominator; the *benefit* claim had been optimistic on a thin one.
+>
+> **Fixing the encoder raised it again.** `content-v1` (ADR-035) took it from 22.2% to **28.9%** at the same
+> threshold and the same 0.0% false-hit rate — the gain coming from exactly the paraphrases §10 identifies
+> as the encoder's blind spot.
 
 ---
 
@@ -369,21 +396,31 @@ same distinction as §8's encoder finding.
 
 ## 10. Two limitations we can name precisely
 
-**M1 tier 2 is encoder-limited, not technique-limited (ADR-028).** Intended near-duplicates span:
+**M1 tier 2 was encoder-limited, not technique-limited (ADR-028) — and the encoder has since been partly
+fixed (ADR-035).** Intended near-duplicates scored:
 
-| cosine | pair |
-|---|---|
-| 0.729 | "The library will close at 6 PM on weekdays" / "The library shuts at 6 PM on weekdays" |
-| **0.412** | "Rent is 1200 per month" / "Monthly rent comes to 1200" |
-| **0.321** | "The recipe needs 250 g of flour" / "You will need 250 g flour for this" |
+| pair | `hashing-v1` | `content-v1` |
+|---|---|---|
+| "The library will close at 6 PM on weekdays" / "…shuts at 6 PM on weekdays" | 0.729 | 0.738 |
+| "Rent is 1200 per month" / "Monthly rent comes to 1200" | **0.412** | 0.561 |
+| "The recipe needs 250 g of flour" / "You will need 250 g flour for this" | **0.321** | **0.847** |
 
-The bottom two are the same fact reworded — exactly what tier 2 exists to delete — and the lexical encoder
-places them barely above unrelated text. No threshold recovers them without merging sentences that share
-nothing but function words.
+The bottom two are the same fact reworded — exactly what tier 2 exists to delete — and the original lexical
+encoder placed them barely above unrelated text. Without that measurement the natural conclusion would have
+been *"extractive redundancy removal does not help at small scale"*, and it would have been **wrong**: the
+technique was never given a working similarity signal.
 
-Without this measurement the natural conclusion would have been *"extractive redundancy removal does not
-help at small scale"* — and it would have been **wrong**. The technique was never given a working similarity
-signal. This is the concrete, quantified case for swapping the lexical encoder for MiniLM.
+Dropping stopwords and stemming what remains — still purely lexical, still no PyTorch — recovers much of the
+gap, most dramatically on the worst pair. So the ADR-028 recommendation is **partly discharged, and the
+remaining case for MiniLM is weaker than it looked.** What survives is that the middle pair sits at 0.561,
+still below any threshold that could safely merge it, so tier 2 remains limited by its similarity signal
+rather than by its logic.
+
+A warning attaches to the fix, recorded in full in ADR-035: the first stopword list was an ordinary
+information-retrieval one, which strips "not". Under it, *"Is it safe to mix bleach and vinegar?"* and *"Is
+it **not** safe…"* embedded to **cosine 1.000** — bit-identical vectors for opposite questions — putting an
+11.1% false-hit floor under every threshold including 0.99. Stopword lists are built for retrieval, where
+negation is noise. In a cache verifier it is the entire signal.
 
 **Memory was unbounded in the component designed to accumulate (ADR-031).** Probed under sustained load, 400
 distinct queries produced 400 cache entries, 400 tracked conversations and 415 blobs, with nothing ever

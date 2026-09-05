@@ -108,12 +108,31 @@ class TestSelectorStage:
 
 
 class TestArranger:
-    def test_moves_the_most_relevant_turn_next_to_the_query(self, pipeline):
+    def test_moves_a_relevant_turn_next_to_the_query(self, pipeline):
+        """Asserts topicality, not which of two on-topic turns wins.
+
+        This previously pinned the "Collisions are resolved by…" turn
+        specifically. Under hashing-v1 that turn led by 0.206 to 0.186 — a
+        0.02 margin, i.e. a near-tie — and content-v1 reverses it, preferring
+        the turn matching two of the query's three content words (hash, table)
+        over the one matching one (collision). Both orderings are defensible,
+        so pinning the winner was testing a coin flip. What must hold is that
+        an on-topic turn lands adjacent to the query and an off-topic one does
+        not.
+        """
         cfg = full_stack()
         ctx = pipeline.build_context("Tell me about hash table collisions", _history())
         proposal = HistoryArranger().propose(ctx, cfg)
         assert isinstance(proposal, ContextPatch)
-        assert "collision" in proposal.fields["history"][-1].content.lower()
+
+        last = proposal.fields["history"][-1].content.lower()
+        assert any(w in last for w in ("hash", "collision", "table")), last
+
+    def test_does_not_move_an_off_topic_turn_next_to_the_query(self, pipeline):
+        ctx = pipeline.build_context("Tell me about hash table collisions", _history())
+        proposal = HistoryArranger().propose(ctx, full_stack())
+        last = proposal.fields["history"][-1].content.lower()
+        assert "sourdough" not in last and "weather" not in last
 
     def test_preserves_every_turn(self, pipeline):
         ctx = pipeline.build_context("hash table collisions", _history())
