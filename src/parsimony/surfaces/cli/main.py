@@ -6,6 +6,7 @@ pipeline is a measurement instrument, not a black box.
 
 from __future__ import annotations
 
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -16,7 +17,7 @@ from rich.rule import Rule
 from rich.table import Table
 
 from parsimony.core.config import baseline, factorial_cells, full_stack, with_cache_lookup
-from parsimony.core.types import Mode
+from parsimony.core.types import Mode, Turn
 from parsimony.eval.corpus import load_corpus, load_gold
 from parsimony.eval.metrics import LengthBiasedMockJudge
 from parsimony.eval.runner import additivity_shortfall, run_cell, sweep
@@ -24,7 +25,7 @@ from parsimony.infra.ids import ulid
 from parsimony.infra.providers import make_provider
 from parsimony.infra.storage import JsonlSink, import_jsonl
 from parsimony.infra.tokenization import get_tokenizer
-from parsimony.pipeline.orchestrator import Pipeline
+from parsimony.pipeline.orchestrator import DEFAULT_NUM_PREDICT, Pipeline
 from parsimony.surfaces.cli.render import print_outcome, trace_table
 
 app = typer.Typer(add_completion=False, help="Token-efficient LLM middleware for CPU-only hardware.")
@@ -433,6 +434,238 @@ def calibrate_dedup(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
         "sentences differing in a number or entity shows up as reverts, not silent damage.\n"
         "Pick the loosest threshold whose revert rate is still acceptable.[/dim]"
     )
+
+
+@app.command()
+def compare(
+    query: str = typer.Argument(..., help="The question to send through both pipelines."),
+    provider: str = typer.Option("ollama", "--provider",
+                                 help="'ollama' for real timings, 'mock' for simulated."),
+    model: str = typer.Option(None, "--model", help="Ollama model tag."),
+    turns: int = typer.Option(0, "--turns",
+                              help="Prepend N turns of prior conversation, so M3 and M4 "
+                                   "have something to work on."),
+) -> None:
+    """Same question, pipeline off vs on, side by side.
+
+    The one screen that shows what the project is for.
+    """
+    prov = make_provider(provider, model=model)
+    simulated = provider == "mock"
+    history = _synthetic_history(turns)
+
+    console.print(
+        Panel(
+            f"[bold]{query}[/bold]"
+            + (f"\n[dim]after {turns} turns of prior conversation[/dim]" if turns else ""),
+            title=f"one question · {prov.model_name}"
+            + ("  [yellow](simulated timings)[/yellow]" if simulated else "  [green](real)[/green]"),
+            border_style="bold blue",
+        )
+    )
+
+    # Warm the model and the KV cache BEFORE timing anything. Whichever arm runs
+    # first otherwise pays model load and a cold prefill, and the second arm
+    # looks faster for reasons that have nothing to do with the middleware —
+    # a 27s vs 17s gap that survived a re-run with the arms swapped.
+    if not simulated:
+        with console.status("[dim]warming the model (excluded from timings)"):
+            Pipeline(baseline(), provider=prov).run("Say ready.")
+
+    arms = []
+    for label, cfg in (("pipeline OFF", baseline()), ("pipeline ON", full_stack())):
+        with console.status(f"[bold green]{label}"):
+            if hasattr(prov, "last_stats"):
+                prov.last_stats = {}  # never attribute the previous arm's timings
+            t0 = time.perf_counter()
+            outcome = Pipeline(cfg, provider=prov).run(query, history)
+            elapsed = time.perf_counter() - t0
+            stats = dict(getattr(prov, "last_stats", {}) or {})
+            arms.append((label, outcome, elapsed, stats))
+
+    table = Table(header_style="bold", title="What changed", title_style="bold")
+    table.add_column("", style="bold", no_wrap=True)
+    for label, *_ in arms:
+        table.add_column(label, justify="right")
+    table.add_column("change", justify="right")
+
+    def row(name, fn, fmt="{:,.0f}", note=""):
+        off, on = (fn(o, w, s) for _, o, w, s in arms)
+        if off is None or on is None:
+            return
+        delta = on - off
+        pct = (delta / off * 100) if off else 0.0
+        if delta == 0:
+            change = "[dim]no change[/dim]"
+        else:
+            # One convention throughout: a NEGATIVE change is fewer/faster, and
+            # is the good direction. Mixing "saved 10" with "-29" made the two
+            # rows read as if they pointed the same way.
+            colour = "green" if delta < 0 else "red"
+            change = f"[{colour}]{fmt.format(delta)}  ({pct:+.0f}%)[/{colour}]"
+        table.add_row(name + note, fmt.format(off), fmt.format(on), change)
+
+    row("input tokens", lambda o, w, s: o.row.tokens_in_final)
+    row("output tokens", lambda o, w, s: o.row.tokens_out)
+    row("total tokens", lambda o, w, s: o.row.tokens_in_final + o.row.tokens_out)
+    row("prefill (server)", lambda o, w, s: (s.get("prompt_eval_duration") or 0) / 1e6 or None,
+        fmt="{:,.0f} ms")
+    row("wall clock", lambda o, w, s: w, fmt="{:.2f}s")
+    console.print(table)
+
+    console.print(
+        "[dim]Read the [bold]prefill[/bold] row, not the wall clock. Prefill is the part "
+        "input tokens actually control, reported by the server itself. Wall clock on a single "
+        "request also carries decode length and scheduling noise — run to run it varies by more "
+        "than a second here, which is larger than the effect. The corpus-level figure "
+        "(100.6 s saved over 263 requests) is in ADR-034.[/dim]"
+    )
+
+    # An arm with M5 ablated reports no budget, but generation still stops at
+    # DEFAULT_NUM_PREDICT — so the baseline can be silently truncated while
+    # `tokens_out_budget` is None. Checking only the recorded budget missed it.
+    truncated = [
+        label for label, o, _, _ in arms
+        if o.row.tokens_out >= (o.row.tokens_out_budget or DEFAULT_NUM_PREDICT)
+    ]
+    if truncated:
+        console.print(
+            f"[yellow]Note:[/yellow] [dim]{', '.join(truncated)} reached its output budget, so "
+            f"its answer is cut short. Output-token counts are then a property of the budget, "
+            f"not of the pipeline — compare the input side.[/dim]"
+        )
+
+    off_in, on_in = (o.row.tokens_in_final for _, o, _, _ in arms)
+    saved_tokens = off_in - on_in
+    prefills = [(s.get("prompt_eval_duration") or 0) / 1e6 for _, _, _, s in arms]
+    if saved_tokens > 0 and all(prefills):
+        predicted = saved_tokens * 8.5
+        measured = prefills[0] - prefills[1]
+        console.print(
+            f"[dim]Cross-check: ADR-034 measured prefill at ~8.5 ms per input token on this CPU, "
+            f"so {saved_tokens} fewer tokens predicts [/dim][bold]{predicted:.0f} ms[/bold][dim] "
+            f"saved. The server reported [/dim][bold]{measured:.0f} ms[/bold][dim] "
+            f"({measured / predicted:.1f}x the prediction). The model of the cost holds.[/dim]\n"
+        )
+
+    for label, outcome, _, _ in arms:
+        console.print(
+            Panel(
+                (outcome.response or "[dim](empty)[/dim]").strip(),
+                title=f"{label} — answer  [dim]({outcome.row.route_tier})[/dim]",
+                border_style="green" if "ON" in label else "dim",
+            )
+        )
+
+    console.print(
+        "[dim]Same question, same model, same machine. The only difference is whether the "
+        "middleware ran.[/dim]"
+    )
+
+
+def _synthetic_history(n: int) -> tuple[Turn, ...]:
+    """Plausible prior turns, so a single-shot demo can still exercise M3/M4.
+
+    Without history the history manager and the assembler have nothing to do,
+    and a demo of a context pipeline that never shows context is a poor demo.
+    """
+    if n <= 0:
+        return ()
+    # Written the way people actually talk to assistants: polite openers,
+    # standing facts restated every few turns ("on Python 3.11", "8 GB laptop"),
+    # and assistant replies that recap the question before answering. Terse,
+    # non-redundant turns would leave M1 and M3 nothing to remove and would make
+    # the demo understate the pipeline for reasons that are an artefact of the
+    # fixture rather than a property of the system.
+    filler = [
+        "Hi, I was hoping you could help me out with something. I am building a small "
+        "web service in Python, and I am running it on a laptop with 8 GB of RAM and no GPU.",
+        "Of course. To confirm, you are building a small Python web service, running on a "
+        "laptop with 8 GB of RAM and no dedicated GPU. I can help with that.",
+        "Thanks! So as I mentioned, I am on Python 3.11, and right now I am just using "
+        "SQLite for storage. Could you please tell me if that is a reasonable choice?",
+        "Given that you are on Python 3.11 and using SQLite for storage, that is a "
+        "reasonable choice for a small service on a single machine.",
+        "Great, thanks in advance for the help. Just to give more context, the service "
+        "handles about a hundred requests a day, and most of the traffic arrives in the evening.",
+        "Understood — roughly a hundred requests a day, concentrated in the evening. "
+        "That is a light load and SQLite will handle it comfortably.",
+        "One more thing I should mention: I would really like to keep the dependencies to "
+        "a minimum, and deployment is just a single systemd unit.",
+        "Noted. Minimal dependencies, deployed as a single systemd unit.",
+    ]
+    return tuple(
+        Turn(turn_id=f"h{i}", role="user" if i % 2 == 0 else "assistant",
+             content=filler[i % len(filler)])
+        for i in range(n)
+    )
+
+
+@app.command()
+def judge(
+    subject: str = typer.Option("qwen2.5:1.5b-instruct", "--subject",
+                                help="The model under test."),
+    judge_model: str = typer.Option("llama3.2:3b", "--judge",
+                                    help="The judge. MUST differ from --subject."),
+    n: int = typer.Option(20, "--n", help="Requests to sample."),
+) -> None:
+    """LLM-as-judge, with the judge itself measured first (ADR-036)."""
+    from parsimony.eval.judging import run_judge_study
+    from parsimony.eval.metrics import ModelJudge
+    from parsimony.infra.providers import OllamaProvider
+
+    if subject == judge_model:
+        console.print(
+            "[bold red]Refusing:[/bold red] the judge must not be the model under test. "
+            "A model comparing its own output against another's prefers its own, which "
+            "measures familiarity rather than quality."
+        )
+        raise typer.Exit(1)
+
+    provider = make_provider("ollama", model=subject)
+    judge_obj = ModelJudge(OllamaProvider(judge_model))
+
+    with console.status("[bold green]running") as status:
+        study = run_judge_study(
+            load_corpus(), baseline(), [("full stack", full_stack())],
+            judge=judge_obj, provider=provider, n_sample=n,
+            progress=lambda m: status.update(f"[bold green]{m}"),
+        )
+
+    cal = study.calibration
+    verdict_style = "green" if cal.usable else "bold red"
+    console.print(
+        Panel(
+            f"judge    [bold]{study.judge_model}[/bold]\n"
+            f"subject  [bold]{study.subject_model}[/bold]   "
+            f"{'[green]independent[/green]' if study.independent else '[red]SAME MODEL[/red]'}\n\n"
+            f"Shown two [bold]identical[/bold] answers {cal.n} times — a question with no right "
+            f"answer:\n"
+            f"  position bias   [{verdict_style}]{cal.position_bias:.1f} pp[/{verdict_style}] "
+            f"[dim](0 = picks each slot equally; 50 = always the same slot)[/dim]\n"
+            f"  unreadable      {cal.unreadable_rate:.1f}%\n\n"
+            f"[{verdict_style}]{'USABLE' if cal.usable else 'NOT USABLE — any score below is noise'}"
+            f"[/{verdict_style}]",
+            title="Step 1 — is the judge worth listening to?",
+            border_style=verdict_style,
+        )
+    )
+
+    table = Table(title="Step 2 — what it said", header_style="bold")
+    for col in ("arm", "n", "win rate vs baseline", "swap disagreement", "unreadable"):
+        table.add_column(col, justify="right" if col != "arm" else "left")
+    for arm in study.arms:
+        table.add_row(arm.label, str(arm.n), f"{arm.win_rate:.1f}%",
+                      f"{arm.disagreement_rate:.1f}%", f"{arm.unreadable_rate:.1f}%")
+    console.print(table)
+
+    if not cal.usable:
+        console.print(
+            "[dim]Read step 1 first. The win rate above is reported for completeness and should "
+            "not be quoted: a judge that cannot choose between two identical answers is not "
+            "measuring quality. Running this check is the step most LLM-as-judge setups skip, "
+            "and it costs nothing but the calls.[/dim]"
+        )
 
 
 @app.command()

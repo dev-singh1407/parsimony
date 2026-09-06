@@ -1080,3 +1080,68 @@ direction.
 - The one M3 test that pinned which of two on-topic turns ranked highest was decided by a 0.02 margin under
   the old encoder and reverses under the new one. It now asserts topicality rather than the winner, because
   pinning a near-tie is testing a coin flip.
+
+---
+
+### ADR-036 — Measure the judge before believing it; ours failed
+
+**Context.** The ablation's quality columns come from `LengthBiasedMockJudge`, a stand-in that prefers the
+longer answer — built deliberately biased so the position-swap machinery could be shown to *detect* bias
+before any real model existed (ADR-007). With Ollama in place the obvious next step is a real LLM-as-judge.
+
+`judge_pairwise` already states three constraints: the judge must not be a model under test, comparison must
+be pairwise rather than absolute, and every comparison runs A/B and B/A because LLM judges have a documented
+position bias. Only the third was previously enforceable.
+
+**Decision.** Add `ModelJudge` over any provider, and run an **independent** judge — `llama3.2:3b`, a
+different family from the `qwen2.5:1.5b-instruct` under test, so self-preference cannot masquerade as
+quality. Then, before reporting anything it says, **calibrate the judge against itself**: show it the same
+answer in both slots and ask it to choose. A question with no right answer. At chance it names slot A half
+the time.
+
+**Result.**
+
+```
+judge    llama3.2:3b          subject  qwen2.5:1.5b-instruct     independent
+
+shown two IDENTICAL answers, 12 times:
+  position bias   50.0 pp      (0 = picks each slot equally, 50 = always the same slot)
+  unreadable       0.0%
+  -> NOT USABLE
+
+full stack vs baseline:
+  win rate 45.8%    swap disagreement 91.7%
+```
+
+**The judge always picks the same slot.** Not usually — always, deterministically, on inputs that are
+byte-identical. Its 91.7% swap-disagreement rate on the real comparison says the same thing from the other
+direction: it is answering by position, not by content.
+
+So the win rate of 45.8% is not a quality measurement. It is what a coin looks like when you write down which
+way up it landed.
+
+**Justification for reporting this rather than quietly dropping it.** A 45.8% win rate is publishable-looking.
+It sits near parity, it has a plausible story attached ("compression costs a little quality"), and nothing in
+the number itself reveals that the instrument was broken. The calibration step is the only thing standing
+between that number and a results table — and it is the step most LLM-as-judge setups omit. It needs no
+ground truth, costs one call per item, and is decisive.
+
+**Consequences.**
+
+- `LengthBiasedMockJudge` **remains the default** in the sweep. A judge biased in a *known* direction is a
+  better instrument than one biased in an unmeasured one, and it is deterministic, free, and reproducible.
+- The quality claim rests on the three measures that do not need a judge: gold accuracy against a real model
+  (§8 of the findings: 90% baseline, 95% full stack, zero regressions), token overlap, and embedding
+  similarity. That is a narrower claim than "an LLM judged our answers as good", and a sounder one.
+- A usable judge needs a larger model than fits this project's CPU-only constraint. This is now a *measured*
+  limitation with a number attached rather than a suspicion, which is a better thing to hand the report.
+- `parsimony judge` refuses outright when `--judge` equals `--subject`, so the self-preference constraint
+  cannot be violated by accident.
+
+**A bug this surfaced.** Before `ModelJudge` every judge returned "A" or "B" by construction, so unreadable
+verdicts could not occur. A real model asked for "exactly A or B" answers in prose perhaps a fifth of the
+time. The original parse read the first character, so *"A better answer is B"* scored as A, and a
+non-committal reply parsed as `False` on both sides — which reads as "the swap agreed and the candidate
+lost". A systematic bias against the candidate, injected by the judge's verbosity, inside the machinery built
+to detect judge bias. Verdicts are now read as the *last* standalone capital A or B (a model that reasons
+before deciding ends on its verdict), and anything genuinely unreadable scores 0.5 and is counted.

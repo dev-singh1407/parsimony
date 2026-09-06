@@ -23,6 +23,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from parsimony.core.types import GenParams
 from parsimony.eval.corpus import GoldItem
 from parsimony.infra.embedding import text_similarity
 
@@ -141,11 +142,21 @@ def grade(response: str, item: GoldItem) -> bool:
 class JudgeVerdict:
     prefers_candidate: bool
     swap_agreed: bool
+    readable: bool = True
 
     @property
     def score(self) -> float:
-        """1.0 candidate wins, 0.5 tie (or judge disagreed with itself), 0.0 loses."""
-        if not self.swap_agreed:
+        """1.0 candidate wins, 0.5 tie (or judge disagreed with itself), 0.0 loses.
+
+        An unreadable verdict scores 0.5, not 0.0. Before `ModelJudge` existed
+        every judge returned "A" or "B" by construction, so this case could not
+        arise; a real model asked for "exactly A or B" sometimes answers in
+        prose. Parsing that as a bare False on both sides would read as "the
+        swap agreed and the candidate lost" — a systematic bias against the
+        candidate injected by the judge's verbosity, in the very machinery built
+        to detect judge bias.
+        """
+        if not self.readable or not self.swap_agreed:
             return 0.5
         return 1.0 if self.prefers_candidate else 0.0
 
@@ -176,13 +187,74 @@ def judge_pairwise(question: str, candidate: str, reference: str, judge) -> Judg
     """
     first = judge.compare(JUDGE_PROMPT.format(question=question, a=candidate, b=reference))
     second = judge.compare(JUDGE_PROMPT.format(question=question, a=reference, b=candidate))
+
+    a, b = first.strip().upper(), second.strip().upper()
+    if not (a.startswith(("A", "B")) and b.startswith(("A", "B"))):
+        # A real judge can answer in prose. Scoring that as a preference would
+        # be inventing data; it is reported as unreadable and scored as a tie.
+        return JudgeVerdict(prefers_candidate=False, swap_agreed=False, readable=False)
+
     # first says "A" -> candidate wins; second says "B" -> candidate wins
-    prefers_first = first.strip().upper().startswith("A")
-    prefers_second = second.strip().upper().startswith("B")
+    prefers_first = a.startswith("A")
+    prefers_second = b.startswith("B")
     return JudgeVerdict(
         prefers_candidate=prefers_first,
         swap_agreed=(prefers_first == prefers_second),
     )
+
+
+class ModelJudge:
+    """LLM-as-judge over a real provider.
+
+    Must be a DIFFERENT model from the one under test. A model asked to compare
+    its own output against another's prefers its own, and that measures
+    familiarity rather than quality — the constraint `judge_pairwise` documents
+    and that this class is the first to be able to honour.
+
+    Robust parsing is not a nicety here. Asked for "exactly A or B", a small
+    instruct model will happily answer "The better answer is B because…", or
+    open with a restatement of the question. Taking the first character would
+    score that as A. So the verdict is read as the first standalone A/B token,
+    and anything genuinely unreadable is reported as a refusal rather than
+    silently defaulting to one side — a default would put a systematic bias into
+    the position-swap machinery designed to detect exactly that.
+    """
+
+    #: A standalone capital A or B — "B", "Answer: A", "**B**", "…is B."
+    #: Case-SENSITIVE on purpose: upper-casing the response first would read the
+    #: article in "A better answer is B" as a verdict of A. Models capitalise
+    #: the letter when they mean it as a label.
+    _VERDICT = re.compile(r"(?:^|[^A-Za-z])([AB])(?:[^A-Za-z]|$)")
+
+    def __init__(self, provider, *, num_predict: int = 8) -> None:
+        self.provider = provider
+        self.num_predict = num_predict
+        self.unreadable = 0
+        self.calls = 0
+
+    @property
+    def model_id(self) -> str:
+        return getattr(self.provider, "model_name", "unknown")
+
+    def compare(self, prompt: str) -> str:
+        self.calls += 1
+        params = GenParams(num_predict=self.num_predict, temperature=0.0, seed=0)
+        try:
+            text = "".join(e.text for e in self.provider.generate(prompt, params))
+        except Exception:
+            self.unreadable += 1
+            return ""
+        found = self._VERDICT.findall(text.strip())
+        if not found:
+            # Nothing capitalised; fall back to a case-insensitive read before
+            # giving up, since a model that answers "b" still answered.
+            found = self._VERDICT.findall(text.strip().upper())
+        if not found:
+            self.unreadable += 1
+            return ""
+        # The LAST mention, not the first: a model that reasons before deciding
+        # ends on its verdict ("A is shorter, so B is better" means B).
+        return found[-1]
 
 
 class LengthBiasedMockJudge:

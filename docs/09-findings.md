@@ -1,9 +1,9 @@
 # Parsimony — Findings to date
 
-**Status:** all eight modules built · **620 tests passing** · every number below regenerates with
+**Status:** all eight modules built · **645 tests passing** · every number below regenerates with
 `python reproduce.py`
 
-This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (35 ADRs);
+This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (36 ADRs);
 this document is what those decisions *found*.
 
 **Which numbers came from where.** Sections 1–7 and 9 run against `MockProvider`, a deterministic stand-in:
@@ -368,6 +368,34 @@ The two gains are `847 * 23` and a date difference — both routed to M6's deter
 exactly and sends the model nothing. Two discordant pairs is not statistically significant (exact McNemar,
 two-sided **p = 0.50**), so the *statistical* claim stops at "no measurable degradation". The mechanism,
 though, is not chance: a calculator will beat a 1.5B model at three-digit multiplication every time.
+
+### The judge failed its own calibration
+
+With a real model available, the obvious next step is LLM-as-judge — and `judge_pairwise` names the
+constraint: the judge must not be the model under test. So `llama3.2:3b` judges `qwen2.5:1.5b-instruct`,
+different families, no self-preference.
+
+Before believing anything it says, it was shown **the same answer in both slots** and asked to choose. A
+question with no right answer. At chance it names slot A half the time.
+
+| | |
+|---|---|
+| position bias on identical answers | **50.0 pp** — it always picks the same slot |
+| unreadable verdicts | 0.0% |
+| **verdict** | **not usable** |
+
+Its 91.7% swap-disagreement rate on the real comparison says the same thing from the other side: it is
+answering by position, not by content. So its 45.8% win rate for the full stack is not a quality
+measurement — it is what a coin looks like when you write down which way up it landed.
+
+**Why this is reported rather than dropped.** 45.8% is a publishable-looking number. It sits near parity, it
+has a ready story ("compression costs a little quality"), and nothing in the number reveals that the
+instrument was broken. The calibration is the only thing between it and a results table, it needs no ground
+truth, and it costs one call per item — and it is the step most LLM-as-judge setups skip (ADR-036).
+
+`LengthBiasedMockJudge` therefore stays the default: a judge biased in a *known* direction is a better
+instrument than one biased in an unmeasured one. The quality claim rests on the measures that need no judge
+— gold accuracy above, token overlap, embedding similarity.
 
 ## 9. "Self-improving" is a property of the traffic
 
