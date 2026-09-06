@@ -13,8 +13,57 @@ under-extracting lets a real meaning change through. When in doubt, extract.
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from parsimony.core.types import Invariants
+
+# Latin letters that a Cyrillic or Greek character can impersonate exactly in
+# most fonts. Not a complete confusables table — the full Unicode set is
+# thousands of entries — but these are the ones that appear in the letters of
+# the negation particles and operative modifiers the verifier depends on.
+_CONFUSABLES = str.maketrans({
+    "а": "a", "е": "e", "о": "o", "р": "p", "с": "c",
+    "х": "x", "у": "y", "і": "i", "ј": "j", "һ": "h",
+    "Α": "A", "Β": "B", "Ε": "E", "Ζ": "Z", "Η": "H",
+    "Ι": "I", "Κ": "K", "Μ": "M", "Ν": "N", "Ο": "O",
+    "Ρ": "P", "Τ": "T", "Υ": "Y", "Χ": "X",
+    "ο": "o", "α": "a", "ε": "e", "ρ": "p", "υ": "u",
+})
+
+
+def sanitise(text: str) -> str:
+    """Strip invisible characters and fold look-alikes before analysis.
+
+    SAFETY-CRITICAL, not cosmetic. The verifier's negation check reads words out
+    of raw text, so a single invisible character defeats it:
+
+        "Is it not safe to mix bleach and vinegar?"        -> negation found
+        "Is it n\\u200bot safe to mix bleach and vinegar?"  -> negation NOT found
+
+    A zero-width space, a zero-width joiner, a soft hyphen or a Cyrillic "о"
+    all split "not" into fragments that no longer match the negation lexicon —
+    so `verify_match` passed all four, and the only thing standing between that
+    and serving the opposite answer was the embedder happening to score them
+    below tau_hi. That is luck, not a defence.
+
+    Three steps:
+
+      1. NFKC, which folds compatibility forms (full-width, ligatures, some
+         accents) onto their canonical equivalents;
+      2. drop every character in Unicode category Cf — zero-width space, ZWJ,
+         ZWNJ, soft hyphen, and the bidirectional overrides — which are
+         invisible by definition and therefore cannot carry meaning a reader
+         could have intended;
+      3. fold the Cyrillic and Greek letters that impersonate Latin ones.
+
+    Applied where text is *analysed*, never to the text that reaches the model:
+    a user who legitimately writes Cyrillic must still get their own words back.
+    """
+    if not text:
+        return text
+    folded = unicodedata.normalize("NFKC", text)
+    folded = "".join(c for c in folded if unicodedata.category(c) != "Cf")
+    return folded.translate(_CONFUSABLES)
 
 # --------------------------------------------------------------------------
 # Numbers
@@ -172,6 +221,9 @@ class RegexInvariantExtractor:
     def extract(self, text: str) -> Invariants:
         if not text:
             return Invariants()
+        # Before anything is matched: an invisible character inside "not" is
+        # enough to hide a negation from the verifier (see `sanitise`).
+        text = sanitise(text)
 
         numbers = frozenset(m.group(0).strip() for m in _NUM_RE.finditer(text))
 
@@ -298,7 +350,7 @@ _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 
 def shingles(text: str) -> frozenset[str]:
-    return frozenset(_TOKEN_RE.findall(text.lower()))
+    return frozenset(_TOKEN_RE.findall(sanitise(text).lower()))
 
 
 def operative_modifiers(text: str) -> frozenset[tuple[int, int]]:
@@ -311,14 +363,16 @@ def operative_modifiers(text: str) -> frozenset[tuple[int, int]]:
     """
     return frozenset(
         _TERM_TO_POLARITY[w]
-        for w in _TOKEN_RE.findall(text.lower())
+        for w in _TOKEN_RE.findall(sanitise(text).lower())
         if w in _TERM_TO_POLARITY
     )
 
 
 def describe_modifiers(text: str) -> frozenset[str]:
     """Human-readable form, for traces and error messages."""
-    return frozenset(w for w in _TOKEN_RE.findall(text.lower()) if w in _TERM_TO_POLARITY)
+    return frozenset(
+        w for w in _TOKEN_RE.findall(sanitise(text).lower()) if w in _TERM_TO_POLARITY
+    )
 
 
 def morphological_negations(text: str, other: str) -> frozenset[str]:
@@ -328,9 +382,9 @@ def morphological_negations(text: str, other: str) -> frozenset[str]:
     precise: "international" is not a negation of "national" in isolation, but
     "impossible" opposite "possible" in an otherwise identical question is.
     """
-    other_words = set(_TOKEN_RE.findall(other.lower()))
+    other_words = set(_TOKEN_RE.findall(sanitise(other).lower()))
     found = set()
-    for word in _TOKEN_RE.findall(text.lower()):
+    for word in _TOKEN_RE.findall(sanitise(text).lower()):
         for prefix in _NEG_PREFIXES:
             if len(word) > len(prefix) + 3 and word.startswith(prefix):
                 stem = word[len(prefix) :]

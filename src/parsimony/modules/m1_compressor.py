@@ -68,7 +68,12 @@ _ABBREVIATIONS = frozenset(
     {"e.g", "i.e", "etc", "vs", "mr", "mrs", "ms", "dr", "prof", "sr", "jr",
      "fig", "no", "approx", "cf", "al", "inc", "ltd", "st"}
 )
-_HAS_ALNUM_RE = re.compile(r"[A-Za-z0-9]")
+# Unicode-aware, not [A-Za-z0-9]. The ASCII form judged any sentence without a
+# Latin letter to be contentless debris, so tier 1 deleted the whole query for
+# every non-Latin script: "Как дела?", "नमस्ते", "இது என்ன?" and "你好世界" all
+# arrived at the model as an EMPTY prompt. `[^\W_]` is every Unicode letter and
+# digit, excluding the underscore that \w also admits.
+_HAS_ALNUM_RE = re.compile(r"[^\W_]")
 
 
 def _ends_with_abbreviation(text: str) -> bool:

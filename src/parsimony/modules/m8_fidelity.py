@@ -14,12 +14,19 @@ extraction per committed change rather than one per check.
 
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass
 
 from parsimony.core.ledger import GateEvent
 from parsimony.core.proposals import TransformKind
 from parsimony.core.types import Invariants, RequestContext
 from parsimony.infra.nlp import RegexInvariantExtractor
+
+#: Any Unicode letter or digit. Deliberately not [A-Za-z0-9]: the whole point
+#: of the annihilation check is that it holds for alphabets the extractors
+#: cannot read.
+_WORDLIKE_RE = re.compile(r"[^\W_]")
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +80,28 @@ class FidelityGate:
     ) -> Verdict:
         source = before.text_payload()
         target = after.text_payload()
+
+        # Annihilation check, BEFORE the invariant comparison and independent of
+        # it. Every other check here asks "was a value I could extract lost?",
+        # which silently makes the gate's guarantee conditional on the
+        # extractor's coverage. The extractors are regex-based and Latin-only,
+        # so a query in Cyrillic, Devanagari, Tamil or Chinese yields no
+        # invariants at all — and a rewrite that deleted the entire question
+        # therefore lost nothing the gate could name, and passed. M1 tier 1 did
+        # exactly that (its "contentless sentence" test was [A-Za-z0-9]) and the
+        # model received an empty prompt.
+        #
+        # A transform that removes ALL word characters is never legitimate,
+        # whatever alphabet they were written in, so this does not depend on
+        # understanding the text.
+        if _WORDLIKE_RE.search(source) and not _WORDLIKE_RE.search(target):
+            return Verdict(
+                False,
+                (GateEvent(module_id=module_id, invariant_class="content",
+                           lost_values=(source[:60],)),),
+                "rewrite removed all content",
+            )
+
         lost = self.invariants_of(source).missing_from(target)
         if not lost:
             return Verdict.ok()
