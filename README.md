@@ -21,7 +21,7 @@ VIT University · B.Tech BCSE497J Project I · Guide: Dr Sathya K
 python reproduce.py --out figures
 ```
 
-**645 tests passing.** Every table below regenerates from a live run in ~40 s. Setup and commands:
+**653 tests passing.** Every table below regenerates from a live run in ~40 s. Setup and commands:
 [`docs/08-setup.md`](docs/08-setup.md).
 
 | Module | State |
@@ -91,12 +91,17 @@ clock: the full stack's 11,836 saved input tokens are **100.6 seconds of prefill
 per request**. The old `MockProvider` assumed 120 ms TTFT — understating the prompt side by an order of
 magnitude, in the direction that mattered (ADR-034).
 
-And it costs nothing in accuracy. On the 40 gold items the real model scores **90.0% at baseline and 95.0%
-with the full stack**, paired per item: 36 both correct, 2 both wrong, **0 that the baseline got right and
-the full stack got wrong**. Removing a third of the tokens lost no answers. The two gains are arithmetic
+And it costs nothing in accuracy. On the 40 gold items the real model scores **92.5% at baseline and 97.5%
+with the full stack**, and **not one answer the baseline got right was lost**. The two gains are arithmetic
 routed to M6's deterministic tier; two discordant pairs is not significant (exact McNemar p = 0.50), so the
 claim is *no measurable degradation* rather than improvement. The old 5% gold column was the mock being
 unable to answer at all.
+
+**Escalating to a bigger model buys nothing here (ADR-037).** `llama3.2:3b` scores 36/40 against
+`qwen2.5:1.5b`'s 36/40 — item for item identical, zero questions where the larger model succeeded and the
+smaller failed — for 16% more wall clock and twice the memory. M6's escalation threshold was also set at
+0.75 against an observed maximum complexity of **0.406**, so the tier could not fire at all. It is now
+calibrated to 0.20 and deliberately left off.
 
 ### Five findings that changed the design
 
@@ -139,7 +144,7 @@ module — the same distinction as ADR-028.
 | [`docs/00-architecture.md`](docs/00-architecture.md) | Layering, core data model, orchestrator, stage ordering, repo layout, cross-cutting concerns |
 | [`docs/01-pipeline-stages.md`](docs/01-pipeline-stages.md) | The eight processing stages, each with objective / inputs / outputs / techniques / libraries / pros / cons / alternatives / recommendation / integration |
 | [`docs/02-module-specs.md`](docs/02-module-specs.md) | M1–M8 internals and ablation wiring |
-| [`docs/03-decision-log.md`](docs/03-decision-log.md) | 36 ADRs with justification and consequences. **The intellectual core** — several record where measurement contradicted the plan |
+| [`docs/03-decision-log.md`](docs/03-decision-log.md) | 37 ADRs with justification and consequences. **The intellectual core** — several record where measurement contradicted the plan |
 | [`docs/04-roadmap.md`](docs/04-roadmap.md) | Re-planned 12-week schedule, sprint plan, milestone gates, scope-cut order, risks |
 | [`docs/05-evaluation-harness.md`](docs/05-evaluation-harness.md) | The compute budget problem and its fix; sweep runner; four quality measures; statistics; validity threats |
 | [`docs/06-contracts.md`](docs/06-contracts.md) | Complete L0 type and protocol definitions + the ledger schema. **Review this first** |

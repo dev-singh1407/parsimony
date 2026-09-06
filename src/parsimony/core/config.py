@@ -138,8 +138,18 @@ class BudgetConfig:
 @dataclass(frozen=True, slots=True)
 class RouterConfig:
     deterministic_tier: bool = True
+    # OFF by default, and now for a measured reason rather than an accidental
+    # one (ADR-037). Escalating to llama3.2:3b scored 36/40 on the gold set
+    # against qwen2.5:1.5b's 36/40 — item for item identical, not one question
+    # where the larger model succeeded and the smaller failed — for 16% more
+    # wall clock and twice the memory. On this workload escalation buys nothing.
     escalation_tier: bool = False
-    escalation_complexity: float = 0.75
+    # Was 0.75 against an observed maximum complexity of 0.406, so the tier
+    # could not fire even when enabled: dead code wearing a configuration
+    # option, the same failure as the 0.80 dedup threshold in ADR-028. 0.20 is
+    # the ~90th percentile of the live distribution, so enabling the tier now
+    # escalates roughly 10% of traffic instead of 0%.
+    escalation_complexity: float = 0.20
     # Weights for the transparent complexity heuristic. Here rather than in the
     # module because they are tunable quantities, and M7 must be able to emit a
     # tuned set without a code change (ADR-008).

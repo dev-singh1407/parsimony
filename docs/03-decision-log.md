@@ -1145,3 +1145,92 @@ non-committal reply parsed as `False` on both sides — which reads as "the swap
 lost". A systematic bias against the candidate, injected by the judge's verbosity, inside the machinery built
 to detect judge bias. Verdicts are now read as the *last* standalone capital A or B (a model that reasons
 before deciding ends on its verdict), and anything genuinely unreadable scores 0.5 and is counted.
+
+---
+
+### ADR-037 — M6's escalation tier could not fire, and would not have helped
+
+**Context.** M6 has two tiers: a deterministic one that answers arithmetic and date queries without a model
+at all, and an escalation tier that routes hard queries to a larger model. The deterministic tier is
+measured and works (it is the whole of M6's contribution to gold accuracy). The escalation tier had never
+run, because until now there was no second model to escalate *to* — `_provider_for` returns the same
+provider when `provider_large` is unset, and records the tier honestly rather than pretending.
+
+With `llama3.2:3b` installed, both halves of the question became answerable. Both answers are negative.
+
+**Finding 1 — the threshold was unreachable.** `escalation_complexity` shipped at **0.75**. Measured across
+all 237 routed requests, through a live pipeline:
+
+| | complexity |
+|---|---|
+| maximum observed | **0.406** |
+| 90th percentile | 0.201 |
+| median | 0.048 |
+| minimum | 0.010 |
+
+Escalation fired **0 times out of 237**, and could not have fired at any point in the corpus. The tier was
+dead code wearing a configuration option — the same failure as the 0.80 dedup threshold in ADR-028, and for
+the same reason: a threshold chosen by intuition and never checked against the distribution it is applied
+to. A threshold has no meaning apart from that distribution.
+
+| threshold | escalated | rate |
+|---|---|---|
+| 0.10 | 46 | 19.4% |
+| **0.20** | **25** | **10.5%** |
+| 0.30 | 13 | 5.5% |
+| 0.50 | 0 | 0.0% |
+| 0.75 (shipped) | **0** | **0.0%** |
+
+**A measurement trap on the way.** The first attempt scored complexity by calling `complexity_score` on a
+freshly built context and reported a maximum of 0.206. Two of the six features — `is_reasoning_class` and
+`is_code_class` — are set by M5, which runs *earlier in the stage order*, so a context that never went
+through the pipeline has them at zero. The distribution must be measured through a live run, which is what
+`complexity_distribution` now does.
+
+**Finding 2 — escalation buys nothing here, so fixing the threshold does not fix the tier.** On the 40 gold
+items, baseline configuration, same machine:
+
+| model | size | gold | wall clock |
+|---|---|---|---|
+| qwen2.5:1.5b-instruct | 0.92 GB | **36/40 — 90.0%** | 139 s |
+| llama3.2:3b | 2.0 GB | **36/40 — 90.0%** | 161 s |
+
+Not merely the same score: **item for item identical.** 36 both correct, 4 both wrong, and **zero** items
+where one model succeeded and the other failed. Twice the parameters and twice the memory, for 16% more wall
+clock and no measurable difference in what it got right.
+
+**Decision.** `escalation_complexity` moves 0.75 → **0.20** (~90th percentile), so the option is meaningful
+when enabled. `escalation_tier` stays **off by default** — but now for a measured reason rather than an
+accidental one.
+
+**Justification.** The routing literature's premise is that hard queries are worth sending to a bigger
+model. On this workload, at this scale, they are not: the 3B model is not better at the questions the 1.5B
+model gets wrong. Enabling escalation would spend 16% more time to change no answers.
+
+**The honest caveat, which matters more than the finding.** Four gold items are missed by both models, and
+after the grading fix below only two are genuine failures: three-digit multiplication and a date difference
+— both arithmetic, both already handled by M6's *deterministic* tier without a model at all. So the gold set
+contains no item in the difficulty band where a 1.5B model fails and a 3B model succeeds. **This measures
+the gold set as much as it measures the models.** The defensible claim is narrow: *escalation is not
+justified on this corpus*, not *escalation never helps*. Widening the gold set into genuinely
+reasoning-heavy questions is the work that would make the stronger claim available.
+
+**Consequences.**
+
+- M6's measured value is entirely in its deterministic tier: 2 of 40 gold items answered exactly, with zero
+  model tokens. The escalation tier is available, calibrated, and off.
+- `complexity_distribution` and `sweep_escalation_threshold` join the calibration module, so this threshold
+  is now derived the same way the cache thresholds are rather than asserted.
+- Every threshold in the project has now been checked against its distribution. Two of the three that were
+  set by intuition (dedup 0.80, escalation 0.75) turned out never to fire.
+
+**A grading bug this uncovered.** Chasing the four gold failures showed one was not a failure: asked for the
+chemical symbol for tungsten, the model answered *"The chemical symbol for tungsten is W."* and was scored
+wrong. The `exact` rule required the whole response to equal the gold answer, which no conversational model
+can satisfy — and a unit test asserted exactly that behaviour, pinning the implementation instead of the
+intent and making the bug permanent. `exact` now means the gold answer appears as a **standalone token**
+(not a substring: a one-letter answer like "W" occurs inside ordinary words). Only one of the 40 items uses
+the rule, which is why it survived unnoticed.
+
+Corrected gold accuracy, real model: **baseline 37/40 (92.5%), full stack 39/40 (97.5%)**, still with zero
+regressions.

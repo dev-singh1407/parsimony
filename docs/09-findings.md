@@ -1,9 +1,9 @@
 # Parsimony — Findings to date
 
-**Status:** all eight modules built · **645 tests passing** · every number below regenerates with
+**Status:** all eight modules built · **653 tests passing** · every number below regenerates with
 `python reproduce.py`
 
-This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (36 ADRs);
+This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (37 ADRs);
 this document is what those decisions *found*.
 
 **Which numbers came from where.** Sections 1–7 and 9 run against `MockProvider`, a deterministic stand-in:
@@ -349,17 +349,8 @@ model, scored on the same 40 gold items:
 |---|---|---|
 | mock | baseline | 2/40 — 5.0% |
 | mock | full stack | 14/40 — 35.0% |
-| **real** | **baseline** | **36/40 — 90.0%** |
-| **real** | **full stack** | **38/40 — 95.0%** |
-
-Paired, per item:
-
-| | count |
-|---|---|
-| both correct | 36 |
-| both wrong | 2 |
-| **baseline right, full stack wrong** | **0** |
-| baseline wrong, full stack right | 2 |
+| **real** | **baseline** | **37/40 — 92.5%** |
+| **real** | **full stack** | **39/40 — 97.5%** |
 
 **Zero regressions.** Removing a third of the tokens did not lose a single answer the baseline got right.
 That is the claim worth making, and it is the one this project exists to test.
@@ -368,6 +359,39 @@ The two gains are `847 * 23` and a date difference — both routed to M6's deter
 exactly and sends the model nothing. Two discordant pairs is not statistically significant (exact McNemar,
 two-sided **p = 0.50**), so the *statistical* claim stops at "no measurable degradation". The mechanism,
 though, is not chance: a calculator will beat a 1.5B model at three-digit multiplication every time.
+
+> **A grading bug found by inspecting the failures rather than the totals.** Asked for the chemical symbol
+> for tungsten, the model answered *"The chemical symbol for tungsten is W."* and was scored **wrong**. The
+> `exact` rule required the whole response to equal the gold answer, which no conversational model can
+> satisfy — and a unit test asserted precisely that, pinning the implementation instead of the intent and
+> making the bug permanent. Only 1 of the 40 items uses the rule, which is why it survived. `exact` now
+> matches the answer as a standalone token, and the figures above are the corrected ones (ADR-037).
+
+### A bigger model does not help here
+
+M6's escalation tier routes hard queries to a larger model. Two questions, both now answerable, both
+answered no.
+
+**It could not fire.** `escalation_complexity` shipped at 0.75 against an observed maximum complexity of
+**0.406** across 237 routed requests — 0 escalations, and none possible. Dead code wearing a configuration
+option, the same failure as the 0.80 dedup threshold in §10. It is now calibrated to 0.20, the ~90th
+percentile, so the option means something when enabled.
+
+**And it would not have helped.** On the 40 gold items:
+
+| model | size | gold | wall clock |
+|---|---|---|---|
+| qwen2.5:1.5b-instruct | 0.92 GB | 36/40 | 139 s |
+| llama3.2:3b | 2.0 GB | 36/40 | 161 s |
+
+Item for item identical — 36 both right, 4 both wrong, **zero** where one model succeeded and the other
+failed — for 16% more wall clock and twice the memory. So `escalation_tier` stays off, now for a measured
+reason instead of an accidental one (ADR-037).
+
+**The caveat matters more than the finding.** After the grading fix, only two gold items defeat both models,
+and both are arithmetic that M6's deterministic tier already answers without a model. So the gold set holds
+no question in the band where a 1.5B model fails and a 3B model succeeds — this measures the *gold set* as
+much as the models. The defensible claim is narrow: escalation is not justified **on this corpus**.
 
 ### The judge failed its own calibration
 

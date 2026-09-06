@@ -39,10 +39,17 @@ class TestGoldGrading:
         item = GoldItem("g", "q", "George Orwell", "contains", 0.0, ("Orwell",))
         assert grade("It was written by Orwell.", item)
 
-    def test_exact_requires_the_whole_answer(self):
+    def test_exact_matches_the_answer_token_not_the_whole_utterance(self):
+        """This test previously asserted the opposite — that "The symbol is W."
+        must FAIL — which pinned the implementation rather than the intent and
+        made the bug permanent. `exact` means the answer is exactly this token,
+        not that the model was forbidden from forming a sentence around it.
+        """
         item = GoldItem("g", "q", "W", "exact", 0.0, ())
         assert grade("W", item)
-        assert not grade("The symbol is W.", item)
+        assert grade("The symbol is W.", item)
+        assert not grade("The symbol is Na.", item)
+        assert not grade("What is that?", item), "a letter inside a word is not the answer"
 
     def test_empty_response_never_passes(self):
         assert not grade("", GoldItem("g", "q", "42", "numeric", 0.0, ()))
@@ -121,3 +128,45 @@ class TestQualityVector:
     def test_serialises_all_four_measures_separately(self):
         keys = QualityVector().as_dict().keys()
         assert {"q_embedding_sim", "q_token_overlap", "q_judge", "q_exact_match"} <= set(keys)
+
+
+class TestExactMatchAcceptsAConversationalAnswer:
+    """`exact` required whole-response equality, so no model that answers in
+    sentences could ever pass it. Asked for the chemical symbol for tungsten,
+    qwen2.5 replied "The chemical symbol for tungsten is W." and was scored
+    wrong — the rule failing, not the model, silently costing a point on every
+    gold run. Only one gold item uses the rule, which is why it went unnoticed.
+    """
+
+    @staticmethod
+    def _item():
+        from parsimony.eval.corpus import GoldItem
+
+        return GoldItem(
+            gold_id="g", question="q", gold_answer="W", match="exact",
+            tolerance=0.0, acceptable_variants=("W (wolfram)",),
+        )
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            "W",
+            "w",
+            "The chemical symbol for tungsten is W.",
+            "The answer is W (wolfram).",
+        ],
+    )
+    def test_accepts(self, response):
+        assert grade(response, self._item())
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            "What is that?",             # 'w' inside a word is not a verdict
+            "Tungsten is a metal, symbol Wo.",
+            "The symbol is Na.",
+            "",
+        ],
+    )
+    def test_rejects(self, response):
+        assert not grade(response, self._item())

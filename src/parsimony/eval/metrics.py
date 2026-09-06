@@ -123,8 +123,27 @@ def grade(response: str, item: GoldItem) -> bool:
         )
 
     if item.match == "exact":
+        # "Exact" means the answer is exactly this token — NOT that the model
+        # emitted nothing else. Requiring whole-response equality meant no
+        # conversational model could ever pass: asked for the chemical symbol
+        # for tungsten, qwen2.5 answered "The chemical symbol for tungsten is
+        # W." and was scored wrong. That was the rule failing, not the model,
+        # and it silently cost a point on every gold run.
+        #
+        # Matched as a standalone token rather than a substring, because a
+        # one-letter answer like "W" appears inside ordinary words. Case is
+        # preserved: chemical symbols and unit abbreviations distinguish it.
         candidates = [item.gold_answer, *item.acceptable_variants]
-        return any(resp_norm == _normalise(c) for c in candidates)
+        for candidate in candidates:
+            if not candidate.strip():
+                continue
+            if resp_norm == _normalise(candidate):
+                return True
+            if re.search(
+                rf"(?<![A-Za-z0-9]){re.escape(candidate.strip())}(?![A-Za-z0-9])", response
+            ):
+                return True
+        return False
 
     if item.match in ("contains", "set"):
         candidates = [item.gold_answer, *item.acceptable_variants]

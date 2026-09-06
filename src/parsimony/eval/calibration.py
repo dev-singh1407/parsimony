@@ -255,3 +255,73 @@ def by_operative(
         bucket[0] += int(hit)
         bucket[1] += 1
     return {k: (v[0], v[1]) for k, v in sorted(out.items())}
+
+
+# --------------------------------------------------------------------------
+# M6 escalation threshold
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class EscalationPoint:
+    """One operating point for M6's escalation threshold."""
+
+    threshold: float
+    n_requests: int
+    escalated: int
+
+    @property
+    def escalation_rate(self) -> float:
+        return 100.0 * self.escalated / self.n_requests if self.n_requests else 0.0
+
+
+ESCALATION_SWEEP = (0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50, 0.75)
+
+
+def complexity_distribution(base: ParsimonyConfig, corpus) -> list[float]:
+    """Every request's complexity score, as the router actually computes it.
+
+    Deliberately measured through a live pipeline rather than by calling
+    `complexity_score` on a bare context: two of the six features
+    (`is_reasoning_class`, `is_code_class`) are set by M5, which runs earlier in
+    the stage order. Scoring a context that never went through the pipeline
+    zeroes them and understates every query — a first attempt at this reported a
+    maximum of 0.206 where the live maximum is 0.406.
+    """
+    from parsimony.pipeline.orchestrator import Pipeline
+
+    cfg = replace(base, router=replace(base.router, escalation_tier=True))
+    pipeline = Pipeline(cfg)
+    scores: list[float] = []
+    for conversation in corpus.conversations:
+        for question in conversation.user_turns:
+            outcome = pipeline.run(question, conversation_id=conversation.conversation_id)
+            for trace in outcome.traces:
+                if trace.name == "m6b_router" and "complexity" in trace.evidence:
+                    scores.append(float(trace.evidence["complexity"]))
+    return scores
+
+
+def sweep_escalation_threshold(
+    base: ParsimonyConfig,
+    corpus,
+    thresholds: tuple[float, ...] = ESCALATION_SWEEP,
+    scores: list[float] | None = None,
+) -> list[EscalationPoint]:
+    """What fraction of traffic each escalation threshold sends to the large model.
+
+    The shipped default was 0.75 against an observed maximum of 0.406, so the
+    tier could not fire at all — dead code wearing a configuration option, the
+    same failure as the 0.80 dedup threshold in ADR-028. A threshold is only
+    meaningful relative to the distribution it is applied to, and nothing had
+    ever measured that distribution.
+    """
+    scores = complexity_distribution(base, corpus) if scores is None else scores
+    return [
+        EscalationPoint(
+            threshold=t,
+            n_requests=len(scores),
+            escalated=sum(1 for s in scores if s >= t),
+        )
+        for t in thresholds
+    ]
