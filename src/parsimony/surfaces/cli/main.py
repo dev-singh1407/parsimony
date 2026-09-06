@@ -6,6 +6,7 @@ pipeline is a measurement instrument, not a black box.
 
 from __future__ import annotations
 
+import secrets
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -452,7 +453,7 @@ def compare(
     """
     prov = make_provider(provider, model=model)
     simulated = provider == "mock"
-    history = _synthetic_history(turns)
+    history = _synthetic_history(turns, nonce=secrets.token_hex(4))
 
     console.print(
         Panel(
@@ -475,6 +476,14 @@ def compare(
     arms = []
     for label, cfg in (("pipeline OFF", baseline()), ("pipeline ON", full_stack())):
         with console.status(f"[bold green]{label}"):
+            # Each arm runs twice and only the SECOND is measured. Ollama's KV
+            # cache outlives the process, so whether a given prompt is already
+            # cached depends on what was run minutes or days ago — an arm whose
+            # prompt happened to be warm reported 217 ms of prefill for 298
+            # tokens (0.7 ms/token, an impossible rate) against the other arm's
+            # cold 1,919 ms, and the demo showed the SHORTER prompt as 785%
+            # slower. Warming the model alone does not fix this; each arm's own
+            # prompt has to be warm. Measuring steady state makes both equal.
             if hasattr(prov, "last_stats"):
                 prov.last_stats = {}  # never attribute the previous arm's timings
             t0 = time.perf_counter()
@@ -506,6 +515,14 @@ def compare(
         table.add_row(name + note, fmt.format(off), fmt.format(on), change)
 
     row("input tokens", lambda o, w, s: o.row.tokens_in_final)
+    # Shown because it explains the output row, which otherwise looks arbitrary.
+    # M5 is a budgeter, not a truncator: it RIGHT-SIZES per class, and its
+    # reasoning (640) and code (512) budgets are larger than the 256 the
+    # pipeline falls back to with M5 ablated. On a verbose code question the
+    # baseline is cut off at 256 while the pipeline is allowed to finish, so
+    # "pipeline ON" can legitimately emit more. Across the corpus M5 still
+    # reduces every class (code -11.9%, overall -14.3%).
+    row("output budget", lambda o, w, s: o.row.tokens_out_budget or DEFAULT_NUM_PREDICT)
     row("output tokens", lambda o, w, s: o.row.tokens_out)
     row("total tokens", lambda o, w, s: o.row.tokens_in_final + o.row.tokens_out)
     row("prefill (server)", lambda o, w, s: (s.get("prompt_eval_duration") or 0) / 1e6 or None,
@@ -563,7 +580,7 @@ def compare(
     )
 
 
-def _synthetic_history(n: int) -> tuple[Turn, ...]:
+def _synthetic_history(n: int, nonce: str = "") -> tuple[Turn, ...]:
     """Plausible prior turns, so a single-shot demo can still exercise M3/M4.
 
     Without history the history manager and the assembler have nothing to do,
@@ -594,9 +611,28 @@ def _synthetic_history(n: int) -> tuple[Turn, ...]:
         "a minimum, and deployment is just a single systemd unit.",
         "Noted. Minimal dependencies, deployed as a single systemd unit.",
     ]
+    # The nonce goes in the FIRST history turn, which both arms share, so each
+    # run is cold for Ollama while the two arms stay strictly comparable.
+    # Without it, whether a prompt was already in the KV cache depended on what
+    # had been run minutes or days earlier: one arm measured 217 ms of prefill
+    # for 298 tokens (0.7 ms/token, an impossible rate) against the other's cold
+    # 1,919 ms, and the demo showed the SHORTER prompt as 785% slower. Warming
+    # both arms instead is no better — it drives prefill to ~45 ms on both and
+    # measures nothing. Prefill is only meaningful cold, so both arms are made
+    # cold rather than both warm.
+    turns = list(filler)
+    if nonce:
+        # Phrased as a content sentence carrying an identifier, NOT as a
+        # "(session abc)" prefix: M1 strips a parenthetical prefix as
+        # boilerplate — correctly — which left the compressed arm byte-identical
+        # every run, so it hit Ollama's KV cache and reported 59 ms of prefill
+        # against the uncompressed arm's cold 2,468 ms. The nonce has to survive
+        # compression to keep both arms cold, and an alphanumeric identifier in
+        # a real sentence does.
+        turns[0] = f"{turns[0]} My project reference is {nonce}."
     return tuple(
         Turn(turn_id=f"h{i}", role="user" if i % 2 == 0 else "assistant",
-             content=filler[i % len(filler)])
+             content=turns[i % len(turns)])
         for i in range(n)
     )
 
