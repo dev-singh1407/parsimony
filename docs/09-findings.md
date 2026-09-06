@@ -1,9 +1,9 @@
 # Parsimony — Findings to date
 
-**Status:** all eight modules built · **653 tests passing** · every number below regenerates with
+**Status:** all eight modules built · **700 tests passing** · every number below regenerates with
 `python reproduce.py`
 
-This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (37 ADRs);
+This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (38 ADRs);
 this document is what those decisions *found*.
 
 **Which numbers came from where.** Sections 1–7 and 9 run against `MockProvider`, a deterministic stand-in:
@@ -128,7 +128,7 @@ Two revisions to this number are worth recording, because they moved it in oppos
 > doubled denominator; the *benefit* claim had been optimistic on a thin one.
 >
 > **Fixing the encoder raised it again.** `content-v1` (ADR-035) took it from 22.2% to **28.9%** at the same
-> threshold and the same 0.0% false-hit rate — the gain coming from exactly the paraphrases §10 identifies
+> threshold and the same 0.0% false-hit rate — the gain coming from exactly the paraphrases §11 identifies
 > as the encoder's blind spot.
 
 ---
@@ -374,7 +374,7 @@ answered no.
 
 **It could not fire.** `escalation_complexity` shipped at 0.75 against an observed maximum complexity of
 **0.406** across 237 routed requests — 0 escalations, and none possible. Dead code wearing a configuration
-option, the same failure as the 0.80 dedup threshold in §10. It is now calibrated to 0.20, the ~90th
+option, the same failure as the 0.80 dedup threshold in §11. It is now calibrated to 0.20, the ~90th
 percentile, so the option means something when enabled.
 
 **And it would not have helped.** On the 40 gold items:
@@ -444,9 +444,61 @@ question, so warm-starting could have bought tokens by serving wrong answers. It
 **Why M7 contributes nothing to the headline ablation:** the corpus's recurrence is **1.9%** — four repeated
 questions across 263 turns. It was authored for ablation diversity, the right shape for M1/M2/M3/M5 and the
 wrong shape for a module that learns from repetition. That is a fact about the corpus, not the module — the
-same distinction as §8's encoder finding.
+same distinction as §11's encoder finding.
 
-## 10. Two limitations we can name precisely
+## 10. Fuzzing found a bypass the adversarial corpus could not
+
+Every safety number above is measured against 45 adversarial pairs and 45 controls, all plain ASCII English.
+0.0% false hits is a statement about *that corpus*. Twenty hostile inputs — empty, 8,000 words, emoji,
+control characters, RTL overrides, SQL injection, surrogates — were put through the full stack. **Nothing
+crashed.** Two results were wrong, and both mattered.
+
+**The verifier could be bypassed with an invisible character.** It reads negation particles out of raw text.
+One zero-width character inside "not" splits it into fragments matching no lexicon entry, so the negation
+check *agrees* and the verifier passes a question against its own opposite:
+
+| variant | negation seen? | verifier |
+|---|---|---|
+| `Is it not safe to mix bleach and vinegar?` | yes | rejects ✓ |
+| `Is it n`·`ot safe…` (zero-width space) | **no** | **passes** ✗ |
+| soft hyphen · zero-width joiner · word joiner | **no** | **passes** ✗ |
+| Cyrillic `о` in place of Latin `o` | **no** | **passes** ✗ |
+
+Seven variants. The only thing between that and serving the opposite answer was the embedder happening to
+score the mangled text at 0.880, below τ_hi — **luck, not a defence**, and dependent on a property of an
+encoder that ADR-035 has already changed once.
+
+Fixed by `sanitise()`: NFKC, drop every Unicode category **Cf** character (invisible by definition, so it
+cannot carry meaning a reader intended), fold Cyrillic and Greek look-alikes. Applied at all four places the
+verifier reads text — a bypass in any one is a bypass overall — and deliberately **never** to the text sent
+to the model, because a user who writes Cyrillic must get their own words back.
+
+**Every non-Latin query was being deleted outright.** Found by a test written for the bypass, which failed
+for an unrelated reason. M1 tier 1 classified contentless debris with `[A-Za-z0-9]`, so a query with no Latin
+letter matched nothing, was dropped whole, and the model received an **empty prompt**:
+
+```
+"Как дела?"   "नमस्ते, यह क्या है?"   "இது என்ன?"   "你好世界"   →   ""
+```
+
+For a project written at an Indian university, a question in Hindi or Tamil vanished silently.
+
+**And the gate could not see it — the deeper problem.** Every check the fidelity gate makes asks *"was a
+value I could extract lost?"*. That silently makes its guarantee **conditional on the extractor's language
+coverage**. The extractors are Latin-only regexes, so non-Latin text yields no invariants at all: deleting
+the entire question lost nothing the gate could name, and it passed. An always-on gate whose guarantee is
+void for most of the world's writing systems is not the gate the architecture claims.
+
+The gate now refuses any transform that removes **all** word characters, checked before the invariant
+comparison and independent of it — the only kind of check that can hold for languages the extractors cannot
+read. Widening the regex would have fixed the instance and left the class (ADR-038).
+
+**Every headline number is unchanged** by these fixes: +33.9% full stack, 0.0% false hits, 1.63 pp shortfall.
+They close holes without moving a result, which is what a security fix should look like when the original
+measurements were sound. What changed is the *scope* of the safety claim: 0.0% is now a statement about a
+corpus **and a sanitiser**, rather than about a corpus that happened to contain no adversarial Unicode.
+
+## 11. Two limitations we can name precisely
 
 **M1 tier 2 was encoder-limited, not technique-limited (ADR-028) — and the encoder has since been partly
 fixed (ADR-035).** Intended near-duplicates scored:
@@ -493,7 +545,7 @@ examine, because the exact tier looks unambiguously safe.
 
 ---
 
-## 11. What is not yet measured
+## 12. What is not yet measured
 
 - **Real latency.** Everything runs on `MockProvider`. TTFT/TPOT, the prefill/decode split behind Gap 2, and
   the energy column become real the moment a provider is attached. The two-pass sweep (memoised quality

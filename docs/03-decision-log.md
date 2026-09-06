@@ -1234,3 +1234,108 @@ the rule, which is why it survived unnoticed.
 
 Corrected gold accuracy, real model: **baseline 37/40 (92.5%), full stack 39/40 (97.5%)**, still with zero
 regressions.
+
+---
+
+### ADR-038 — Fuzzing the pipeline: a verifier that could be bypassed, and a gate that could not see it
+
+**Context.** Every safety claim in this project is measured against `corpus/adversarial_pairs.jsonl`: 45
+adversarial pairs and 45 controls, all plain ASCII English. A false-hit rate of 0.0% is a statement about
+that corpus. It says nothing about input the corpus does not contain, and no one had ever asked what the
+pipeline does with hostile text.
+
+Twenty inputs were put through the full stack — empty, whitespace, 8,000 words, emoji, control characters,
+RTL overrides, combining marks, SQL injection, format specifiers, surrogates. **Nothing crashed**, which is
+the first thing worth recording. But two results looked wrong, and both were.
+
+**Finding 1 — the verifier could be bypassed with an invisible character.**
+
+The verifier reads negation particles out of raw text with a word-boundary regex. A single zero-width
+character inside "not" splits it into fragments that match no lexicon entry, so the negation check *agrees*
+and `verify_match` passes a question against its own opposite:
+
+| variant | negation seen? | verifier |
+|---|---|---|
+| `Is it not safe to mix bleach and vinegar?` | yes | **rejects** |
+| `Is it n<ZWSP>ot safe…` | **no** | **passes** |
+| `Is it n<ZWJ>ot safe…` | **no** | **passes** |
+| `Is it n<soft hyphen>ot safe…` | **no** | **passes** |
+| `Is it n<Cyrillic о>t safe…` | **no** | **passes** |
+
+Seven variants in total, including full-width forms and the word joiner. The only thing between that and
+serving the opposite answer was the embedder happening to score the mangled text at 0.880, below τ_hi. **That
+is luck, not a defence** — it depends on a property of the encoder that no one chose and nothing tests, and
+ADR-035 has already changed the encoder once.
+
+This is a sharper version of the collision class in ADR-029. That one needed no search — it was reachable by
+typing `?`. This one needs no search either: it is reachable by pasting text from a word processor, which
+inserts soft hyphens, or by copying a question written in a language that shares Latin letterforms.
+
+**Decision.** `sanitise()` runs before any lexical analysis: NFKC normalisation; drop every character in
+Unicode category **Cf** — zero-width space, ZWJ, ZWNJ, word joiner, soft hyphen, bidirectional overrides,
+which are invisible by definition and therefore cannot carry meaning a reader intended; then fold the
+Cyrillic and Greek letters that impersonate Latin ones in the negation particles and operative modifiers the
+verifier depends on.
+
+Applied at **all four** places the verifier reads text — invariant extraction, `shingles`,
+`operative_modifiers`, `morphological_negations` — because a bypass in any one is a bypass overall.
+
+Deliberately **not** applied to the text that reaches the model. A user who writes Cyrillic must get their
+own words back; folding is for matching, never for rewriting.
+
+**Finding 2 — every non-Latin query was being deleted outright.**
+
+Found by a test written for finding 1, which failed for an unrelated reason.
+
+M1 tier 1 decides whether a sentence is contentless debris using `[A-Za-z0-9]`. A query containing no Latin
+letter matches nothing, is classified as debris, is dropped whole — and the model receives an **empty
+prompt**:
+
+```
+"Как дела?"           -> ""
+"नमस्ते, यह क्या है?"        -> ""
+"இது என்ன?"            -> ""
+"你好世界"              -> ""
+```
+
+For a project written at an Indian university, a question asked in Hindi or Tamil vanished silently. The
+class is now `[^\W_]` — every Unicode letter and digit.
+
+**Finding 3 — the fidelity gate could not see it, and that is the deeper problem.**
+
+The gate did not catch finding 2, and would not have caught any variant of it. Every check it performs asks
+*"was a value I could EXTRACT lost?"* — numbers, entities, negations, modifiers. That silently makes the
+gate's guarantee **conditional on the extractor's language coverage**. The extractors are regex-based and
+Latin-only, so non-Latin text yields no invariants at all; deleting the entire question lost nothing the gate
+could name, and it passed the transform.
+
+An always-on gate whose guarantee is void for most of the world's writing systems is not the gate the
+architecture claims (ADR-003).
+
+`_check_rewrite` now refuses any transform that removes **all** word characters, checked *before* the
+invariant comparison and independent of it. A transform that empties the payload is never legitimate,
+whatever alphabet it was written in — so this holds for languages the extractors cannot read. It also covers
+the "Thanks in advance!" → "!" case from ADR-026 in miniature.
+
+**Justification for the shape of the fix.** The tempting repair for finding 2 is to widen the regex and stop.
+That fixes the instance and leaves the class: the gate would still be a language-conditional guarantee, and
+the next extractor gap would produce the next silent deletion. A structural check that does not depend on
+understanding the text is the only kind that can hold for input the extractors cannot parse.
+
+**Consequences.**
+
+- **Every headline number is unchanged**: full stack +33.9%, false-hit rate 0.0% at τ ≥ 0.92, additivity
+  shortfall 1.63 pp. These fixes are strictly protective — they close holes without moving a result, which is
+  what a security fix should look like when the original measurements were sound.
+- The 0.0% false-hit rate is now a claim about a corpus **plus** a sanitiser, rather than a claim about a
+  corpus that happened not to contain adversarial Unicode.
+- The gate has one check that is not extractor-dependent. It is the only one that holds for a language the
+  project cannot parse, and it should be the model for any future check.
+- 47 tests, covering each bypass variant by name, each writing system by name, and the property that
+  sanitisation never reaches the model's copy of the text.
+
+**What this says about the safety claim generally.** The adversarial corpus was authored by the same people
+who wrote the verifier, in the language they wrote it in. It tests the failure modes they thought of.
+Fuzzing tests the ones they did not — and it found two in twenty inputs, one of which defeats the project's
+central safety mechanism. Both classes of test are necessary; the corpus alone was not sufficient, and that
+is worth stating in the report rather than discovering after it.
