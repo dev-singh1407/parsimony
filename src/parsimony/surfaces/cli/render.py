@@ -352,6 +352,130 @@ def module_report(console: Console, outcome, counter=None) -> None:
             border_style="grey37", title_align="left"))
 
 
+def _changed_runs(before: str, after: str) -> tuple[list[str], list[str]]:
+    """Contiguous runs this edit removed and added.
+
+    RUNS, not a flat word list. Flattening non-adjacent fragments into one
+    string invents phrases that were never in the text: deleting "Hello, could
+    you please" and "Thanks!" from opposite ends of a sentence reported
+    `removed "Hello, could you please explain is? Thanks!"` — which implies
+    "explain" was removed when it was kept.
+    """
+    a, b = _split_words(before), _split_words(after)
+    removed, added = [], []
+    for tag, i1, i2, j1, j2 in SequenceMatcher(None, a, b).get_opcodes():
+        if tag in ("delete", "replace"):
+            run = "".join(a[i1:i2]).strip()
+            if run:
+                removed.append(run)
+        if tag in ("insert", "replace"):
+            run = "".join(b[j1:j2]).strip()
+            if run:
+                added.append(run)
+    return removed, added
+
+
+def _quote(runs: list[str], limit: int = 4) -> str:
+    """Each run quoted separately, so nothing is implied to be contiguous."""
+    if not runs:
+        return "—"
+    shown = " · ".join(f'"{r}"' for r in runs[:limit])
+    return shown + (f" · … {len(runs) - limit} more" if len(runs) > limit else "")
+
+
+def explain_report(console: Console, outcome, counter=None) -> None:
+    """A written account of what was done to this request, and why.
+
+    The per-module panels show WHAT changed. This says what it MEANS: which
+    modules acted, what each one removed or decided, the reasoning behind it,
+    and what it cost or saved. Without it a viewer sees a wall of before/after
+    boxes and has to reconstruct the argument themselves — which, in a demo, is
+    the presenter's job and not the audience's.
+
+    Only the modules that acted appear. Silence is reported once, as a count,
+    rather than as nine panels saying nothing happened.
+    """
+    counter = counter or (lambda s: 0)
+    deltas = {d.stage: d for d in getattr(outcome, "text_deltas", ())}
+    row = outcome.row
+
+    acted, quiet = [], []
+    for trace in outcome.traces:
+        module, role = _MODULE_ROLE.get(trace.name, (trace.module_id, ""))
+        if trace.outcome in (StageOutcome.APPLIED, StageOutcome.REVERTED,
+                             StageOutcome.SHORT_CIRCUIT):
+            acted.append((trace, module, role, deltas.get(trace.name)))
+        else:
+            quiet.append((trace, module))
+
+    table = Table(
+        title="What happened to this request, and why",
+        title_style="bold", header_style="bold", show_lines=True, expand=True,
+    )
+    table.add_column("Module", style="bold cyan", no_wrap=True)
+    table.add_column("What it did")
+    table.add_column("Effect", justify="right", no_wrap=True)
+
+    for trace, module, role, delta in acted:
+        if trace.outcome is StageOutcome.SHORT_CIRCUIT:
+            table.add_row(
+                f"{module}\n[dim]{trace.name}[/dim]",
+                f"[bold cyan]Answered the question here — the model was never called.[/bold cyan]\n"
+                f"[dim]{trace.rationale}[/dim]",
+                f"[bold green]{trace.tokens_before} tokens\nnever sent[/bold green]",
+            )
+            continue
+
+        if trace.outcome is StageOutcome.REVERTED:
+            lost = _changed_runs(delta.before, delta.after)[0] if delta else []
+            table.add_row(
+                f"{module}\n[dim]{trace.name}[/dim]",
+                f"[bold yellow]Proposed an edit; the fidelity gate REFUSED it.[/bold yellow]\n"
+                f"Would have removed {_quote(lost)}\n"
+                f"[dim]Blocked because: {trace.rationale}[/dim]",
+                "[yellow]0 tokens\n(safety first)[/yellow]",
+            )
+            continue
+
+        saved = trace.tokens_before - trace.tokens_after
+        if delta is not None and delta.changed:
+            removed, added = _changed_runs(delta.before, delta.after)
+            what = f"[dim]{role.capitalize()}.[/dim]\nRemoved {_quote(removed)}"
+            if added:
+                what += f"\nReplaced with {_quote(added)}"
+            what += f"\n[dim]{trace.rationale}[/dim]"
+        else:
+            what = f"[dim]{role.capitalize()}.[/dim]\n{trace.rationale}"
+
+        effect = (f"[bold green]−{saved} tokens[/bold green]" if saved > 0
+                  else "[dim]no token change[/dim]")
+        table.add_row(f"{module}\n[dim]{trace.name}[/dim]", what, effect)
+
+    console.print(table)
+
+    if quiet:
+        names = ", ".join(f"{m} {t.name.split('_', 1)[-1]}" for t, m in quiet)
+        console.print(
+            f"[dim]Not needed here ({len(quiet)}): {names}. "
+            f"A module that reports doing nothing is as auditable as one that acts — "
+            f"the trace never hides a stage.[/dim]"
+        )
+
+    before, after = row.tokens_in_original, row.tokens_in_final
+    if outcome.generated and before:
+        pct = (before - after) / before * 100
+        console.print(
+            f"\n[bold]Net effect:[/bold] the prompt went from [bold]{before}[/bold] to "
+            f"[bold green]{after}[/bold green] tokens — [bold green]{pct:.0f}% fewer[/bold green]"
+            f", and the answer is unchanged in meaning because every edit passed the gate."
+        )
+    elif not outcome.generated:
+        console.print(
+            f"\n[bold]Net effect:[/bold] the model was [bold cyan]never called[/bold cyan]. "
+            f"All {before} input tokens and the whole generation were avoided."
+        )
+
+
 def print_outcome(console: Console, outcome, show_response: bool = True,
                   show_text: bool = False, counter=None) -> None:
     console.print(trace_table(outcome))

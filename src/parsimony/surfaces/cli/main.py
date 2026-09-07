@@ -28,6 +28,7 @@ from parsimony.infra.storage import JsonlSink, import_jsonl
 from parsimony.infra.tokenization import get_tokenizer
 from parsimony.pipeline.orchestrator import DEFAULT_NUM_PREDICT, Pipeline
 from parsimony.surfaces.cli.render import (
+    explain_report,
     module_report,
     print_outcome,
     summary_panel,
@@ -61,6 +62,9 @@ def chat(
     def show(o):
         if modules:
             module_report(console, o, counter)
+            console.print()
+            explain_report(console, o, counter)
+            console.print()
             console.print(summary_panel(o, simulated=o.row.model_digest.startswith("mock")))
             console.print(Panel(o.response or "[dim](empty)[/dim]", title="Answer",
                                 border_style="green"))
@@ -499,6 +503,9 @@ def ask(
         outcome = pipeline.run(query, tuple(history), conversation_id=conversation_id,
                               turn_index=len(history))
         module_report(console, outcome, counter)
+        console.print()
+        explain_report(console, outcome, counter)
+        console.print()
         console.print(summary_panel(outcome, simulated=outcome.row.model_digest.startswith("mock")))
         console.print(Panel(outcome.response or "[dim](empty)[/dim]", title="Answer",
                             border_style="green"))
