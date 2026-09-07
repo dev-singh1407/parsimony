@@ -69,10 +69,28 @@ class TextDelta:
     after: str
     reverted: bool = False
     short_circuited: bool = False
+    #: The user's question alone, separately from the conversation behind it.
+    #: The payload is history + query concatenated, so in a six-turn
+    #: conversation a stage that rewrote one word of the question displayed
+    #: several hundred tokens of a previous ANSWER as its before/after — the
+    #: question the user actually asked was invisible in its own trace.
+    query_before: str = ""
+    query_after: str = ""
+    turns_before: int = 0
+    turns_after: int = 0
 
     @property
     def changed(self) -> bool:
         return self.before != self.after
+
+    @property
+    def query_changed(self) -> bool:
+        return self.query_before != self.query_after
+
+    @property
+    def history_changed(self) -> bool:
+        """Something moved in the conversation rather than in the question."""
+        return self.changed and not self.query_changed
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,7 +271,10 @@ class Pipeline:
                 if self.capture_text:
                     text_deltas.append(
                         TextDelta(stage.name, stage.module_id, ctx.text_payload(), "",
-                                  short_circuited=True)
+                                  short_circuited=True,
+                                  query_before=ctx.query, query_after=ctx.query,
+                                  turns_before=len(ctx.history),
+                                  turns_after=len(ctx.history))
                     )
                 short = proposal
                 break
@@ -278,7 +299,10 @@ class Pipeline:
                 if self.capture_text:
                     text_deltas.append(
                         TextDelta(stage.name, stage.module_id,
-                                  ctx.text_payload(), candidate.text_payload())
+                                  ctx.text_payload(), candidate.text_payload(),
+                                  query_before=ctx.query, query_after=candidate.query,
+                                  turns_before=len(ctx.history),
+                                  turns_after=len(candidate.history))
                     )
                 tokens_per_stage[stage.name] = after_tokens
                 ctx = candidate  # commit
@@ -295,7 +319,10 @@ class Pipeline:
                     text_deltas.append(
                         TextDelta(stage.name, stage.module_id,
                                   ctx.text_payload(), candidate.text_payload(),
-                                  reverted=True)
+                                  reverted=True,
+                                  query_before=ctx.query, query_after=candidate.query,
+                                  turns_before=len(ctx.history),
+                                  turns_after=len(candidate.history))
                     )
 
         # -- generation or short circuit ------------------------------------

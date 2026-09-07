@@ -10,6 +10,7 @@ from __future__ import annotations
 from rich.console import Console
 
 from parsimony.core.config import baseline, full_stack
+from parsimony.core.types import Turn
 from parsimony.pipeline.orchestrator import Pipeline, TextDelta
 from parsimony.surfaces.cli.render import _diff_text, _split_words, text_delta_panels
 
@@ -124,3 +125,60 @@ class TestRendering:
         outcome = type("O", (), {"text_deltas": (TextDelta("s", "M1", "same", "same"),)})()
         text_delta_panels(console, outcome, counter=len)
         assert console.export_text().strip() == ""
+
+
+class TestTheQuestionIsShownNotTheConversation:
+    """A stage that rewrote one word of a question displayed several hundred
+    tokens of a PREVIOUS ANSWER as its before/after.
+
+    The payload is history + query concatenated, so in a six-turn conversation
+    the question the user actually typed was invisible in its own trace: a
+    24-token question about Ubuntu reported removing "**Choose" and "Pivot**:",
+    which came from a quicksort reply three turns earlier.
+    """
+
+    @staticmethod
+    def _history(n=6):
+        return tuple(
+            Turn(turn_id=f"t{i}", role="user" if i % 2 == 0 else "assistant",
+                 content=f"An earlier turn about quicksort, number {i}, with "
+                         f"**markdown** and enough words to dominate a panel.")
+            for i in range(n)
+        )
+
+    def test_the_query_is_captured_apart_from_the_payload(self):
+        deltas = Pipeline(full_stack(), capture_text=True).run(
+            VERBOSE, self._history()).text_deltas
+        edits = [d for d in deltas if d.query_changed]
+        assert edits, "expected at least one stage to rewrite the question"
+        for d in edits:
+            assert "quicksort" not in d.query_before.lower(), (
+                "the question must not carry the conversation with it")
+            assert len(d.query_before) < len(d.before), (
+                "query should be a strict subset of the payload here")
+
+    def test_a_history_edit_is_not_reported_as_a_question_edit(self):
+        deltas = Pipeline(full_stack(), capture_text=True).run(
+            "How do I choose a hash function?", self._history(8)).text_deltas
+        for d in deltas:
+            if d.history_changed:
+                assert not d.query_changed
+                assert d.query_before == d.query_after
+
+    def test_turn_counts_travel_with_the_delta(self):
+        """So a history change can be described structurally — '8 to 6 turns' —
+        rather than by dumping the conversation into a panel."""
+        deltas = Pipeline(full_stack(), capture_text=True).run(
+            "How do I choose a hash function?", self._history(8)).text_deltas
+        trims = [d for d in deltas if d.turns_after < d.turns_before]
+        assert trims, "expected the history manager to drop turns"
+        assert trims[0].turns_before == 8
+
+    def test_a_single_turn_request_is_unaffected(self):
+        """With no history the payload IS the query, so nothing changes."""
+        deltas = Pipeline(full_stack(), capture_text=True).run(VERBOSE).text_deltas
+        edits = [d for d in deltas if d.changed]
+        assert edits
+        for d in edits:
+            assert d.query_changed
+            assert not d.history_changed

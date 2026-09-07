@@ -317,22 +317,41 @@ def module_report(console: Console, outcome, counter=None) -> None:
             continue
 
         if delta is not None and delta.changed:
-            before_n, after_n = counter(delta.before), counter(delta.after)
-            saved = (before_n - after_n) if (before_n and after_n) else 0
+            saved = trace.tokens_before - trace.tokens_after
+            head = (f"[bold]{module}[/bold] · {trace.name} — {role}"
+                    + (f"   [bold green]−{saved} tokens[/bold green]" if saved > 0 else ""))
+
+            if delta.history_changed:
+                # The change is in the conversation behind the question, not in
+                # the question. Showing the whole payload here buried a 24-token
+                # question under several hundred tokens of a previous ANSWER —
+                # the user could not see what happened to what they typed.
+                dropped = delta.turns_before - delta.turns_after
+                summary = (f"[bold]Your question was not changed.[/bold]\n"
+                           f"[dim]{trace.rationale}[/dim]")
+                if dropped > 0:
+                    summary = (f"[bold]Trimmed the conversation: {delta.turns_before} → "
+                               f"{delta.turns_after} turns ({dropped} dropped).[/bold]\n"
+                               f"[dim]Your question is untouched. {trace.rationale}[/dim]")
+                console.print(Panel(summary, title=head + "  [dim](conversation, not "
+                                    "your question)[/dim]",
+                                    border_style="green", title_align="left"))
+                continue
+
+            b, a = delta.query_before, delta.query_after
+            before_n, after_n = counter(b), counter(a)
             note = ("  [dim](whitespace only — · marks a removed space)[/dim]"
-                    if delta.before.strip() == delta.after.strip() else "")
+                    if b.strip() == a.strip() else "")
             console.print(Panel(
                 Group(
-                    Panel(_elide(_diff_text(delta.before, delta.after, show="before")),
-                          title=f"before — {before_n} tokens",
+                    Panel(_elide(_diff_text(b, a, show="before")),
+                          title=f"your question before — {before_n} tokens",
                           border_style="dim", title_align="left"),
-                    Panel(_elide(_diff_text(delta.before, delta.after, show="after")),
+                    Panel(_elide(_diff_text(b, a, show="after")),
                           title=f"after — {after_n} tokens",
                           border_style="dim", title_align="left"),
                 ),
-                title=f"[bold]{module}[/bold] · {trace.name} — {role}"
-                      f"   [bold green]−{saved} tokens[/bold green]{note}",
-                border_style="green", title_align="left"))
+                title=head + note, border_style="green", title_align="left"))
             continue
 
         # Changed something that is not the text: a budget, a route, an ordering.
@@ -438,8 +457,19 @@ def explain_report(console: Console, outcome, counter=None) -> None:
             continue
 
         saved = trace.tokens_before - trace.tokens_after
-        if delta is not None and delta.changed:
-            removed, added = _changed_runs(delta.before, delta.after)
+        if delta is not None and delta.history_changed:
+            # Quoting the payload here quoted a previous ANSWER: a question
+            # about Ubuntu reported removing "**Choose" and "Pivot**:", which
+            # came from a quicksort reply three turns earlier. Describe the
+            # conversation change structurally instead.
+            dropped = delta.turns_before - delta.turns_after
+            what = (f"[dim]{role.capitalize()}.[/dim]\n"
+                    + (f"Trimmed the conversation: {delta.turns_before} → "
+                       f"{delta.turns_after} turns.\n" if dropped > 0 else "")
+                    + "[dim]Your question itself was not changed. "
+                    + f"{trace.rationale}[/dim]")
+        elif delta is not None and delta.query_changed:
+            removed, added = _changed_runs(delta.query_before, delta.query_after)
             what = f"[dim]{role.capitalize()}.[/dim]\nRemoved {_quote(removed)}"
             if added:
                 what += f"\nReplaced with {_quote(added)}"
