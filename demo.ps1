@@ -132,6 +132,7 @@ switch ($act) {
         Write-Host "  ASK ANYTHING" -ForegroundColor Cyan
         Write-Host ("=" * 78) -ForegroundColor DarkGray
         Write-Host "  Type a question and press Enter. No quotes needed." -ForegroundColor DarkYellow
+        Write-Host "  You get one panel per module, showing what each one changed." -ForegroundColor DarkGray
         Write-Host "  Type  compare <question>  to see it with the pipeline on vs off." -ForegroundColor DarkGray
         Write-Host "  Type  quit  to leave." -ForegroundColor DarkGray
         Write-Host ""
@@ -144,7 +145,12 @@ switch ($act) {
             if ($q -match '^\s*compare\s+(.+)$') {
                 Run-Cli compare $Matches[1] --turns 8
             } else {
-                Run-Cli chat $q --provider ollama --text
+                # --modules, not --text: a panel per module including the ones
+                # that did nothing. Otherwise a typical question produces two
+                # panels out of eleven stages and the rest are simply absent,
+                # which reads as "those modules do not exist" rather than
+                # "those modules were not needed here".
+                Run-Cli chat $q --provider ollama --modules
             }
             Write-Host ""
         }

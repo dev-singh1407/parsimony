@@ -27,7 +27,12 @@ from parsimony.infra.providers import make_provider
 from parsimony.infra.storage import JsonlSink, import_jsonl
 from parsimony.infra.tokenization import get_tokenizer
 from parsimony.pipeline.orchestrator import DEFAULT_NUM_PREDICT, Pipeline
-from parsimony.surfaces.cli.render import print_outcome, trace_table
+from parsimony.surfaces.cli.render import (
+    module_report,
+    print_outcome,
+    summary_panel,
+    trace_table,
+)
 
 app = typer.Typer(add_completion=False, help="Token-efficient LLM middleware for CPU-only hardware.")
 console = Console()
@@ -41,17 +46,25 @@ def chat(
     repeat: bool = typer.Option(False, "--repeat", help="Send it twice to exercise the cache."),
     text: bool = typer.Option(False, "--text/--no-text", "-t",
                               help="Show the text each stage changed, not just the token count."),
+    modules: bool = typer.Option(False, "--modules", "-m",
+                                 help="One panel per module: what each did, or why it did not."),
     provider: str = typer.Option("mock", "--provider",
                                  help="'mock' (simulated timings) or 'ollama' (a real model)."),
     model: str = typer.Option(None, "--model", help="Ollama model tag."),
 ) -> None:
     """Run one query through the pipeline."""
     cfg = baseline() if plain else full_stack()
-    pipeline = Pipeline(cfg, provider=make_provider(provider, model=model), capture_text=text)
+    capture = text or modules
+    pipeline = Pipeline(cfg, provider=make_provider(provider, model=model), capture_text=capture)
     counter = get_tokenizer(cfg.tokenizer_id).count
 
     def show(o):
-        if trace:
+        if modules:
+            module_report(console, o, counter)
+            console.print(summary_panel(o, simulated=o.row.model_digest.startswith("mock")))
+            console.print(Panel(o.response or "[dim](empty)[/dim]", title="Answer",
+                                border_style="green"))
+        elif trace:
             print_outcome(console, o, show_text=text, counter=counter)
         else:
             console.print(o.response)

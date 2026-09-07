@@ -255,6 +255,103 @@ def text_delta_panels(console: Console, outcome, counter=None) -> None:
         console.print(Panel(body, title=head, border_style=border, title_align="left"))
 
 
+#: What each module is for, in one line, for the per-module report.
+_MODULE_ROLE = {
+    "m6a_deterministic": ("M6", "answer without a model if the question allows it"),
+    "m2_cache":          ("M2", "reuse an earlier answer to an equivalent question"),
+    "m2_cache_probe":    ("M2", "record what the cache would have matched"),
+    "m3_history":        ("M3", "keep only the conversation turns that matter"),
+    "m3_arrange":        ("M3", "order the kept turns for the model's attention"),
+    "m1_tier1":          ("M1", "strip boilerplate and politeness, losslessly"),
+    "m1_tier2":          ("M1", "drop sentences that repeat a fact already stated"),
+    "m1_tier3":          ("M1", "shorten wording where it costs nothing to do so"),
+    "m4_assembler":      ("M4", "put invariant text first so the model can reuse its work"),
+    "m5_budgeter":       ("M5", "cap the answer length to suit the question type"),
+    "m6b_router":        ("M6", "decide whether a bigger model is needed"),
+}
+
+
+def module_report(console: Console, outcome, counter=None) -> None:
+    """One panel per module, for every request — including the ones that did nothing.
+
+    The text-delta panels alone only appear for stages that rewrote the
+    payload, so a typical query produced two panels out of eleven stages and
+    said nothing about the rest. A reader cannot tell "this module was not
+    needed here" from "this module does not exist", and both look the same:
+    absent.
+
+    So every stage reports. A stage that rewrote text shows before and after; a
+    stage that made a decision without touching text says which decision; a
+    stage that did nothing says why not.
+    """
+    counter = counter or (lambda s: None)
+    deltas = {d.stage: d for d in getattr(outcome, "text_deltas", ())}
+
+    for trace in outcome.traces:
+        module, role = _MODULE_ROLE.get(trace.name, (trace.module_id, ""))
+        delta = deltas.get(trace.name)
+        outcome_name = trace.outcome
+
+        if outcome_name is StageOutcome.SHORT_CIRCUIT:
+            console.print(Panel(
+                f"[bold cyan]Answered here. The model was never called.[/bold cyan]\n"
+                f"[dim]{trace.rationale}[/dim]",
+                title=f"[bold]{module}[/bold] · {trace.name} — {role}",
+                border_style="cyan", title_align="left"))
+            continue
+
+        if outcome_name is StageOutcome.REVERTED and delta is not None:
+            console.print(Panel(
+                Group(
+                    Panel(_elide(_diff_text(delta.before, delta.after, show="before")),
+                          title=f"kept — {counter(delta.before)} tokens",
+                          border_style="dim", title_align="left"),
+                    Panel(_elide(_diff_text(delta.before, delta.after, show="after")),
+                          title=f"REFUSED — would have been {counter(delta.after)} tokens",
+                          border_style="dim", title_align="left"),
+                    Text(f"\n{trace.rationale}", style="yellow"),
+                ),
+                title=f"[bold]{module}[/bold] · {trace.name} — "
+                      f"[bold yellow]edit blocked by the fidelity gate[/bold yellow]",
+                border_style="yellow", title_align="left"))
+            continue
+
+        if delta is not None and delta.changed:
+            before_n, after_n = counter(delta.before), counter(delta.after)
+            saved = (before_n - after_n) if (before_n and after_n) else 0
+            note = ("  [dim](whitespace only — · marks a removed space)[/dim]"
+                    if delta.before.strip() == delta.after.strip() else "")
+            console.print(Panel(
+                Group(
+                    Panel(_elide(_diff_text(delta.before, delta.after, show="before")),
+                          title=f"before — {before_n} tokens",
+                          border_style="dim", title_align="left"),
+                    Panel(_elide(_diff_text(delta.before, delta.after, show="after")),
+                          title=f"after — {after_n} tokens",
+                          border_style="dim", title_align="left"),
+                ),
+                title=f"[bold]{module}[/bold] · {trace.name} — {role}"
+                      f"   [bold green]−{saved} tokens[/bold green]{note}",
+                border_style="green", title_align="left"))
+            continue
+
+        # Changed something that is not the text: a budget, a route, an ordering.
+        if outcome_name is StageOutcome.APPLIED:
+            console.print(Panel(
+                f"[green]{trace.rationale}[/green]\n"
+                f"[dim]Changes how the request is handled, not the text itself.[/dim]",
+                title=f"[bold]{module}[/bold] · {trace.name} — {role}",
+                border_style="green", title_align="left"))
+            continue
+
+        # Did nothing, and the reason is the interesting part.
+        console.print(Panel(
+            f"[dim]{trace.rationale or _LABEL[outcome_name]}[/dim]",
+            title=f"[bold]{module}[/bold] · {trace.name} — "
+                  f"[dim]{_LABEL[outcome_name]}[/dim]",
+            border_style="grey37", title_align="left"))
+
+
 def print_outcome(console: Console, outcome, show_response: bool = True,
                   show_text: bool = False, counter=None) -> None:
     console.print(trace_table(outcome))
