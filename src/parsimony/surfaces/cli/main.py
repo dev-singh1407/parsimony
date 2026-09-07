@@ -451,6 +451,65 @@ def calibrate_dedup(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
 
 
 @app.command()
+def ask(
+    provider: str = typer.Option("ollama", "--provider"),
+    model: str = typer.Option(None, "--model"),
+) -> None:
+    """An interactive conversation, reporting every module on every turn.
+
+    Keeps the conversation, which the one-shot `chat` cannot: with no prior
+    turns M3 has nothing to select from and M4 has no history to hold stable,
+    so both report "not applicable" forever and two of the eight modules can
+    never be demonstrated. Here the history accumulates as you type, so the
+    later turns exercise the whole pipeline — and asking something twice in
+    different words lands a real cache hit rather than a staged one.
+    """
+    cfg = full_stack()
+    pipeline = Pipeline(cfg, provider=make_provider(provider, model=model), capture_text=True)
+    counter = get_tokenizer(cfg.tokenizer_id).count
+    conversation_id = ulid()
+    history: list[Turn] = []
+
+    console.print(
+        Panel(
+            "[bold]Ask anything.[/bold] Every module reports what it did on every turn.\n"
+            "[dim]The conversation is kept, so history builds up as you go — by the third or\n"
+            "fourth question M3 has something to trim. Ask something twice in different\n"
+            "words to land a cache hit. Type 'quit' to leave, 'reset' to start over.[/dim]",
+            border_style="bold blue",
+        )
+    )
+
+    while True:
+        try:
+            query = console.input("\n[bold cyan]ask>[/bold cyan] ").strip()
+        except (EOFError, KeyboardInterrupt):
+            console.print()
+            return
+        if not query:
+            continue
+        if query.lower() in {"quit", "exit", "q"}:
+            return
+        if query.lower() == "reset":
+            history, conversation_id = [], ulid()
+            console.print("[dim]conversation cleared[/dim]")
+            continue
+
+        console.print()
+        outcome = pipeline.run(query, tuple(history), conversation_id=conversation_id,
+                              turn_index=len(history))
+        module_report(console, outcome, counter)
+        console.print(summary_panel(outcome, simulated=outcome.row.model_digest.startswith("mock")))
+        console.print(Panel(outcome.response or "[dim](empty)[/dim]", title="Answer",
+                            border_style="green"))
+
+        history.append(Turn(turn_id=f"t{len(history)}", role="user", content=query))
+        history.append(Turn(turn_id=f"t{len(history)}", role="assistant",
+                            content=outcome.response))
+        console.print(f"[dim]conversation is now {len(history)} turns[/dim]")
+
+
+@app.command()
 def tour(
     only: str = typer.Option(None, "--only", help="Run one stop, e.g. --only M2."),
     pause: bool = typer.Option(False, "--pause", help="Wait for Enter between stops."),

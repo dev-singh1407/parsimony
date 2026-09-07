@@ -122,38 +122,10 @@ switch ($act) {
     }
 
     "ask" {
-        # A real prompt, because in rehearsal the question was typed straight
-        # at PowerShell — which is the natural thing to do when a terminal is
-        # in front of you, and PowerShell answered "the term 'hello' is not
-        # recognized". Handing a guide a shell and asking them to remember
-        # quoting rules is a demo waiting to fail.
-        Write-Host ""
-        Write-Host ("=" * 78) -ForegroundColor DarkGray
-        Write-Host "  ASK ANYTHING" -ForegroundColor Cyan
-        Write-Host ("=" * 78) -ForegroundColor DarkGray
-        Write-Host "  Type a question and press Enter. No quotes needed." -ForegroundColor DarkYellow
-        Write-Host "  You get one panel per module, showing what each one changed." -ForegroundColor DarkGray
-        Write-Host "  Type  compare <question>  to see it with the pipeline on vs off." -ForegroundColor DarkGray
-        Write-Host "  Type  quit  to leave." -ForegroundColor DarkGray
-        Write-Host ""
-        while ($true) {
-            Write-Host "ask> " -ForegroundColor Cyan -NoNewline
-            $q = Read-Host
-            if ([string]::IsNullOrWhiteSpace($q)) { continue }
-            if ($q -in @("quit", "exit", "q")) { Write-Host ""; break }
-            Write-Host ""
-            if ($q -match '^\s*compare\s+(.+)$') {
-                Run-Cli compare $Matches[1] --turns 8
-            } else {
-                # --modules, not --text: a panel per module including the ones
-                # that did nothing. Otherwise a typical question produces two
-                # panels out of eleven stages and the rest are simply absent,
-                # which reads as "those modules do not exist" rather than
-                # "those modules were not needed here".
-                Run-Cli chat $q --provider ollama --modules
-            }
-            Write-Host ""
-        }
+        # The loop lives in Python now: it keeps the conversation, so history
+        # accumulates and M3/M4 actually have something to work on. A
+        # PowerShell loop calling a one-shot command could not.
+        Run-Cli ask @rest
     }
 
     "1" {
