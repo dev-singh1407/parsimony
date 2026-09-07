@@ -235,7 +235,23 @@ def strip_front_matter(text: str) -> str:
     return text
 
 
-def to_html(md_text: str) -> str:
+def title_block(kicker: str, title: str, subtitle: str) -> str:
+    return f"""
+<div class="titleblock">
+  <div class="kicker">{kicker}</div>
+  <h1>{title}</h1>
+  <div class="subtitle">{subtitle}</div>
+  <div class="authors">
+    Arrsh Tripathi &middot; 23BCI0191 &nbsp;&nbsp; Alok Singh &middot; 23BCI0158 &nbsp;&nbsp; Dev Singh &middot; 23BCE0794
+  </div>
+  <div class="affil">
+    Vellore Institute of Technology &middot; B.Tech BCSE497J Project I<br>Guide: Dr Sathya K &middot; September 2026
+  </div>
+</div>
+"""
+
+
+def to_html(md_text: str, block: str = TITLE_BLOCK) -> str:
     body = markdown.markdown(
         strip_front_matter(md_text),
         extensions=["tables", "attr_list", "sane_lists", "md_in_html"],
@@ -255,7 +271,7 @@ def to_html(md_text: str) -> str:
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"
         f"<title>Parsimony — Literature Survey</title><style>{CSS}</style></head>"
-        f"<body>{TITLE_BLOCK}{body}</body></html>"
+        f"<body>{block}{body}</body></html>"
     )
 
 
@@ -263,10 +279,17 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("source", type=Path)
     ap.add_argument("-o", "--out", type=Path, required=True)
+    ap.add_argument("--kicker", default=None)
+    ap.add_argument("--title", default=None)
+    ap.add_argument("--subtitle", default="")
     args = ap.parse_args()
 
-    html = to_html(args.source.read_text(encoding="utf-8"))
-    tmp = Path(tempfile.gettempdir()) / "parsimony_survey.html"
+    block = (
+        title_block(args.kicker, args.title, args.subtitle)
+        if args.title else TITLE_BLOCK
+    )
+    html = to_html(args.source.read_text(encoding="utf-8"), block)
+    tmp = Path(tempfile.gettempdir()) / f"parsimony_{args.out.stem}.html"
     tmp.write_text(html, encoding="utf-8")
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
