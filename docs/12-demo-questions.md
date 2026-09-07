@@ -9,7 +9,53 @@ Use them with:
 .\demo.ps1 ask
 ```
 
-Type the question, press Enter. You get a panel per module plus a written report of what each one did.
+Type the question, press Enter. You get a numbered walkthrough: only the steps that actually did
+something, each showing the sentence before and after, the words that were deleted, and the tokens
+saved. Add `--detail` if you also want the engineering trace underneath.
+
+---
+
+## What you will see
+
+For the first question below, the whole screen is:
+
+```
+┌─ Your question ──────────────────────────────────────────────────────┐
+│ Hello, I was wondering if you could please explain what recursion    │
+│ is? Thanks!                                                          │
+│                                                                      │
+│ 28 tokens as typed                                                   │
+└──────────────────────────────────────────────────────────────────────┘
+┌─ Step 1 — Politeness remover        saved 10 tokens ─────────────────┐
+│ was:  "Hello, I was wondering if you could please explain what       │
+│        recursion is? Thanks!"                                        │
+│ now:  "Explain what recursion is?"                                   │
+│                                                                      │
+│ words that went: "Hello, I was wondering if you could please"        │
+│                  · "Thanks!"                                         │
+└──────────────────────────────────────────────────────────────────────┘
+┌─ Step 2 — Prompt arranger ───────────────────────────────────────────┐
+│ Put the unchanging part of the prompt first.                         │
+│ The AI can then reuse the work it did on that part last turn.        │
+└──────────────────────────────────────────────────────────────────────┘
+┌─ Step 3 — Answer limiter ────────────────────────────────────────────┐
+│ Classified as factual, so the answer may run to 128 tokens.          │
+└──────────────────────────────────────────────────────────────────────┘
+┌─ Step 4 — Router ────────────────────────────────────────────────────┐
+│ Judged simple enough for the small model.                            │
+└──────────────────────────────────────────────────────────────────────┘
+Not needed for this question: Calculator, Memory, History trimmer,
+History arranger, Duplicate remover, Wordiness trimmer.
+┌─ Result ─────────────────────────────────────────────────────────────┐
+│ 28 tokens  →  17 tokens     11 fewer (39%)                           │
+│ roughly 0.09 seconds of waiting removed                              │
+│ Every deletion passed the safety check, so the meaning is unchanged. │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+Read it top to bottom and it explains itself: what you typed, what each step changed, what is left, and
+what it cost. The line naming what was *not* needed matters — a module that reports doing nothing is still
+accounted for.
 
 ---
 
