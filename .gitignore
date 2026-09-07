@@ -26,3 +26,6 @@ models/
 
 .DS_Store
 Thumbs.db
+
+# Generated PDFs (regenerate with tools/make_pdf.py)
+*.pdf
