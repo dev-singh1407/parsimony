@@ -29,6 +29,7 @@ from parsimony.infra.tokenization import get_tokenizer
 from parsimony.pipeline.orchestrator import DEFAULT_NUM_PREDICT, Pipeline
 from parsimony.surfaces.cli.render import (
     explain_report,
+    walkthrough,
     module_report,
     print_outcome,
     summary_panel,
@@ -458,6 +459,8 @@ def calibrate_dedup(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
 def ask(
     provider: str = typer.Option("ollama", "--provider"),
     model: str = typer.Option(None, "--model"),
+    detail: bool = typer.Option(False, "--detail",
+                                help="Also print the engineering trace under the walkthrough."),
 ) -> None:
     """An interactive conversation, reporting every module on every turn.
 
@@ -502,13 +505,15 @@ def ask(
         console.print()
         outcome = pipeline.run(query, tuple(history), conversation_id=conversation_id,
                               turn_index=len(history))
-        module_report(console, outcome, counter)
-        console.print()
-        explain_report(console, outcome, counter)
-        console.print()
-        console.print(summary_panel(outcome, simulated=outcome.row.model_digest.startswith("mock")))
-        console.print(Panel(outcome.response or "[dim](empty)[/dim]", title="Answer",
-                            border_style="green"))
+        walkthrough(console, outcome, query, counter)
+        console.print(Panel(outcome.response or "[dim](empty)[/dim]",
+                            title="[bold]The AI's answer[/bold]", border_style="green",
+                            title_align="left"))
+        if detail:
+            console.print()
+            explain_report(console, outcome, counter)
+            console.print(summary_panel(
+                outcome, simulated=outcome.row.model_digest.startswith("mock")))
 
         history.append(Turn(turn_id=f"t{len(history)}", role="user", content=query))
         history.append(Turn(turn_id=f"t{len(history)}", role="assistant",

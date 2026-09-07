@@ -394,6 +394,35 @@ def _changed_runs(before: str, after: str) -> tuple[list[str], list[str]]:
     return removed, added
 
 
+def _vanished(before: str, after: str) -> list[str]:
+    """Runs that genuinely left the text, not ones the differ merely realigned.
+
+    A raw removed-run list reported that "summarise" was deleted and "Summarise"
+    kept — true to the differ, and nonsense to a reader, because the word is
+    still there. Anything whose normalised form survives in the after text is
+    dropped from the list.
+    """
+    surviving = set(re.findall(r"[a-z0-9']+", after.lower()))
+
+    def word(tok: str) -> str:
+        m = re.findall(r"[a-z0-9']+", tok.lower())
+        return m[0] if m else ""
+
+    out = []
+    for run in _changed_runs(before, after)[0]:
+        tokens = run.split()
+        # Trim words that are still in the text off both ends. The differ aligns
+        # "…please summarise" against "Summarise", so the run arrives carrying a
+        # word that never left; reporting it as deleted is simply wrong.
+        while tokens and word(tokens[0]) in surviving:
+            tokens.pop(0)
+        while tokens and word(tokens[-1]) in surviving:
+            tokens.pop()
+        if tokens:
+            out.append(" ".join(tokens))
+    return out
+
+
 def _quote(runs: list[str], limit: int = 4) -> str:
     """Each run quoted separately, so nothing is implied to be contiguous."""
     if not runs:
@@ -504,6 +533,171 @@ def explain_report(console: Console, outcome, counter=None) -> None:
             f"\n[bold]Net effect:[/bold] the model was [bold cyan]never called[/bold cyan]. "
             f"All {before} input tokens and the whole generation were avoided."
         )
+
+
+#: Plain-English name and one-line job for each stage. Used by the walkthrough,
+#: where "m1_tier2" and "mmr: kept 6 of 8 turns" are debug output, not an
+#: explanation — a viewer should not have to already know the architecture to
+#: follow what the system just did.
+_PLAIN = {
+    "m6a_deterministic": ("Calculator", "answers maths and dates without any AI"),
+    "m2_cache":          ("Memory", "reuses an answer given before"),
+    "m2_cache_probe":    ("Memory probe", "records what the memory would have matched"),
+    "m3_history":        ("History trimmer", "drops old turns that no longer matter"),
+    "m3_arrange":        ("History arranger", "reorders the kept turns"),
+    "m1_tier1":          ("Politeness remover", "deletes greetings and filler"),
+    "m1_tier2":          ("Duplicate remover", "deletes a sentence that repeats a fact"),
+    "m1_tier3":          ("Wordiness trimmer", "shortens long-winded phrasing"),
+    "m4_assembler":      ("Prompt arranger", "puts unchanging text first so the AI can reuse its work"),
+    "m5_budgeter":       ("Answer limiter", "decides how long the answer may be"),
+    "m6b_router":        ("Router", "decides whether a bigger AI is needed"),
+}
+
+_MS_PER_INPUT_TOKEN = 8.5  # measured on this CPU, ADR-034
+
+
+def walkthrough(console: Console, outcome, question: str, counter=None) -> None:
+    """A numbered, plain-English account of what the pipeline did.
+
+    The panel-per-module view showed everything and explained nothing: eleven
+    boxes, module ids, and rationales like "mmr: kept 6 of 8 turns" or
+    "complexity 0.087 < 0.200". That is a debug trace. Someone being shown the
+    system for the first time needs to know what changed, in their own words,
+    and why it was safe — and needs the steps that did nothing to stay out of
+    the way rather than filling the screen.
+    """
+    counter = counter or (lambda s: 0)
+    deltas = {d.stage: d for d in getattr(outcome, "text_deltas", ())}
+    row = outcome.row
+
+    start = row.tokens_in_original
+    console.print()
+    console.print(Panel(
+        f"[bold]{question}[/bold]\n\n[dim]{start} tokens as typed[/dim]",
+        title="[bold]Your question[/bold]", border_style="bold blue", title_align="left"))
+
+    step = 0
+    idle = []
+    for trace in outcome.traces:
+        name, job = _PLAIN.get(trace.name, (trace.module_id, ""))
+        delta = deltas.get(trace.name)
+        acted = trace.outcome in (
+            StageOutcome.APPLIED, StageOutcome.REVERTED, StageOutcome.SHORT_CIRCUIT)
+        if not acted:
+            idle.append(name)
+            continue
+
+        step += 1
+        saved = trace.tokens_before - trace.tokens_after
+        body = Text()
+
+        if trace.outcome is StageOutcome.SHORT_CIRCUIT:
+            head = f"[bold cyan]Step {step} — {name}[/bold cyan]  [dim]{job}[/dim]"
+            console.print(Panel(
+                f"[bold cyan]Answered it here. The AI was never used.[/bold cyan]\n\n"
+                f"[bold]{outcome.response.strip()[:200]}[/bold]\n\n"
+                f"[dim]All {trace.tokens_before} tokens of the prompt were saved — "
+                f"there was no need to send anything.[/dim]",
+                title=head, border_style="cyan", title_align="left"))
+            continue
+
+        if trace.outcome is StageOutcome.REVERTED:
+            lost = _vanished(delta.query_before, delta.query_after) if delta else []
+            console.print(Panel(
+                f"[bold yellow]It wanted to delete this — and was STOPPED.[/bold yellow]\n\n"
+                f"  would have deleted:  [red]{_quote(lost)}[/red]\n\n"
+                f"[bold]Why it was stopped:[/bold] {_why_blocked(trace)}\n"
+                f"[dim]Your question was left exactly as you wrote it. "
+                f"A saving was available and refused.[/dim]",
+                title=f"[bold yellow]Step {step} — Safety check[/bold yellow]  "
+                      f"[dim]blocks any edit that would change the meaning[/dim]",
+                border_style="yellow", title_align="left"))
+            continue
+
+        if delta is not None and delta.history_changed:
+            dropped = delta.turns_before - delta.turns_after
+            console.print(Panel(
+                f"Dropped [bold]{dropped}[/bold] old turns from the conversation "
+                f"({delta.turns_before} → {delta.turns_after}).\n"
+                f"[dim]Your question itself was not touched.[/dim]",
+                title=f"[bold green]Step {step} — {name}[/bold green]  [dim]{job}[/dim]"
+                      + (f"   [bold green]saved {saved} tokens[/bold green]" if saved > 0 else ""),
+                border_style="green", title_align="left"))
+            continue
+
+        if delta is not None and delta.query_changed:
+            gone = _vanished(delta.query_before, delta.query_after)
+            body.append("was:  ", style="dim")
+            body.append(f'"{delta.query_before.strip()}"\n', style="dim")
+            body.append("now:  ", style="dim")
+            body.append(f'"{delta.query_after.strip()}"\n', style="bold")
+            if gone:
+                body.append("\nwords that went: ", style="dim")
+                body.append(_quote(gone), style="red")
+            console.print(Panel(
+                body,
+                title=f"[bold green]Step {step} — {name}[/bold green]  [dim]{job}[/dim]"
+                      + (f"   [bold green]saved {saved} tokens[/bold green]" if saved > 0 else ""),
+                border_style="green", title_align="left"))
+            continue
+
+        console.print(Panel(
+            f"{_plain_decision(trace)}",
+            title=f"[bold green]Step {step} — {name}[/bold green]  [dim]{job}[/dim]",
+            border_style="green", title_align="left"))
+
+    if idle:
+        console.print(f"[dim]Not needed for this question: {', '.join(idle)}.[/dim]")
+
+    end = row.tokens_in_final
+    if outcome.generated and start:
+        cut = start - end
+        pct = cut / start * 100
+        saved_ms = cut * _MS_PER_INPUT_TOKEN
+        console.print(Panel(
+            f"[bold]{start} tokens  →  {end} tokens[/bold]     "
+            + (f"[bold green]{cut} fewer ({pct:.0f}%)[/bold green]" if cut > 0
+               else "[dim]no reduction on this one[/dim]")
+            + (f"\n[dim]On this laptop the AI spends about {_MS_PER_INPUT_TOKEN} ms reading each "
+               f"token, so that is roughly [/dim][bold]{saved_ms/1000:.2f} seconds[/bold]"
+               f"[dim] of waiting removed.[/dim]" if cut > 0 else "")
+            + "\n[dim]Every deletion passed the safety check, so the meaning is unchanged.[/dim]",
+            title="[bold]Result[/bold]", border_style="bold blue", title_align="left"))
+    elif not outcome.generated:
+        console.print(Panel(
+            f"[bold cyan]The AI was never used.[/bold cyan] All {start} tokens saved.",
+            title="[bold]Result[/bold]", border_style="bold cyan", title_align="left"))
+
+
+def _why_blocked(trace) -> str:
+    """Turn a gate rationale into something a person can read."""
+    kinds = {ev.invariant_class for ev in trace.gate_events}
+    lost = sorted({v for ev in trace.gate_events for v in ev.lost_values})
+    if lost:
+        what = {"number": "a number", "entity": "a name", "negation": "a negation",
+                "modifier": "a qualifier"}
+        label = " and ".join(what.get(k, k) for k in sorted(kinds)) or "information"
+        return f"it would have lost {label} — {', '.join(repr(v) for v in lost)}"
+    return trace.rationale
+
+
+def _plain_decision(trace) -> str:
+    """Plain wording for the stages that decide rather than edit."""
+    ev = trace.evidence or {}
+    if trace.name == "m5_budgeter":
+        return (f"Classified as [bold]{ev.get('response_class', '?')}[/bold], so the answer may "
+                f"run to [bold]{ev.get('budget', '?')}[/bold] tokens.\n"
+                f"[dim]A short factual question does not need a long answer, and an unbounded "
+                f"one rambles.[/dim]")
+    if trace.name == "m6b_router":
+        return (f"Judged simple enough for the small model.\n"
+                f"[dim]Complexity scored {ev.get('complexity', 0):.2f}; anything below the "
+                f"threshold stays on the small model.[/dim]")
+    if trace.name == "m4_assembler":
+        return ("Put the unchanging part of the prompt first.\n"
+                "[dim]The AI can then reuse the work it did on that part last turn instead of "
+                "re-reading it. Measured at up to 80x on repeat turns.[/dim]")
+    return trace.rationale
 
 
 def print_outcome(console: Console, outcome, show_response: bool = True,
