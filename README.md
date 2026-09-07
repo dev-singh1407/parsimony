@@ -150,6 +150,7 @@ module — the same distinction as ADR-028.
 | [`docs/06-contracts.md`](docs/06-contracts.md) | Complete L0 type and protocol definitions + the ledger schema. **Review this first** |
 | [`docs/07-corpus-spec.md`](docs/07-corpus-spec.md) | Authoring guide for the 150 conversations, 50 adversarial pairs and 40 gold answers. Actionable today, no code required |
 | [`docs/08-setup.md`](docs/08-setup.md) | Environment, install, and how to run each command |
+| [`docs/10-literature-survey.md`](docs/10-literature-survey.md) | **Literature survey.** 52 papers across eight strands, the six research gaps they leave open, and what this project does differently — with the measurement backing each claim |
 | [`docs/09-findings.md`](docs/09-findings.md) | **Read this one first.** Every result in plain prose, with the numbers re-derived from live runs |
 
 ## The one-paragraph version
