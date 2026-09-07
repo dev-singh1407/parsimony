@@ -311,9 +311,12 @@ class EscalationRouterStage:
         return ContextPatch(
             kind=TransformKind.DECIDE,
             fields={"route_tier": tier, "complexity": score},
+            # Three decimals on both sides, because two rendered a score of
+            # 0.1996 against a threshold of 0.2 as "complexity 0.20 < 0.2",
+            # which reads as a contradiction to anyone watching the trace.
             rationale=(
-                f"complexity {score:.2f} "
-                f"{'>=' if escalate else '<'} {cfg.router.escalation_complexity} "
+                f"complexity {score:.3f} "
+                f"{'>=' if escalate else '<'} {cfg.router.escalation_complexity:.3f} "
                 f"-> {tier.name}"
             ),
             evidence={"complexity": score, "escalated": escalate, **features},

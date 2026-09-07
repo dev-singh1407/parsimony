@@ -438,6 +438,118 @@ def calibrate_dedup(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
 
 
 @app.command()
+def tour(
+    only: str = typer.Option(None, "--only", help="Run one stop, e.g. --only M2."),
+    pause: bool = typer.Option(False, "--pause", help="Wait for Enter between stops."),
+) -> None:
+    """Walk through every module one at a time, showing what each one changes.
+
+    Each stop uses an input chosen so that THAT module is the one doing the
+    work, because a single query never exercises all eight — and a demo where
+    six of the eight stages say "no-op" teaches nothing about what they do.
+    """
+    cfg = full_stack()
+    counter = get_tokenizer(cfg.tokenizer_id).count
+
+    stops: list[tuple[str, str, str, str, object]] = [
+        ("M1", "Tier 1 — boilerplate",
+         "Politeness and filler cost tokens and carry no instruction. Tier 1 removes "
+         "them losslessly: no word that changes the meaning is touched.",
+         "Hello, I was wondering if you could **please** explain to me what "
+         "photosynthesis is? Thanks in advance!", None),
+
+        ("M1", "Tier 2 — repeated facts",
+         "The same fact stated twice pays twice. Tier 2 drops the near-duplicate "
+         "sentence — but only when nothing distinguishes them.",
+         "Summarise this. The server runs Ubuntu Linux. The server runs Ubuntu Linux "
+         "and needs a restart. Please advise.", None),
+
+        ("M8", "The gate refusing a saving",
+         "Now the same shape of edit, but the two sentences carry DIFFERENT dates. "
+         "The compressor still proposes the deletion; the fidelity gate refuses it. "
+         "This is the module that makes the rest safe to use.",
+         "Explain the deadline. The deadline is 15 March. The deadline is 16 March.", None),
+
+        ("M6", "The deterministic tier",
+         "Some questions do not need a language model at all. This one is answered "
+         "exactly, by a calculator, sending the model zero tokens.",
+         "What is 847 * 23?", None),
+
+        ("M5", "The output budgeter",
+         "Left alone a small model rambles. M5 classifies the question and sets a "
+         "budget to match — 48 tokens for arithmetic, 640 for reasoning.",
+         "What is the boiling point of water at sea level?", None),
+
+        ("M3", "The history manager",
+         "In a long conversation most turns are irrelevant to the current question. "
+         "M3 keeps what is relevant and drops the rest.",
+         "So which of those should I use?", "history"),
+
+        ("M2", "The semantic cache",
+         "Asked again in different words, the answer is served from cache and the "
+         "model is never called. This pair scores 0.80 — below the auto-accept "
+         "threshold — so it lands in the VERIFY zone and is served only because the "
+         "verifier confirmed the two questions agree on every number, entity, "
+         "negation and modifier.",
+         "What is the capital city of Australia?", "repeat"),
+    ]
+
+    console.print(
+        Panel(
+            "[bold]A tour of the eight modules[/bold]\n"
+            "[dim]Each stop uses an input chosen to make that module do the work.\n"
+            "Responses come from the deterministic stand-in, so this runs in seconds "
+            "and gives the same result every time.[/dim]",
+            border_style="bold blue",
+        )
+    )
+
+    for module, title, why, query, mode in stops:
+        if only and only.upper() != module.upper():
+            continue
+
+        console.print(Rule(f"[bold cyan]{module}[/bold cyan] · [bold]{title}[/bold]"))
+        console.print(f"[dim]{why}[/dim]\n")
+
+        pipeline = Pipeline(cfg, capture_text=True)
+        history: tuple[Turn, ...] = ()
+
+        if mode == "history":
+            history = _synthetic_history(8)
+            console.print(f"[dim]…after {len(history)} turns of prior conversation[/dim]\n")
+        elif mode == "repeat":
+            # Prime with the ORIGINAL wording, so the hit below is a genuine
+            # paraphrase match rather than a repeat of the same string.
+            #
+            # The cache stage runs BEFORE the compressor, so it compares raw
+            # text: priming with a differently-worded question scored cosine
+            # 0.058 and missed. That is not a bug, it is research gap 3 — what
+            # the cache sees depends on where it sits in the stage order.
+            primed = "What is the capital of Australia?"
+            pipeline.run(primed)
+            console.print(f"[dim]…already asked once, worded differently: [/dim]"
+                          f"[italic]{primed}[/italic]\n")
+
+        console.print(f"[bold]Question:[/bold] {query}\n")
+        outcome = pipeline.run(query, history)
+        print_outcome(console, outcome, show_text=True, counter=counter,
+                      show_response=(module in ("M6", "M2")))
+
+        if pause and not only:
+            console.print("[dim]— Enter for the next module —[/dim]")
+            input()
+
+    if not only:
+        console.print(Rule("[bold]That is the pipeline[/bold]"))
+        console.print(
+            "[dim]Eight modules, each switchable independently. Every one PROPOSES a "
+            "change; the orchestrator commits it only after the gate has checked it. "
+            "That is what makes the ablation possible — switching a module off really "
+            "does remove its effect.[/dim]\n"
+        )
+
+
+@app.command()
 def compare(
     query: str = typer.Argument(..., help="The question to send through both pipelines."),
     provider: str = typer.Option("ollama", "--provider",

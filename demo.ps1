@@ -52,6 +52,7 @@ switch ($act) {
         Write-Host "  .\demo.ps1 check     is everything ready?"
         Write-Host "  .\demo.ps1 warmup    load the model  <-- run this first, 15 min before"
         Write-Host ""
+        Write-Host "  .\demo.ps1 tour      every module, one at a time, before/after" -ForegroundColor Cyan
         Write-Host "  .\demo.ps1 ask       type questions freely, no quotes" -ForegroundColor Cyan
         Write-Host ""
         Write-Host "  .\demo.ps1 1         what the system does          ~40 s"
@@ -113,6 +114,11 @@ switch ($act) {
         Write-Host ""
         Write-Host "Warm. Every query from now on takes about two seconds." -ForegroundColor Green
         Write-Host ""
+    }
+
+    "tour" {
+        # --pause so each module can be talked through before the next appears.
+        Run-Cli tour --pause @rest
     }
 
     "ask" {

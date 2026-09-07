@@ -145,22 +145,53 @@ def _split_words(text: str) -> list[str]:
     return re.findall(r"\s*\S+\s*|\s+", text)
 
 
+#: What a removed space is drawn as, so a change that saves a real token is
+#: not rendered as two identical-looking panels.
+_VISIBLE_SPACE = "·"
+_VISIBLE_NEWLINE = "⏎"
+
+
+def _reveal(fragment: str) -> str:
+    """Draw whitespace so it can be seen when it is the thing that changed."""
+    return (
+        fragment.replace("\n", _VISIBLE_NEWLINE)
+        .replace("\t", "→")
+        .replace(" ", _VISIBLE_SPACE)
+    )
+
+
 def _diff_text(before: str, after: str, *, show: str) -> Text:
     """One side of a word-level diff.
 
     `show="before"` marks deleted words; `show="after"` marks inserted ones.
     Unchanged words are rendered plainly so the surviving meaning is what the
     eye lands on first.
+
+    Whitespace-only changes are drawn with a visible middle dot. Collapsing a
+    double space or dropping a trailing one removes a real token, and without
+    this the panel reported "before 9 tokens / after 8 tokens" above two
+    strings that looked character-for-character identical — a display that
+    contradicts itself in front of whoever is being shown it.
     """
     a, b = _split_words(before), _split_words(after)
     out = Text()
     for tag, i1, i2, j1, j2 in SequenceMatcher(None, a, b).get_opcodes():
+        old, new = "".join(a[i1:i2]), "".join(b[j1:j2])
         if tag == "equal":
-            out.append("".join(a[i1:i2]))
-        elif show == "before" and tag in ("delete", "replace"):
-            out.append("".join(a[i1:i2]), style="red strike")
-        elif show == "after" and tag in ("insert", "replace"):
-            out.append("".join(b[j1:j2]), style="bold green")
+            out.append(old)
+            continue
+
+        mine, style = (
+            (old, "red strike") if show == "before" else (new, "bold green")
+        )
+        if not mine:
+            continue
+        # Reveal the whitespace when whitespace is the whole of the change —
+        # either the fragment is pure whitespace, or the two sides differ only
+        # in it ("friend " against "friend", which is a word replacement to the
+        # differ but an invisible one to the reader).
+        invisible = not mine.strip() or old.strip() == new.strip()
+        out.append(_reveal(mine) if invisible else mine, style=style)
     return out
 
 
@@ -206,6 +237,11 @@ def text_delta_panels(console: Console, outcome, counter=None) -> None:
             head = f"{d.stage} [{d.module_id}]"
             sub_before, sub_after = "before", "after"
             border = "green"
+            if d.before.strip() == d.after.strip():
+                # Says out loud what the middle dots show, for the case where
+                # the only difference is whitespace and a reader could
+                # reasonably conclude the panel is broken.
+                head += "  [dim](whitespace only — · marks a removed space)[/dim]"
 
         def _label(name: str, n: int | None) -> str:
             return f"{name}  —  {n} tokens" if n is not None else name
