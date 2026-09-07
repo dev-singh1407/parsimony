@@ -52,6 +52,8 @@ switch ($act) {
         Write-Host "  .\demo.ps1 check     is everything ready?"
         Write-Host "  .\demo.ps1 warmup    load the model  <-- run this first, 15 min before"
         Write-Host ""
+        Write-Host "  .\demo.ps1 ask       type questions freely, no quotes" -ForegroundColor Cyan
+        Write-Host ""
         Write-Host "  .\demo.ps1 1         what the system does          ~40 s"
         Write-Host "  .\demo.ps1 2         the gate blocking a bad edit  ~5 s"
         Write-Host "  .\demo.ps1 3         cache safety                  ~5 s"
@@ -61,23 +63,46 @@ switch ($act) {
     }
 
     "check" {
+        # Every line reports OK or a fix, and the verdict at the end is
+        # computed rather than left to the reader. An earlier version printed
+        # two lines in green and three in white under the caption "if all four
+        # lines are green" — three ways wrong at once, on the one screen whose
+        # entire job is to say whether you are ready.
         Write-Host ""
-        Write-Host "folder   $ProjectDir"
-        Write-Host "python   $VenvPython"
+        $problems = @()
+
+        Write-Host ("  {0,-9} {1}" -f "folder", $ProjectDir)
+        Write-Host ("  {0,-9} {1}" -f "python", $VenvPython)
+
         if (Test-Path $Ollama) {
-            Write-Host "ollama   installed" -ForegroundColor Green
+            Write-Host ("  {0,-9} {1}" -f "ollama", "OK  installed") -ForegroundColor Green
             try {
                 $null = Invoke-WebRequest "http://localhost:11434/api/tags" -TimeoutSec 5 -UseBasicParsing
-                Write-Host "server   responding" -ForegroundColor Green
+                Write-Host ("  {0,-9} {1}" -f "server", "OK  responding") -ForegroundColor Green
             } catch {
-                Write-Host "server   NOT responding - run: $Ollama serve" -ForegroundColor Red
+                Write-Host ("  {0,-9} {1}" -f "server", "NOT RESPONDING") -ForegroundColor Red
+                $problems += "Start it: & '$Ollama' serve"
             }
         } else {
-            Write-Host "ollama   not found" -ForegroundColor Red
+            Write-Host ("  {0,-9} {1}" -f "ollama", "NOT FOUND") -ForegroundColor Red
+            $problems += "Install Ollama, then: ollama pull qwen2.5:1.5b-instruct"
         }
-        & $VenvPython -c "import parsimony; print('package  importable')"
+
+        & $VenvPython -c "import parsimony" 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host ("  {0,-9} {1}" -f "package", "OK  importable") -ForegroundColor Green
+        } else {
+            Write-Host ("  {0,-9} {1}" -f "package", "NOT IMPORTABLE") -ForegroundColor Red
+            $problems += "Reinstall: & '$VenvPython' -m pip install -e ."
+        }
+
         Write-Host ""
-        Write-Host "If all four lines are green, you are ready." -ForegroundColor Cyan
+        if ($problems.Count -eq 0) {
+            Write-Host "  READY.  Next: .\demo.ps1 warmup" -ForegroundColor Green
+        } else {
+            Write-Host "  NOT READY:" -ForegroundColor Red
+            $problems | ForEach-Object { Write-Host "    $_" -ForegroundColor Yellow }
+        }
         Write-Host ""
     }
 
@@ -88,6 +113,35 @@ switch ($act) {
         Write-Host ""
         Write-Host "Warm. Every query from now on takes about two seconds." -ForegroundColor Green
         Write-Host ""
+    }
+
+    "ask" {
+        # A real prompt, because in rehearsal the question was typed straight
+        # at PowerShell — which is the natural thing to do when a terminal is
+        # in front of you, and PowerShell answered "the term 'hello' is not
+        # recognized". Handing a guide a shell and asking them to remember
+        # quoting rules is a demo waiting to fail.
+        Write-Host ""
+        Write-Host ("=" * 78) -ForegroundColor DarkGray
+        Write-Host "  ASK ANYTHING" -ForegroundColor Cyan
+        Write-Host ("=" * 78) -ForegroundColor DarkGray
+        Write-Host "  Type a question and press Enter. No quotes needed." -ForegroundColor DarkYellow
+        Write-Host "  Type  compare <question>  to see it with the pipeline on vs off." -ForegroundColor DarkGray
+        Write-Host "  Type  quit  to leave." -ForegroundColor DarkGray
+        Write-Host ""
+        while ($true) {
+            Write-Host "ask> " -ForegroundColor Cyan -NoNewline
+            $q = Read-Host
+            if ([string]::IsNullOrWhiteSpace($q)) { continue }
+            if ($q -in @("quit", "exit", "q")) { Write-Host ""; break }
+            Write-Host ""
+            if ($q -match '^\s*compare\s+(.+)$') {
+                Run-Cli compare $Matches[1] --turns 8
+            } else {
+                Run-Cli chat $q --provider ollama --text
+            }
+            Write-Host ""
+        }
     }
 
     "1" {
