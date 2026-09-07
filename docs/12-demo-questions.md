@@ -86,25 +86,67 @@ is classified arithmetic and budgeted **48**. Same module, a 13× difference in 
 
 ### M2 · the semantic cache
 
-Needs two turns, because the cache is scoped to a conversation:
+Ask something self-contained, ask two other things, then ask the first one again:
 
+```
+Explain recursion.
+```
 ```
 What is the capital of Australia?
 ```
 ```
-reset
+What is a pointer?
 ```
 ```
-What is the capital city of Australia?
+What is the capital of Australia?
 ```
 
-**`CACHE_SEMANTIC` — the model was never called.** Different wording, same question, and the verifier
-confirmed the two agree on every number, entity, negation and modifier.
+Turn 4 comes back **`CACHE_EXACT` — the model was never called.**
+
+This only started working after ADR-039. Before it, every cache entry was tagged with a hash of the last two
+turns, and that hash changes every turn — so an answer stored at turn 2 was filed under a label that no
+longer existed at turn 4, and the lookup reported *"cache miss (no candidates)"*. Not "too dissimilar": no
+candidate at all. The tag now applies only to questions that actually depend on the conversation.
+
+A follow-up still misses, correctly:
+
+```
+Why does that affect lookup time?
+```
+
+*"that"* refers to something earlier, so its answer is scoped to this conversation and cannot be reused.
 
 ### M3 · the history manager
 
-Needs a conversation. Ask any four questions in a row; by the third or fourth turn M3 has history worth
-trimming and reports `mmr: kept 6 of 8 turns`.
+Needs enough conversation to have something worth dropping. Measured turn by turn:
+
+| turn | history | M3 |
+|---|---|---|
+| 1 | 0 turns | skipped — not applicable |
+| 2–4 | 2–6 turns | no-op — *all turns fit the budget* |
+| **5** | **8 turns** | **applied — `mmr: kept 6 of 8 turns`** |
+| 6+ | 10+ turns | applied — keeps 6, drops the rest |
+
+**So ask five questions before expecting M3 to do anything.** Turns 2–4 reporting "no-op" is the module being
+honest, not broken — there was nothing to trim.
+
+Any five questions work; these are convenient because they build on each other:
+
+```
+Explain what a hash table is.
+```
+```
+How does it handle collisions?
+```
+```
+What is a good load factor?
+```
+```
+Why does that affect lookup time?
+```
+```
+How do I choose a hash function?
+```
 
 ---
 
