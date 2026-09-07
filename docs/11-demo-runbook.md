@@ -5,32 +5,37 @@ Every command below was executed and timed on the demo machine before this was w
 
 ---
 
-## 0. Fifteen minutes before
+## 0. Start here — the launcher
 
-Run these. They are not part of the demo — they remove the two things that can make a live demo look broken.
+Two things break a live demo before it starts: being in the wrong folder, and using the wrong Python. Both
+happened in rehearsal, so `demo.ps1` removes them — it sets the folder and the interpreter itself.
 
-```bash
+**Open PowerShell and paste this one line first. Nothing else works until you do.**
+
+```powershell
 cd "C:\Users\dev singh\OneDrive\Desktop\final year\parsimony"
 ```
 
-**1. Wake the model.** The first query after a reboot spends ~10 seconds loading 1 GB into RAM. Every one
-after that takes ~2 seconds. Do not let your guide watch the first one.
+Then check everything is ready:
 
-```bash
-python -m parsimony.surfaces.cli.main chat "hello" --provider ollama --no-trace
+```powershell
+.\demo.ps1 check
 ```
 
-**2. Confirm Ollama is up.** If this prints two models, you are ready.
+You want five healthy lines: folder, python, ollama installed, server responding, package importable.
 
-```bash
-ollama list
+**Fifteen minutes before your guide arrives, warm the model.** The first query after a reboot spends about
+ten seconds loading 1 GB into RAM; every one after takes about two. Do not let anyone watch the first one.
+
+```powershell
+.\demo.ps1 warmup
 ```
 
-**3. Widen the terminal.** The tables are drawn to fit the window. Maximise it, and set the font large
-enough to read from across a desk — 14pt or more. A beautiful table nobody can read is worse than no table.
+Then maximise the terminal and raise the font to 14pt or more. The tables are drawn to fit the window, and a
+table nobody can read from across a desk is worse than no table.
 
-**4. Have this open in a second tab:** `docs/09-findings.md`. It is your answer sheet for any number you are
-asked about.
+Keep `docs/09-findings.md` open in a second window. It is your answer sheet for any number you are asked
+about.
 
 ---
 
@@ -38,8 +43,8 @@ asked about.
 
 ### Act 1 — What the system does · 2 minutes
 
-```bash
-python -m parsimony.surfaces.cli.main compare "How do I reverse a string in Python?" --turns 8
+```powershell
+.\demo.ps1 1
 ```
 
 **What appears:** the same question sent twice — once with the middleware off, once on — to a real model
@@ -63,8 +68,8 @@ still reduces every class."*
 
 This is the strongest thing in the demo. Do not rush it.
 
-```bash
-python -m parsimony.surfaces.cli.main chat "Explain the deadline. The deadline is 15 March. The deadline is 16 March." --text
+```powershell
+.\demo.ps1 2
 ```
 
 **What appears:** two panels — **kept (what the model sees)** and **refused (what it would have lost)**.
@@ -83,8 +88,8 @@ Then say the sentence that separates this project from a demo:
 
 ### Act 3 — The finding nobody else has · 3 minutes
 
-```bash
-python -m parsimony.surfaces.cli.main calibrate
+```powershell
+.\demo.ps1 3
 ```
 
 Runs in ~2 seconds.
@@ -108,8 +113,8 @@ If they want the three checks: **operative modifiers** (min/max — changes no n
 
 ### Act 4 — The science · 3 minutes
 
-```bash
-python reproduce.py --out figures
+```powershell
+.\demo.ps1 4
 ```
 
 Takes about 100 seconds. **Talk while it runs** — this is your architecture slot, not dead air:
@@ -161,12 +166,12 @@ Counter-intuitive, and it is what separates a project from a report. Pick **one*
 
 | Command | Time | Shows |
 |---|---|---|
-| `... main learning` | 4 s | "Self-improving" measured: +0.00 pp at 0% traffic repetition, +17.83 pp at 57% |
-| `... main generalise` | 42 s | Does a calibration transfer to another vocabulary? Ratios yes, mechanisms no |
-| `... main gap3` | 9 s | Research gap 3: what compression does to the cache |
-| `... main tokenprobe` | 3 s | When shortening text fails to reduce tokens |
-| `... main corpus` | 1 s | Corpus composition and its freeze hash |
-| `... main demo` | 19 s | The older scripted walkthrough, six sections |
+| `.\demo.ps1 learning` | 4 s | "Self-improving" measured: +0.00 pp at 0% traffic repetition, +17.83 pp at 57% |
+| `.\demo.ps1 generalise` | 42 s | Does a calibration transfer to another vocabulary? Ratios yes, mechanisms no |
+| `.\demo.ps1 gap3` | 9 s | Research gap 3: what compression does to the cache |
+| `.\demo.ps1 tokenprobe` | 3 s | When shortening text fails to reduce tokens |
+| `.\demo.ps1 corpus` | 1 s | Corpus composition and its freeze hash |
+| `.\demo.ps1 demo` | 19 s | The older scripted walkthrough, six sections |
 
 **Do not run live:** `latency` (3–4 min) and `judge` (5–10 min). Quote their numbers from §8 of the findings
 instead, or run them beforehand and show the scrollback.
@@ -217,7 +222,7 @@ instead, or run them beforehand and show the scrollback.
 | `nothing is listening at localhost:11434` | Ollama stopped. Run `ollama list` to restart it, then retry. |
 | Tables wrap badly | Terminal too narrow. Maximise, or add `--turns 4` to shorten. |
 | A number differs slightly from the report | Say so plainly: wall-clock and middleware-ms vary run to run; token counts do not. Point at the token column. |
-| Something errors outright | Fall back to `python reproduce.py --out figures`, which regenerates everything, and to `docs/09-findings.md`. |
+| Something errors outright | Fall back to `.\demo.ps1 4`, which regenerates everything, and to `docs/09-findings.md`. |
 
 **The general rule:** if a number surprises you live, say *"that's run-to-run variance, the token counts are
 deterministic"* and move to the token column. Never guess at an explanation in the room.
