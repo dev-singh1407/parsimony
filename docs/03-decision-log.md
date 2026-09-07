@@ -1339,3 +1339,79 @@ who wrote the verifier, in the language they wrote it in. It tests the failure m
 Fuzzing tests the ones they did not — and it found two in twenty inputs, one of which defeats the project's
 central safety mechanism. Both classes of test are necessary; the corpus alone was not sufficient, and that
 is worth stating in the report rather than discovering after it.
+
+---
+
+### ADR-039 — The context chain made in-conversation cache hits impossible
+
+**Context.** Found by using the demo, not by reading the code. Asked the same question four times in one
+conversation, the cache never hit. The trace said:
+
+```
+m2_cache   NOOP   cache miss (no candidates)
+```
+
+Not "similarity too low" — **no candidate at all.** The stored entry was never even considered.
+
+**Cause.** Every cache key carries a *context chain*: `chain_hash(history, depth)`, a hash of the last
+`depth` turns (default 2). The chain exists for a good reason, stated in its own docstring: without it,
+*"and what about the second one?"* asked in conversation A can be served from conversation B.
+
+But the chain changes **on every turn**, because the history changes on every turn. So an entry written at
+turn 1 is filed under a chain that no longer exists at turn 3, and the lookup filters it out before
+similarity is ever computed. The in-conversation hit rate was therefore not low — it was exactly **zero, by
+construction**, for every query, forever.
+
+**Decision.** Apply the chain only when the query actually needs it.
+
+```
+"What is 847 * 23?"              -> chain "root"      (answer cannot depend on history)
+"And what about the second one?" -> chain hash(...)   (answer is meaningless without it)
+```
+
+`is_context_dependent` decides, on two signals: deictic words (it, that, those, they, the former, the
+second…) and follow-up openers ("and…", "so…", "what about…").
+
+**Justification for the asymmetry.** The detector is deliberately over-inclusive. The two errors are not
+equal:
+
+| mistake | consequence |
+|---|---|
+| self-contained question treated as dependent | one cache hit is missed |
+| dependent question treated as self-contained | **the wrong answer is served** |
+
+So anything ambiguous returns `True`. *"Summarise this."* is scoped, even though "this" refers to text inside
+the same query rather than to the conversation — a miss we accept in exchange for never guessing wrong in
+the dangerous direction.
+
+`chain_hash` also keeps its old behaviour when called without a query, so no existing caller silently
+loosens.
+
+**Result.**
+
+```
+self-contained, asked twice in one conversation:
+  ask 1   NOOP           below tau_lo (best cosine 0.024)
+  ask 2   SHORT_CIRCUIT  exact-hash cache hit          -> CACHE_EXACT
+
+context-dependent, asked twice in one conversation:
+  ask 1   NOOP           cache miss (no candidates)
+  ask 2   NOOP           cache miss (no candidates)    -> correctly still scoped
+```
+
+**Safety is unchanged.** False-hit rate on the 45 adversarial pairs stays at **0.0%** at every threshold at
+or above 0.92, and the corpus-level cache-hit count is unchanged at 11 — the ablation corpus is almost
+entirely single-turn, so it never exercised the path this fixes. That is the point: **the corpus could not
+have found this.** It took someone typing the same question twice.
+
+**Consequences.**
+
+- The cache is now useful in the setting the project actually targets — a multi-turn conversation on a
+  laptop — rather than only across separate conversations.
+- The measured corpus results do not move, so no earlier finding is invalidated.
+- Adds a third item to the list of thresholds and scopes that were set by reasoning and never checked
+  against behaviour (the 0.80 dedup threshold in ADR-028, the 0.75 escalation threshold in ADR-037, and now
+  this). In all three cases the mechanism was sound and the operating point made it unreachable.
+- A limitation worth stating: the detector is lexical. A question like *"Which one is faster?"* is caught by
+  "one", but a context-dependent question phrased without any deictic marker would not be. The failure mode
+  is a wrong answer, so this is the part of the change most deserving of a stronger test than a word list.

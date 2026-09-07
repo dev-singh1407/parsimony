@@ -73,15 +73,60 @@ def is_cacheable(query: str) -> bool:
     return bool(_ALNUM_RE.search(canonicalise(query)))
 
 
-def chain_hash(history: tuple, depth: int) -> str:
-    """MeanCache-style context chain.
+#: Words that make a question depend on what came before it. A query carrying
+#: any of these cannot be answered without the conversation, so its cache entry
+#: must be scoped to that conversation. Deliberately over-inclusive: a
+#: self-contained question wrongly treated as dependent costs a cache hit, while
+#: a dependent one wrongly treated as self-contained serves the wrong answer.
+_DEICTIC = frozenset("""
+it its it's this that these those they them their there then
+he she him her his hers
+former latter previous next above below aforementioned
+same other another second third last first
+instead also too again still yet
+""".split())
 
-    Without it, 'and what about the second one?' in conversation A can be served
-    from conversation B. With an unbounded chain every follow-up key becomes
-    unique and the hit rate collapses to zero, which is why depth is bounded
-    and ablatable.
+_FOLLOW_UP_OPENERS = (
+    "and ", "but ", "so ", "then ", "what about", "how about", "why not",
+    "ok ", "okay ", "yes ", "no ", "sure ",
+)
+
+
+def is_context_dependent(query: str) -> bool:
+    """Does answering this question require the conversation before it?
+
+    'What is 847 * 23?' does not. 'And what about the second one?' does. The
+    distinction decides whether the cache entry is scoped to a conversation.
+    """
+    low = query.strip().lower()
+    if low.startswith(_FOLLOW_UP_OPENERS):
+        return True
+    return bool(_DEICTIC & set(re.findall(r"[a-z']+", low)))
+
+
+def chain_hash(history: tuple, depth: int, query: str = "") -> str:
+    """MeanCache-style context chain, applied only where it is needed.
+
+    Without a chain, 'and what about the second one?' in conversation A can be
+    served from conversation B. With a chain on EVERY query the hit rate inside
+    a conversation collapses to exactly zero — which it did: the chain is a hash
+    of the last `depth` turns, so it changes on every turn, and asking an
+    identical question twice in one conversation reported "cache miss (no
+    candidates)" rather than a low similarity. The entry was never a candidate,
+    because it was filed under a chain that no longer existed.
+
+    That is the wrong trade for a self-contained question. '847 * 23' has the
+    same answer whatever preceded it, so scoping it to a conversation buys no
+    safety and costs every hit.
+
+    So the chain applies only when the query is context-dependent. The test is
+    conservative in the safe direction: a self-contained question mistaken for a
+    dependent one merely misses a cache hit, while the reverse serves a wrong
+    answer (ADR-039).
     """
     if depth <= 0 or not history:
+        return "root"
+    if query and not is_context_dependent(query):
         return "root"
     parents = [t.content for t in history[-depth:]]
     return hashlib.blake2b("␟".join(parents).encode(), digest_size=8).hexdigest()
@@ -410,7 +455,7 @@ class CacheLookupStage:
         return cfg.enables("M2") and (cfg.cache.exact_tier or cfg.cache.semantic_tier)
 
     def chain_for(self, ctx: RequestContext, cfg: ParsimonyConfig) -> str:
-        return chain_hash(ctx.history, cfg.cache.chain_depth)
+        return chain_hash(ctx.history, cfg.cache.chain_depth, ctx.query)
 
     def key_for(self, ctx: RequestContext, cfg: ParsimonyConfig) -> str:
         return SemanticCache.make_key(ctx.query, self.chain_for(ctx, cfg), cfg.model.name)
