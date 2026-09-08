@@ -112,56 +112,56 @@ technique. Our setting is simply the one they do not target.
 \textbf{Ref} & \textbf{Method} & \textbf{Limitation for us} & \textbf{Metrics} \\
 \midrule
 \multicolumn{4}{@{}l}{\textit{Strand A --- Prompt compression}}\\
-[1] & Selective Context & Needs a second model; never tested with a cache & latency, score \\
-[2] & LLMLingua & 20$\times$ compression, but GPU and alone & ratio, score \\
-[3] & LongLLMLingua & Very long contexts; a laptop rarely gets there & speedup, score \\
-[4] & LLMLingua-2 & Faithfulness claimed, never attacked & ratio, faithfulness \\
-[5] & Evaluator heads & Needs the model's internals & latency, accuracy \\
-[6] & SCOPE & Adds generation cost to the same request & ratio, quality \\
-[7] & Gisting & Needs fine-tuning & ratio, score \\
-[8] & UltraGist & Needs training & ratio, accuracy \\
-[9] & ATACompressor & Assumes the task label is known & ratio, score \\
-[10] & SARA & Needs a retrieval corpus & retrieval quality \\
-[11] & PCToolkit & A toolkit, not a method; no cross-family mixing & comparisons \\
-[12] & Empirical study & \textbf{Names} two failure modes; no run-time guard & hallucination rate \\
-[13] & Information preservation & Diagnoses a 30--50 point drop; no fix & groundedness \\
-[14] & Financial fidelity & Shows fluent but decision-changing output & agreement \\
-[15] & Compression paradox & \textbf{Does not always save energy}; hosted APIs only & energy \\
+{[1]} & Selective Context & Needs a second model; never tested with a cache & latency, score \\
+{[2]} & LLMLingua & 20$\times$ compression, but GPU and alone & ratio, score \\
+{[3]} & LongLLMLingua & Very long contexts; a laptop rarely gets there & speedup, score \\
+{[4]} & LLMLingua-2 & Faithfulness claimed, never attacked & ratio, faithfulness \\
+{[5]} & Evaluator heads & Needs the model's internals & latency, accuracy \\
+{[6]} & SCOPE & Adds generation cost to the same request & ratio, quality \\
+{[7]} & Gisting & Needs fine-tuning & ratio, score \\
+{[8]} & UltraGist & Needs training & ratio, accuracy \\
+{[9]} & ATACompressor & Assumes the task label is known & ratio, score \\
+{[10]} & SARA & Needs a retrieval corpus & retrieval quality \\
+{[11]} & PCToolkit & A toolkit, not a method; no cross-family mixing & comparisons \\
+{[12]} & Empirical study & \textbf{Names} two failure modes; no run-time guard & hallucination rate \\
+{[13]} & Information preservation & Diagnoses a 30--50 point drop; no fix & groundedness \\
+{[14]} & Financial fidelity & Shows fluent but decision-changing output & agreement \\
+{[15]} & Compression paradox & \textbf{Does not always save energy}; hosted APIs only & energy \\
 \addlinespace
 \multicolumn{4}{@{}l}{\textit{Strand B --- Semantic caching}}\\
-[16] & GPTCache & One threshold, no verification, never attacked & hit rate, cost \\
-[17] & GPT Semantic Cache & Same design, different storage & hit rate, latency \\
-[18] & MeanCache & Hit rate \emph{inside} a chat not studied & hit rate, privacy \\
-[19] & ContextCache & Closest to us; no false-hit rate reported & hit rate \\
-[20] & Generative caching & Rewrites instead of reusing; costs more & hit rate, quality \\
-[21] & Key-collision attack & Treats it as a deliberate attack; we face ordinary pairs & attack rate \\
-[22] & SAFE-CACHE & Right conclusion, but a heavy redesign & robustness \\
+{[16]} & GPTCache & One threshold, no verification, never attacked & hit rate, cost \\
+{[17]} & GPT Semantic Cache & Same design, different storage & hit rate, latency \\
+{[18]} & MeanCache & Hit rate \emph{inside} a chat not studied & hit rate, privacy \\
+{[19]} & ContextCache & Closest to us; no false-hit rate reported & hit rate \\
+{[20]} & Generative caching & Rewrites instead of reusing; costs more & hit rate, quality \\
+{[21]} & Key-collision attack & Treats it as a deliberate attack; we face ordinary pairs & attack rate \\
+{[22]} & SAFE-CACHE & Right conclusion, but a heavy redesign & robustness \\
 \addlinespace
 \multicolumn{4}{@{}l}{\textit{Strand C --- KV cache and prefix reuse}}\\
-[23] & PagedAttention / vLLM & GPU serving; app-side cost not priced & throughput \\
-[24] & Prefix caching & States the rule; never prices breaking it & reuse rate \\
-[25] & ChunkAttention & Kernel level; many users assumed & throughput \\
-[26] & Sparse prefix caching & Tied to one architecture & throughput \\
-[27] & Multi-segment attention & Server side; no app guidance & latency, memory \\
+{[23]} & PagedAttention / vLLM & GPU serving; app-side cost not priced & throughput \\
+{[24]} & Prefix caching & States the rule; never prices breaking it & reuse rate \\
+{[25]} & ChunkAttention & Kernel level; many users assumed & throughput \\
+{[26]} & Sparse prefix caching & Tied to one architecture & throughput \\
+{[27]} & Multi-segment attention & Server side; no app guidance & latency, memory \\
 \addlinespace
 \multicolumn{4}{@{}l}{\textit{Strand D --- Where text sits in the prompt}}\\
-[28] & Lost in the Middle & Says reorder by relevance --- which \textbf{breaks prefix reuse} & accuracy by position \\
-[29] & Adaptive Focus Memory & Rules of thumb; reorder cost unmeasured & token usage \\
-[30] & Multi-turn survey & Survey; nothing composed & mixed \\
-[31] & Memory survey & Taxonomy, not measurement & mixed \\
+{[28]} & Lost in the Middle & Says reorder by relevance --- which \textbf{breaks prefix reuse} & accuracy by position \\
+{[29]} & Adaptive Focus Memory & Rules of thumb; reorder cost unmeasured & token usage \\
+{[30]} & Multi-turn survey & Survey; nothing composed & mixed \\
+{[31]} & Memory survey & Taxonomy, not measurement & mixed \\
 \addlinespace
 \multicolumn{4}{@{}l}{\textit{Strand E --- Routing between models}}\\
-[32] & FrugalGPT & 98\% saved \emph{against paid APIs}; assumes a big model exists & cost, accuracy \\
-[33] & RouteLLM & Assumes the bigger model is better --- false at 1.5B vs 3B here & cost, scores \\
-[34] & Semantic router & Datacentre assumption & latency, cost \\
-[35] & UCCI & Needs calibrated uncertainty; costly on CPU & cost, accuracy \\
-[36] & On-device routing & Routes device$\leftrightarrow$cloud, not inside one stack & accuracy \\
-[37] & Cluster, route, escalate & No quality guarantee on the cheap path & cost, quality \\
+{[32]} & FrugalGPT & 98\% saved \emph{against paid APIs}; assumes a big model exists & cost, accuracy \\
+{[33]} & RouteLLM & Assumes the bigger model is better --- false at 1.5B vs 3B here & cost, scores \\
+{[34]} & Semantic router & Datacentre assumption & latency, cost \\
+{[35]} & UCCI & Needs calibrated uncertainty; costly on CPU & cost, accuracy \\
+{[36]} & On-device routing & Routes device$\leftrightarrow$cloud, not inside one stack & accuracy \\
+{[37]} & Cluster, route, escalate & No quality guarantee on the cheap path & cost, quality \\
 \addlinespace
 \multicolumn{4}{@{}l}{\textit{Strand F --- Controlling answer length}}\\
-[38] & Length control encoding & \textbf{Needs fine-tuning} & length adherence \\
-[39] & BudgetThinker & Needs training with control tokens & budget, accuracy \\
-[40] & Strict length limits & Measures the damage; no budgeting scheme & accuracy vs length \\
+{[38]} & Length control encoding & \textbf{Needs fine-tuning} & length adherence \\
+{[39]} & BudgetThinker & Needs training with control tokens & budget, accuracy \\
+{[40]} & Strict length limits & Measures the damage; no budgeting scheme & accuracy vs length \\
 \bottomrule
 \end{tabularx}
 
@@ -440,34 +440,34 @@ record it leaves behind.
 \begin{center}
 \begin{tikzpicture}[
   font=\scriptsize,
-  box/.style={draw, rounded corners=2pt, minimum width=7.4cm, minimum height=0.52cm,
+  stage/.style={draw, rounded corners=2pt, minimum width=7.4cm, minimum height=0.52cm,
               align=left, inner xsep=6pt, text width=7.1cm},
-  cap/.style={draw, fill=black!6, rounded corners=2pt, minimum width=7.4cm,
+  endcap/.style={draw, fill=black!6, rounded corners=2pt, minimum width=7.4cm,
               minimum height=0.5cm, align=center, font=\scriptsize\bfseries},
   ar/.style={-latex, gray}
 ]
-\node[cap] (in) {USER QUESTION};
-\node[box, below=2.6pt of in, draw=green!40!black] (m6a)
+\node[endcap] (in) {USER QUESTION};
+\node[stage, below=2.6pt of in, draw=green!40!black] (m6a)
   {\textbf{M6a} Deterministic router \hfill 23 tokens $\rightarrow$ 0};
-\node[box, below=2.6pt of m6a, draw=green!40!black] (m2)
+\node[stage, below=2.6pt of m6a, draw=green!40!black] (m2)
   {\textbf{M2} Semantic cache \hfill reuse a stored answer};
-\node[box, below=2.6pt of m2, draw=blue!50!black] (m3a)
+\node[stage, below=2.6pt of m2, draw=blue!50!black] (m3a)
   {\textbf{M3a} History selector \hfill 8 turns $\rightarrow$ 6};
-\node[box, below=2.6pt of m3a, draw=blue!50!black] (m3b)
+\node[stage, below=2.6pt of m3a, draw=blue!50!black] (m3b)
   {\textbf{M3b} History arranger \hfill order changes cost};
-\node[box, below=2.6pt of m3b, draw=violet!60!black] (m1a)
+\node[stage, below=2.6pt of m3b, draw=violet!60!black] (m1a)
   {\textbf{M1a} Tier 1 --- boilerplate \hfill 28 $\rightarrow$ 17 tokens};
-\node[box, below=2.6pt of m1a, draw=violet!60!black] (m1b)
+\node[stage, below=2.6pt of m1a, draw=violet!60!black] (m1b)
   {\textbf{M1b} Tier 2 --- repeated facts \hfill 36 $\rightarrow$ 26 tokens};
-\node[box, below=2.6pt of m1b, draw=violet!60!black] (m1c)
+\node[stage, below=2.6pt of m1b, draw=violet!60!black] (m1c)
   {\textbf{M1c} Tier 3 --- word level \hfill rejects no-gain edits};
-\node[box, below=2.6pt of m1c, draw=red!50!black] (m4)
+\node[stage, below=2.6pt of m1c, draw=red!50!black] (m4)
   {\textbf{M4} Prefix-stable assembler \hfill 212\,ms vs 18{,}914\,ms};
-\node[box, below=2.6pt of m4, draw=orange!70!black] (m5)
+\node[stage, below=2.6pt of m4, draw=orange!70!black] (m5)
   {\textbf{M5} Output budgeter \hfill 48 \ldots 640 tokens};
-\node[box, below=2.6pt of m5, draw=black!60] (m6b)
+\node[stage, below=2.6pt of m5, draw=black!60] (m6b)
   {\textbf{M6b} Escalation router \hfill off by default};
-\node[cap, below=2.6pt of m6b] (out) {PROMPT SENT TO THE MODEL};
+\node[endcap, below=2.6pt of m6b] (out) {PROMPT SENT TO THE MODEL};
 
 \foreach \a/\b in {in/m6a, m6a/m2, m2/m3a, m3a/m3b, m3b/m1a, m1a/m1b,
                    m1b/m1c, m1c/m4, m4/m5, m5/m6b, m6b/out}
