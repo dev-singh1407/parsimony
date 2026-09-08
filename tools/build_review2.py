@@ -29,6 +29,7 @@ TEAM = [("Arrsh Tripathi", "23BCI0191"),
         ("Alok Singh", "23BCI0158"),
         ("Dev Singh", "23BCE0794")]
 GUIDE = "Dr Sathya K"
+REVIEW_DATE = "09-09-2026"
 
 AIM = [
     "Cut the token cost of talking to a small language model on a CPU-only laptop —",
@@ -269,6 +270,16 @@ def build_ppt(template: Path, out: Path) -> None:
              + ["", f"Faculty guide : {GUIDE}", "School of Computer Science and Engineering"],
              size=15)
 
+    # Slide 2 shipped as an instruction to the student, not a slide. Left as a
+    # heading with a placeholder line so it is obvious it needs the guide's
+    # mail pasted in, rather than presenting the instruction text as content.
+    fill(s[1],
+         ["Approval obtained from the faculty guide for the title, objectives,",
+          "scope and expected outcomes of this project.",
+          "",
+          "[ Paste the approval mail screenshot here before submitting. ]"],
+         size=15)
+
     fill(s[2], AIM, size=15)
     fill(s[3], ABSTRACT, size=13)
     fill_pairs(s[4], LITERATURE, size=13)
@@ -297,6 +308,15 @@ def build_ppt(template: Path, out: Path) -> None:
 
     fill(s[11], CONCLUSION, size=12)
     fill(s[12], REFERENCES, size=10)
+
+    # The template dates every slide 22-08-2026, its own issue date. Left
+    # unchanged it tells the panel the deck was prepared three weeks early.
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if shape.has_text_frame and shape.text_frame.text.strip() == "22-08-2026":
+                for para in shape.text_frame.paragraphs:
+                    for run in para.runs:
+                        run.text = REVIEW_DATE
 
     prs.save(str(out))
     print(f"wrote {out}")

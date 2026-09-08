@@ -199,6 +199,64 @@ hr { border: 0; border-top: .5px solid var(--rule); margin: 2em 0; }
   font-weight: 600;
 }
 .references em { font-style: italic; }
+
+/* ------------------------------------------------------- report cover -- */
+
+.cover { text-align: center; page-break-after: always; padding-top: 14mm; }
+.cover .uni { font-size: 15pt; font-weight: 600; letter-spacing: .06em; }
+.cover .uni-sub { font-size: 10.5pt; color: var(--muted); margin-top: .2em; }
+.cover .uni-sub2 { font-size: 9.5pt; color: var(--muted); margin-bottom: 3.2em; }
+.cover h1 {
+  font-size: 24pt; line-height: 1.22; font-weight: 600;
+  border: 0; padding: 0; margin: 0 0 .5em;
+}
+.cover .sub { font-size: 13pt; font-style: italic; color: var(--muted); line-height: 1.4; }
+.cover .course { font-size: 10.5pt; margin: 2.4em 0 2.2em; letter-spacing: .04em; }
+.cover .members-h {
+  font-size: 9pt; letter-spacing: .18em; text-transform: uppercase;
+  color: var(--accent); font-weight: 600; margin-bottom: .9em;
+}
+.cover table.team {
+  width: auto; margin: 0 auto 2.4em; border-collapse: collapse; font-size: 11pt;
+}
+.cover table.team td { border: 0; padding: .18em 1.1em; text-align: left; }
+.cover table.team td:last-child { font-variant-numeric: lining-nums; color: var(--muted); }
+.cover .foot { font-size: 10pt; line-height: 1.85; color: var(--ink); }
+.cover .foot .lab { color: var(--muted); }
+
+/* --------------------------------------------------------- gap boxes -- */
+
+.gapbox {
+  border: .9px solid var(--rule-strong);
+  border-radius: 3px;
+  margin: 1.1em 0 1.3em;
+  break-inside: avoid;
+  page-break-inside: avoid;
+  overflow: hidden;
+}
+.gapbox > .gt {
+  background: var(--rule-strong);
+  color: #fff;
+  font-weight: 600;
+  font-size: 10pt;
+  padding: .38em .8em;
+  letter-spacing: .01em;
+}
+.gapbox > .gb { padding: .7em .85em .35em; background: #fbfaf7; }
+.gapbox p { margin: 0 0 .6em; font-size: 9.8pt; }
+.gapbox .lbl { font-weight: 600; color: var(--accent); }
+
+.archbox {
+  border-left: 2.5px solid var(--accent);
+  background: var(--tint);
+  padding: .7em .95em .35em;
+  margin: 1em 0;
+  break-inside: avoid;
+}
+.archbox p { margin: 0 0 .5em; font-size: 9.8pt; }
+
+.pagebreak { page-break-before: always; break-before: page; }
+.figcap { font-size: 8.6pt; color: var(--muted); text-align: center; margin-top: .4em; }
 """
 
 TITLE_BLOCK = """
@@ -251,16 +309,17 @@ def title_block(kicker: str, title: str, subtitle: str) -> str:
 """
 
 
-def to_html(md_text: str, block: str = TITLE_BLOCK) -> str:
+def to_html(md_text: str, block: str = TITLE_BLOCK, demote: bool = True) -> str:
     body = markdown.markdown(
-        strip_front_matter(md_text),
+        strip_front_matter(md_text) if demote else md_text,
         extensions=["tables", "attr_list", "sane_lists", "md_in_html"],
         output_format="html5",
     )
-    # Demote so the document's own "##" sections become the top visual level.
-    body = re.sub(r"<(/?)h4\b", r"<\1h5", body)
-    body = re.sub(r"<(/?)h3\b", r"<\1h4", body)
-    body = re.sub(r"<(/?)h2\b", r"<\1h1", body)
+    if demote:
+        # Demote so the document's own "##" sections become the top visual level.
+        body = re.sub(r"<(/?)h4\b", r"<\1h5", body)
+        body = re.sub(r"<(/?)h3\b", r"<\1h4", body)
+        body = re.sub(r"<(/?)h2\b", r"<\1h1", body)
 
     # Wrap the bibliography so the hanging-indent rules apply to it alone.
     marker = "References</h1>"
@@ -282,16 +341,21 @@ def main() -> None:
     ap.add_argument("--kicker", default=None)
     ap.add_argument("--title", default=None)
     ap.add_argument("--subtitle", default="")
+    ap.add_argument("--no-title-block", action="store_true",
+                    help="The document supplies its own cover page in HTML.")
     ap.add_argument("--serif", default=None,
                     help="Body font stack, e.g. \"'Times New Roman', Cambria, serif\". "
                          "Used to match an existing document's look.")
     args = ap.parse_args()
 
-    block = (
-        title_block(args.kicker, args.title, args.subtitle)
-        if args.title else TITLE_BLOCK
-    )
-    html = to_html(args.source.read_text(encoding="utf-8"), block)
+    if args.no_title_block:
+        block = ""
+    elif args.title:
+        block = title_block(args.kicker, args.title, args.subtitle)
+    else:
+        block = TITLE_BLOCK
+    html = to_html(args.source.read_text(encoding="utf-8"), block,
+                   demote=not args.no_title_block)
     if args.serif:
         html = html.replace("Cambria, Constantia, Georgia, serif", args.serif)
     tmp = Path(tempfile.gettempdir()) / f"parsimony_{args.out.stem}.html"
