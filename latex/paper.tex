@@ -63,6 +63,27 @@
 % Marker for a quantity this study has not yet measured
 \newcommand{\todoval}[1]{\textcolor{accent}{\small\texttt{[MEASUREMENT REQUIRED: #1]}}}
 
+% ---- plain-language and highlighting apparatus ------------------------
+\definecolor{hlyellow}{HTML}{FFF3C4}
+\definecolor{plainblue}{HTML}{EEF4FA}
+\definecolor{plainrule}{HTML}{2C5D8A}
+
+% Highlight a headline number so it can be found at a glance
+\newcommand{\hl}[1]{\colorbox{hlyellow}{\strut #1}}
+
+% "In plain words" -- a jargon-free restatement for the non-specialist
+\newcommand{\plain}[1]{%
+  \par\vspace{1pt}
+  \noindent\begin{tcolorbox}[colback=plainblue,colframe=plainrule,boxrule=0pt,
+    leftrule=2.2pt,arc=0pt,left=7pt,right=5pt,top=4pt,bottom=4pt,breakable]
+  \small\textbf{In plain words.} #1
+  \end{tcolorbox}\par\vspace{2pt}}
+
+% A boxed statement of a headline finding
+\newtcolorbox{keybox}[1]{colback=white, colframe=accent, coltitle=white,
+  fonttitle=\bfseries\small, title={#1},
+  boxrule=0.7pt, arc=2pt, left=7pt, right=7pt, top=5pt, bottom=5pt, breakable}
+
 \begin{document}
 
 % ===================================================== title block =====
@@ -130,6 +151,95 @@ to \textbf{0.0\%} (0/45).
 \noindent\textbf{Keywords:} prompt compression; semantic caching; KV-cache reuse;
 small language models; CPU inference; factorial ablation; fidelity verification.
 \end{tcolorbox}
+
+\vspace{4pt}
+
+% ============================== plain-language summary =================
+\begin{keybox}{The whole paper in plain words}
+\small
+A language model charges you for every word it reads and every word it writes.
+On a laptop with no graphics card it is also \emph{slow}, and almost all of that
+slowness comes from \emph{reading} your question, not from writing the answer.
+
+Lots of researchers have invented ways to make the model read less: shorten the
+question, remember old answers, throw away old chat messages, cut the reply
+short. Each trick has been tested on its own. Nobody has switched them all on at
+once and checked what happens.
+
+We built a system, \textbf{Parsimony}, that sits between your app and the model
+and runs all of those tricks together. Every trick has an on/off switch, so we
+could try all 16 combinations and see which ones help, which do nothing, and
+whether they get in each other's way. We then ran five experiments and measured
+everything.
+
+\medskip
+\noindent Three things we found that nobody had reported before:
+\begin{enumerate}[leftmargin=1.6em]
+\item \textbf{The tricks do not add up.} Four tricks that save 29\% on their own
+  save only \hl{27.4\%} together. Two of them are fighting over the same words.
+\item \textbf{Sending fewer words is not the same as being faster.} We found two
+  versions of the same prompt, only 0.5\% apart in length, where one took
+  \hl{212\,ms} and the other took \hl{18{,}914\,ms} --- about 89 times slower.
+\item \textbf{``Similar enough'' is not a safe test for reusing an old answer.}
+  ``Is it safe to mix bleach and vinegar?'' and ``Is it \emph{not} safe\ldots''
+  look almost identical to a computer. No similarity setting can tell them
+  apart --- we tried nine, and the error rate stayed stuck at \hl{51.1\%}. A
+  cheap word-by-word check fixed it completely: \hl{0 errors out of 45}.
+\end{enumerate}
+
+\medskip
+\noindent And the system is genuinely usable: it cuts total word count by
+\hl{33.9\%}, adds only \hl{4\,ms} of its own work per question, and \emph{never
+turned a right answer into a wrong one} in our tests.
+\end{keybox}
+
+\begin{table}[htbp]
+\centering
+\caption{Key findings at a glance. ``pp'' means percentage points --- the
+difference between two percentages.}
+\label{tab:glance}
+\footnotesize
+\begin{tabularx}{\textwidth}{@{}c L{3.1cm} r X@{}}
+\toprule
+& \textbf{What we measured} & \textbf{Result} & \textbf{What it means} \\
+\midrule
+E1 & Words saved by the whole system & \hl{$-33.9\%$} &
+     A third of everything sent to and from the model is removed. \\
+E1 & Do the tricks add up? & \textbf{No} &
+     29.0\% expected, 27.4\% delivered. They overlap. \\
+E2 & Share of time spent reading the prompt & \hl{91.7--98.8\%} &
+     Almost all the waiting is the model reading, not writing. \\
+E2 & Cost of putting the changing part first & \hl{$\approx$89$\times$} &
+     Rearranging a prompt can be far more expensive than shortening it. \\
+E3 & Wrong answers from reusing a cached reply & \hl{51.1\% $\rightarrow$ 0.0\%} &
+     Similarity alone is unsafe; a simple checker makes it safe. \\
+E4 & Answer quality & \hl{92.5\% $\rightarrow$ 97.5\%} &
+     Nothing got worse. Zero right answers were lost. \\
+E4 & Extra time our own code adds & \hl{4.06\,ms} &
+     Roughly 30 times less than the 120\,ms we allowed ourselves. \\
+E5 & Does the tuning work elsewhere? & \textbf{Partly} &
+     The numbers repeat almost exactly; one of our explanations did not. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{keybox}{Words used in this paper, explained}
+\small
+\begin{tabularx}{\textwidth}{@{}L{3.0cm} X@{}}
+\textbf{Token} & A piece of a word. Models read and charge in tokens, not words. ``running'' may be one token; ``runing'' may be three. \\
+\textbf{Prompt} & Everything sent to the model: your question plus the earlier conversation. \\
+\textbf{Prefill} & The model \emph{reading} the prompt before it says anything. \\
+\textbf{Decode} & The model \emph{writing} the answer, one token at a time. \\
+\textbf{KV cache} & The model's short-term memory of a prompt it has already read. If the start of the next prompt is byte-for-byte identical, it can skip re-reading that part --- which is why changing the first sentence is expensive. \\
+\textbf{Semantic cache} & A store of past questions and answers. If a new question is close enough to an old one, the old answer is reused instead of asking the model. \\
+\textbf{False hit} & The cache reusing an answer for a question that only \emph{looked} similar. The user gets the answer to a question they never asked. \\
+\textbf{Baseline} & The system with every optimisation switched off. Everything is measured against it. \\
+\textbf{Ablation} & Switching parts off one at a time to see what each one is actually worth. \\
+\textbf{pp (percentage point)} & The gap between two percentages. Going from 10\% to 12\% is a rise of 2\,pp. \\
+\textbf{95\% confidence interval} & The range the true value very probably sits in. If it includes zero, the effect might be nothing at all. \\
+\textbf{Partial $\eta^2$} & How much of the variation one factor explains. Closer to 1 means that factor is doing most of the work. \\
+\end{tabularx}
+\end{keybox}
 
 % ================================================ 1 LITERATURE REVIEW ==
 \section{Literature Review}
@@ -683,7 +793,7 @@ M2+M3+M5           & 22{,}511 & 13{,}278 & 35{,}789 & +27.2 & 11 & 0 & 228 \\
 \midrule
 M1+M2+M3+M5        & 22{,}438 & 13{,}239 & 35{,}677 & +27.4 & 11 & 0 & 228 \\
 \textbf{Full stack ($+$M4, M6)} & \textbf{19{,}955} & \textbf{12{,}520} &
-\textbf{32{,}475} & \textbf{+33.9} & 11 & 15 & 224 \\
+\textbf{32{,}475} & \hl{\textbf{+33.9}} & 11 & 15 & 224 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -740,7 +850,7 @@ M3 (history manager)  & 1 & $+11.82$ & 0.4304 \\
 M2 (semantic cache)   & 1 & $+1.94$  & 0.0116 \\
 M1 (compressor)       & 1 & $+0.23$  & 0.0002 \\
 \midrule
-M3 $\times$ M5        & 2 & $\mathbf{-0.70}$ & 0.0015 \\
+M3 $\times$ M5        & 2 & \hl{$\mathbf{-0.70}$} & 0.0015 \\
 M2 $\times$ M5        & 2 & $-0.11$  & 0.0000 \\
 M1 $\times$ M5        & 2 & $-0.02$  & 0.0000 \\
 M1 $\times$ M2        & 2 & $+0.02$  & 0.0000 \\
@@ -764,6 +874,13 @@ gap between M1+M2+M3+M5 ($+27.4\%$) and the full stack ($+33.9\%$) is produced
 almost entirely by M6a's deterministic routing of 15 requests to zero model
 tokens, a component with no compression literature at all.}
 
+\plain{Think of four people cleaning the same room. Alone, they clear 29 bags of
+rubbish between them. Working together they clear only 27.4, because two of them
+keep reaching for the same rubbish. We found exactly which two: the history
+trimmer and the answer shortener. Everything else stacks fine. Also worth
+noticing: the compressor --- the trick with the most research papers written about
+it --- was the least useful thing we switched on, worth only 0.23\%.}
+
 \subsubsection{Sensitivity across query classes}
 
 The headline percentage conceals a wide per-class spread
@@ -784,7 +901,7 @@ M1 only        & \phantom{+}0.0 & +2.8  & +1.1  & \phantom{+}0.0 & $-0.5$ & +0.9
 M2 only        & \phantom{+}0.0 & +4.0  & \phantom{+}0.0 & +0.2 & +33.0 & \phantom{+}0.0 \\
 M3 only        & \phantom{+}0.0 & \phantom{+}0.0 & \phantom{+}0.0 & +17.3 & \phantom{+}0.0 & \phantom{+}0.0 \\
 M1+M2+M3+M5    & +16.8 & +17.6 & +13.6 & +30.3 & +42.5 & +12.0 \\
-\textbf{Full stack} & \textbf{+69.3} & +30.8 & +22.8 & +32.4 & +49.2 & +20.7 \\
+\textbf{Full stack} & \hl{\textbf{+69.3}} & +30.8 & +22.8 & +32.4 & +49.2 & +20.7 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -801,6 +918,14 @@ without the model at all. This spread is the empirical argument for the paper's
 central claim that the deliverable is an operating curve rather than a
 number: a deployment serving mostly summarisation should expect 20\%, not 34\%.}
 
+\plain{The ``33.9\% saving'' is an average, and averages hide a lot. If your
+users mostly ask maths questions you save 69\%; if they mostly ask for summaries
+you save 21\%. And one trick actually \emph{hurts} in one situation: the
+compressor rewrites a question just enough that the system no longer recognises
+it as one it has answered before, and a free answer is lost. That is why we say
+the real result of this project is not a number but a recipe --- ``for your kind
+of traffic, switch on these parts''.}
+
 \subsubsection{Where compression actually pays}
 
 \begin{table}[htbp]
@@ -815,7 +940,7 @@ number: a deployment serving mostly summarisation should expect 20\%, not 34\%.}
 \midrule
 Phrase-level    & 21    & 21    & 0  & 0 & 0 \\
 Word-level      & 2{,}199 & 2{,}183 & 13 & 3 & 1 \\
-Sub-token-level & 8     & 0     & 5  & 3 & \textbf{100} \\
+Sub-token-level & 8     & 0     & 5  & 3 & \hl{\textbf{100}} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -829,6 +954,13 @@ This localises the ``negative yield'' phenomenon the compression literature warn
 about: it is not a property of compression in general but of edits that cut
 \emph{inside} a token boundary, and a guard that measures the resulting count
 rather than assuming a reduction eliminates the class entirely.}
+
+\plain{Deleting a \emph{whole word} almost always makes the prompt cheaper ---
+2{,}183 times out of 2{,}199. But cutting \emph{inside} a word is never worth it:
+all 8 attempts failed, and 3 of them made the prompt \emph{longer}. So the
+warning in the literature that ``shortening text can cost you tokens'' is true,
+but only for one specific kind of edit, and our guard simply checks the count
+afterwards instead of trusting the edit.}
 
 \subsection{E2: What does a token cost, and what does prompt order cost?}
 \label{sec:e2}
@@ -853,7 +985,7 @@ which conflates queueing and sampling with prefill.
 \midrule
 146    & 1{,}360  & 122 & 91.7 & 9.3 \\
 474    & 3{,}902  & 165 & 95.9 & 8.2 \\
-1{,}338 & 11{,}609 & 136 & 98.8 & 8.7 \\
+1{,}338 & 11{,}609 & 136 & \hl{98.8} & 8.7 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -870,7 +1002,7 @@ content.}
 \textbf{Prefix reuse (\%)} \\
 \midrule
 Volatile head (baseline)   & 1{,}497 & 18{,}914 & 0.5 \\
-Stable prefix (M4)         & 1{,}490 & \textbf{212} & \textbf{98.5} \\
+Stable prefix (M4)         & 1{,}490 & \hl{\textbf{212}} & \textbf{98.5} \\
 \midrule
 \textbf{Difference}        & $-0.5\%$ & $\mathbf{-98.9\%}$ & $+98.0$\,pp \\
 \bottomrule
@@ -892,6 +1024,17 @@ cache and the other invalidates it every turn. Any optimiser that reorders a
 prompt to place relevant content first --- the remedy \emph{recommended} by [28]
 --- pays this cost, and every token-based metric in the compression literature
 scores the two arrangements identically.}
+
+\plain{Almost all the waiting is the model \emph{reading} your question, not
+writing the reply --- and the longer the conversation, the more lopsided it gets.
+Every input token costs about 8.5 milliseconds, so cutting words really does cut
+seconds: across our whole test set the system saved about 100 seconds of reading.
+The surprise is the second table. The model keeps a memory of the prompt it just
+read, and it can skip anything at the start that has not changed. Put something
+that changes every turn at the very beginning and that memory is thrown away
+every time. Two prompts with virtually the same number of words: one takes a
+fifth of a second, the other takes nineteen seconds. A word counter cannot see
+this difference at all --- which is the point.}
 
 \subsection{E3: Can a threshold make cache reuse safe?}
 \label{sec:e3}
@@ -922,7 +1065,7 @@ $\boldsymbol{\tau}$ & \textbf{False hits} & \textbf{True hits} &
 0.80 & 23/45 (51.1\%) & 18/45 (40.0\%) & 17/45 (37.8\%) & 17/45 (37.8\%) \\
 0.85 & 23/45 (51.1\%) & 18/45 (40.0\%) & \phantom{0}8/45 (17.8\%) & 17/45 (37.8\%) \\
 0.90 & 23/45 (51.1\%) & 18/45 (40.0\%) & \phantom{0}2/45 (4.4\%) & 16/45 (35.6\%) \\
-\textbf{0.92} & 23/45 (51.1\%) & 18/45 (40.0\%) & \textbf{0/45 (0.0\%)} & \textbf{14/45 (31.1\%)} \\
+\textbf{0.92} & 23/45 (51.1\%) & 18/45 (40.0\%) & \hl{\textbf{0/45 (0.0\%)}} & \textbf{14/45 (31.1\%)} \\
 0.95 & 23/45 (51.1\%) & 18/45 (40.0\%) & 0/45 (0.0\%) & 13/45 (28.9\%) \\
 0.97 & 23/45 (51.1\%) & 18/45 (40.0\%) & 0/45 (0.0\%) & 13/45 (28.9\%) \\
 0.99 & 23/45 (51.1\%) & 18/45 (40.0\%) & 0/45 (0.0\%) & 13/45 (28.9\%) \\
@@ -996,6 +1139,20 @@ surrendered to eliminate 51.1\,pp of wrong answers}, which is the central
 efficiency--safety trade-off of this system and, for an assistant, plainly the
 right side of it.}
 
+\plain{Every cache in the research literature works the same way: if the new
+question is ``similar enough'' to an old one, reuse the old answer. We tested
+whether \emph{any} setting of ``similar enough'' is safe. It is not. We tried
+nine settings from loose to extremely strict, and the error rate never moved
+below 51\% --- because ``Is it safe?'' and ``Is it \emph{not} safe?'' are almost
+identical to a computer, while two genuinely different wordings of the same
+question look far apart. So the strictest setting throws away good matches
+without catching a single bad one. Our fix does not compare meaning at all: it
+just lists the numbers, names, ``not''s and words like ``cheapest'' in both
+questions and refuses if they differ. That takes microseconds and got the errors
+to zero. The price is that we now miss about 9 out of every 100 reuses we could
+have had --- worth paying, since the alternative is confidently telling someone
+that mixing bleach and vinegar is safe.}
+
 \subsection{E4: Is quality preserved, and at what overhead?}
 \label{sec:e4}
 
@@ -1015,7 +1172,7 @@ improvement and a regression cannot cancel in the aggregate.
 \textbf{Regressions} \\
 \midrule
 Baseline    & 37/40 & 92.5 & --- \\
-Full stack  & \textbf{39/40} & \textbf{97.5} & \textbf{0} \\
+Full stack  & \textbf{39/40} & \hl{\textbf{97.5}} & \hl{\textbf{0}} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1035,7 +1192,7 @@ Baseline (all off)   & 2.01 & [1.80, 2.24] & 4.81 & 1.4 \\
 M2 only              & 2.74 & [2.53, 2.94] & 5.65 & 1.4 \\
 M1+M2+M3             & 3.62 & [3.30, 3.91] & 7.15 & 1.4 \\
 M1+M2+M3+M5          & 3.60 & [3.32, 3.89] & 6.92 & 1.4 \\
-\textbf{Full stack}  & \textbf{4.06} & \textbf{[3.68, 4.45]} & \textbf{9.49} &
+\textbf{Full stack}  & \hl{\textbf{4.06}} & \textbf{[3.68, 4.45]} & \textbf{9.49} &
 \textbf{14.1} \\
 \midrule
 \multicolumn{5}{@{}l}{\textit{Design budget: 120\,ms}} \\
@@ -1057,6 +1214,16 @@ itself by a factor of several hundred. The prefix-reuse column isolates M4's
 contribution: reuse rises from 1.4 tokens to 14.1 only in the configuration where
 M4 is enabled, confirming that no other module preserves the prompt head by
 accident.}
+
+\plain{This is the section that answers ``yes, but does it break anything?''
+Answer: no. Out of 40 test questions the plain system got 37 right and ours got
+39 --- and crucially, we checked question by question, so we know ours did not
+quietly get something wrong that the plain system got right. Not once. The two
+extra correct answers are sums that our system worked out itself without
+bothering the model. Two questions is too few to claim we made it \emph{smarter},
+so we only claim we did not make it worse. On speed, our own code adds about 4
+thousandths of a second per question --- next to the roughly 1.7 seconds the model
+spends reading, that is nothing.}
 
 \subsection{E5: Does a calibration transfer?}
 \label{sec:e5}
@@ -1116,12 +1283,12 @@ traffic recurrence.}
 \textbf{Recurrence (\%)} & \textbf{Cache seeds} & \textbf{Cold (\%)} &
 \textbf{Warm (\%)} & \textbf{Transfer (pp)} & \textbf{Extra gate fires} \\
 \midrule
-0.0  & 0  & 8.20  & 8.20  & \textbf{+0.00} & 0 \\
+0.0  & 0  & 8.20  & 8.20  & \hl{\textbf{+0.00}} & 0 \\
 7.5  & 3  & 12.16 & 13.48 & +1.31  & 0 \\
 22.5 & 8  & 15.76 & 21.19 & +5.43  & 0 \\
 33.3 & 10 & 24.21 & 32.76 & +8.55  & 0 \\
 45.0 & 12 & 34.16 & 48.87 & +14.70 & 0 \\
-57.5 & 16 & 45.69 & 63.52 & \textbf{+17.83} & 0 \\
+57.5 & 16 & 45.69 & 63.52 & \hl{\textbf{+17.83}} & 0 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1170,6 +1337,18 @@ Table~\ref{tab:ablation}; that is a property of the corpus, not of the module. I
 all six conditions the fidelity gate fired zero additional times, so the extra
 reuse is not being bought with extra risk.}
 
+\plain{Two questions here. First: tune the system for one model's vocabulary ---
+does it still work for another? The \emph{savings} carried over almost perfectly,
+within a tenth of a percent. But one of our own explanations for \emph{why} it
+saves turned out to be wrong on the second vocabulary. That is worth saying out
+loud: we were half wrong about our own system, and only re-running the test caught
+it. Second: the system learns from your past chats to pre-fill its memory. Does
+that help on chats it has never seen? It depends entirely on how much you repeat
+yourself. If you never repeat a question the benefit is \emph{exactly} zero --- and
+that exact zero is the most important number in the table, because a system that
+was secretly peeking at the test data would have shown a fake gain there. The more
+you repeat, the more it helps, up to about 18\% extra saving.}
+
 \subsection{Contribution-to-result summary}
 \label{sec:summary}
 
@@ -1204,6 +1383,10 @@ C5 & RQ5 & E5 & Tables~\ref{tab:generalisation}--\ref{tab:learning}; Fig.~\ref{f
 \section{Discussion}
 \label{sec:discussion}
 
+The previous section reported \emph{what} happened. This section argues about
+\emph{why}, and is careful to separate the two: measurements are stated as
+results, explanations as explanations.
+
 \subsection{Why the savings fail to compound}
 The shortfall is not a general property of stacking but the signature of two
 modules addressing the same tokens. M3 removes prior turns from the input; M5
@@ -1214,6 +1397,14 @@ localisation: the interaction is negative, and it appears only in terms containi
 M5. It also predicts the boundary condition --- in single-turn traffic the two
 modules should be additive, because no answer ever becomes history. That
 prediction is untested here and is stated as a hypothesis, not a result.
+
+\plain{Today's answer becomes tomorrow's chat history. So when one part of the
+system shortens the answer, it is also shrinking the pile that the other part was
+going to trim later. Whichever runs second finds less left to do. That neatly
+explains why the overlap only ever shows up between those two parts. It also
+gives us something to check next: in a one-question-at-a-time chat, where an
+answer never becomes history, the two should stop overlapping. We have not tested
+that, so we call it a prediction rather than a finding.}
 
 \subsection{Why a threshold cannot separate the classes}
 The flat baseline curve in Figure~\ref{fig:threshold} follows from what
@@ -1253,6 +1444,11 @@ every other module combined.
 % ================================================ 7 LIMITATIONS =======
 \section{Limitations and Threats to Validity}
 \label{sec:limits}
+
+\plain{This section lists what our results do \emph{not} prove, and what we did
+not manage to measure. Everything marked \texttt{[MEASUREMENT REQUIRED]} is an
+experiment still to be run --- we have deliberately left the gap visible rather
+than filling it with a guessed number.}
 
 \paragraph{Single hardware configuration.} All timings come from one CPU. The
 8.5\,ms per input token figure is a measurement of this machine, not a claim
