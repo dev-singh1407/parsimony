@@ -153,6 +153,7 @@ module — the same distinction as ADR-028.
 | [`docs/10-literature-survey.md`](docs/10-literature-survey.md) | **Literature survey.** 52 papers across eight strands, the six research gaps they leave open, and what this project does differently — with the measurement backing each claim |
 | [`docs/11-demo-runbook.md`](docs/11-demo-runbook.md) | **Demo runbook.** A five-act, twelve-minute walkthrough with the exact commands, their measured run times, what to say at each, and the failure modes that actually happen |
 | [`docs/12-demo-questions.md`](docs/12-demo-questions.md) | **Demo questions.** One per tier plus five that fire several at once, each with the modules it actually triggers measured rather than assumed |
+| [`docs/13-review2-dossier.md`](docs/13-review2-dossier.md) | **Review-2 dossier.** The 40-paper limitations table, the six gaps it exposes, research questions, four contributions, the pipeline tier by tier with a figure, and every result. Renders to PDF |
 | [`docs/09-findings.md`](docs/09-findings.md) | **Read this one first.** Every result in plain prose, with the numbers re-derived from live runs |
 
 ## The one-paragraph version

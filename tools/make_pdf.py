@@ -282,6 +282,9 @@ def main() -> None:
     ap.add_argument("--kicker", default=None)
     ap.add_argument("--title", default=None)
     ap.add_argument("--subtitle", default="")
+    ap.add_argument("--serif", default=None,
+                    help="Body font stack, e.g. \"'Times New Roman', Cambria, serif\". "
+                         "Used to match an existing document's look.")
     args = ap.parse_args()
 
     block = (
@@ -289,6 +292,8 @@ def main() -> None:
         if args.title else TITLE_BLOCK
     )
     html = to_html(args.source.read_text(encoding="utf-8"), block)
+    if args.serif:
+        html = html.replace("Cambria, Constantia, Georgia, serif", args.serif)
     tmp = Path(tempfile.gettempdir()) / f"parsimony_{args.out.stem}.html"
     tmp.write_text(html, encoding="utf-8")
 
