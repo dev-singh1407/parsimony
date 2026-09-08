@@ -1,0 +1,765 @@
+% Parsimony -- Project Report (short version)
+% Compile on Overleaf: paste this file, click Recompile. Engine: pdfLaTeX.
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{times}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage[hidelinks]{hyperref}
+
+\definecolor{ink}{HTML}{16181D}
+\definecolor{accent}{HTML}{7A2518}
+\definecolor{soft}{HTML}{FBFAF7}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small Parsimony: Token-Efficient LLM Interaction}
+\rhead{\small VIT University}
+\cfoot{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\setlist{nosep,leftmargin=1.3em}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+% A titled box for each research gap
+\newtcolorbox{gap}[1]{
+  colback=soft, colframe=ink, coltitle=white,
+  fonttitle=\bfseries\small, title={#1},
+  boxrule=0.7pt, arc=2pt, left=6pt, right=6pt, top=5pt, bottom=5pt,
+  breakable
+}
+\newcommand{\lbl}[1]{\textcolor{accent}{\textbf{#1}}}
+
+\begin{document}
+
+% ------------------------------------------------------------------ cover
+\thispagestyle{empty}
+\begin{center}
+  \vspace*{1.2cm}
+  {\large\bfseries VIT UNIVERSITY}\\[2pt]
+  {\small Vellore Institute of Technology}\\[1pt]
+  {\small Vellore, Tamil Nadu, India}
+
+  \vspace{2.6cm}
+  {\huge\bfseries Token-Efficient LLM Interaction\\[4pt] on CPU-Only Hardware}\\[10pt]
+  {\large\itshape Parsimony --- A Stacked, Self-Improving\\ Optimisation Layer for Small Language Models}
+
+  \vspace{1.6cm}
+  {\normalsize Natural Language Processing Project}
+
+  \vspace{1.4cm}
+  {\small\textcolor{accent}{\textbf{TEAM MEMBERS}}}\\[8pt]
+  \begin{tabular}{ll}
+    Arrsh Tripathi & 23BCI0191 \\
+    Alok Singh     & 23BCI0158 \\
+    Dev Singh      & 23BCE0794 \\
+  \end{tabular}
+
+  \vspace{1.8cm}
+  {\small B.Tech \quad$\cdot$\quad Course Code: BCSE497J \quad$\cdot$\quad Project I}\\[4pt]
+  {\small Faculty Guide: Dr Sathya K}\\[4pt]
+  {\small September 2026}
+\end{center}
+\newpage
+
+% --------------------------------------------------------------- abstract
+\section*{Abstract}
+Language models charge by the token. On a laptop with no graphics card, they also
+spend nearly all of their time \emph{reading} the question rather than
+\emph{writing} the answer. Many methods exist to cut that cost --- shortening the
+prompt, reusing old answers, trimming chat history, capping the reply length ---
+but each one is published on its own. Nobody has run them together and measured
+what happens.
+
+We read \textbf{40 papers}, list what each one cannot do in our setting, and pull
+out \textbf{six research gaps}. We then build \textbf{Parsimony}: a layer that sits
+between the app and a small local model. It has seven optimisation modules and one
+always-on safety check. Every module only \emph{suggests} a change; one controller
+decides whether to accept it. Because each module has an on/off switch, the whole
+system doubles as an experiment.
+
+Measured on 151 conversations and 263 requests against \texttt{qwen2.5:1.5b-instruct}
+running on CPU only, the full stack removes \textbf{33.9\%} of tokens with
+\textbf{no drop in answer quality} (92.5\%~$\rightarrow$~97.5\% on 40 test questions,
+zero answers made worse). Three results are new: savings \textbf{do not add up} when
+modules are stacked; reading the prompt is \textbf{92--99\%} of the time on CPU
+($\approx$8.5\,ms per input token); and the cache similarity thresholds published as
+safe are \textbf{unsafe} here, so a cheap verifier --- not a threshold --- is what
+makes answer reuse safe (wrong-answer rate 26.7\%~$\rightarrow$~0.0\%).
+
+% ------------------------------------------------------------- lit review
+\section{Literature Review}
+
+Forty papers were read across six strands. For each we note the method, the
+limitation \emph{for our setting}, and what it measures. These are not criticisms of
+the papers on their own terms --- most target datacentre servers or a single
+technique. Our setting is simply the one they do not target.
+
+\subsection{Limitations of the 40 papers}
+
+\begin{tabularx}{\textwidth}{@{}l L{3.6cm} X l@{}}
+\toprule
+\textbf{Ref} & \textbf{Method} & \textbf{Limitation for us} & \textbf{Metrics} \\
+\midrule
+\multicolumn{4}{@{}l}{\textit{Strand A --- Prompt compression}}\\
+[1] & Selective Context & Needs a second model; never tested with a cache & latency, score \\
+[2] & LLMLingua & 20$\times$ compression, but GPU and alone & ratio, score \\
+[3] & LongLLMLingua & Very long contexts; a laptop rarely gets there & speedup, score \\
+[4] & LLMLingua-2 & Faithfulness claimed, never attacked & ratio, faithfulness \\
+[5] & Evaluator heads & Needs the model's internals & latency, accuracy \\
+[6] & SCOPE & Adds generation cost to the same request & ratio, quality \\
+[7] & Gisting & Needs fine-tuning & ratio, score \\
+[8] & UltraGist & Needs training & ratio, accuracy \\
+[9] & ATACompressor & Assumes the task label is known & ratio, score \\
+[10] & SARA & Needs a retrieval corpus & retrieval quality \\
+[11] & PCToolkit & A toolkit, not a method; no cross-family mixing & comparisons \\
+[12] & Empirical study & \textbf{Names} two failure modes; no run-time guard & hallucination rate \\
+[13] & Information preservation & Diagnoses a 30--50 point drop; no fix & groundedness \\
+[14] & Financial fidelity & Shows fluent but decision-changing output & agreement \\
+[15] & Compression paradox & \textbf{Does not always save energy}; hosted APIs only & energy \\
+\addlinespace
+\multicolumn{4}{@{}l}{\textit{Strand B --- Semantic caching}}\\
+[16] & GPTCache & One threshold, no verification, never attacked & hit rate, cost \\
+[17] & GPT Semantic Cache & Same design, different storage & hit rate, latency \\
+[18] & MeanCache & Hit rate \emph{inside} a chat not studied & hit rate, privacy \\
+[19] & ContextCache & Closest to us; no false-hit rate reported & hit rate \\
+[20] & Generative caching & Rewrites instead of reusing; costs more & hit rate, quality \\
+[21] & Key-collision attack & Treats it as a deliberate attack; we face ordinary pairs & attack rate \\
+[22] & SAFE-CACHE & Right conclusion, but a heavy redesign & robustness \\
+\addlinespace
+\multicolumn{4}{@{}l}{\textit{Strand C --- KV cache and prefix reuse}}\\
+[23] & PagedAttention / vLLM & GPU serving; app-side cost not priced & throughput \\
+[24] & Prefix caching & States the rule; never prices breaking it & reuse rate \\
+[25] & ChunkAttention & Kernel level; many users assumed & throughput \\
+[26] & Sparse prefix caching & Tied to one architecture & throughput \\
+[27] & Multi-segment attention & Server side; no app guidance & latency, memory \\
+\addlinespace
+\multicolumn{4}{@{}l}{\textit{Strand D --- Where text sits in the prompt}}\\
+[28] & Lost in the Middle & Says reorder by relevance --- which \textbf{breaks prefix reuse} & accuracy by position \\
+[29] & Adaptive Focus Memory & Rules of thumb; reorder cost unmeasured & token usage \\
+[30] & Multi-turn survey & Survey; nothing composed & mixed \\
+[31] & Memory survey & Taxonomy, not measurement & mixed \\
+\addlinespace
+\multicolumn{4}{@{}l}{\textit{Strand E --- Routing between models}}\\
+[32] & FrugalGPT & 98\% saved \emph{against paid APIs}; assumes a big model exists & cost, accuracy \\
+[33] & RouteLLM & Assumes the bigger model is better --- false at 1.5B vs 3B here & cost, scores \\
+[34] & Semantic router & Datacentre assumption & latency, cost \\
+[35] & UCCI & Needs calibrated uncertainty; costly on CPU & cost, accuracy \\
+[36] & On-device routing & Routes device$\leftrightarrow$cloud, not inside one stack & accuracy \\
+[37] & Cluster, route, escalate & No quality guarantee on the cheap path & cost, quality \\
+\addlinespace
+\multicolumn{4}{@{}l}{\textit{Strand F --- Controlling answer length}}\\
+[38] & Length control encoding & \textbf{Needs fine-tuning} & length adherence \\
+[39] & BudgetThinker & Needs training with control tokens & budget, accuracy \\
+[40] & Strict length limits & Measures the damage; no budgeting scheme & accuracy vs length \\
+\bottomrule
+\end{tabularx}
+
+\subsection{What keeps repeating}
+
+\begin{tabularx}{\textwidth}{@{}l X l@{}}
+\toprule
+\textbf{\#} & \textbf{Limitation that recurs} & \textbf{Papers} \\
+\midrule
+L1 & Tested alone, never combined with another method & [1]--[11], [16]--[20], [38]--[40] \\
+L2 & Assumes a GPU server, where costs are the opposite of a laptop & [2], [3], [23]--[27], [32]--[35] \\
+L3 & Failures are described but not \emph{prevented} while running & [12]--[14], [21], [22] \\
+L4 & Settings quoted as universal, tuned only on GPT-class models & [2], [4], [16], [17], [19] \\
+L5 & Needs training, fine-tuning, or the model's internals & [5], [7], [8], [38], [39] \\
+\bottomrule
+\end{tabularx}
+
+\subsection{Papers closest to our work}
+
+\textbf{[28] Lost in the Middle} and \textbf{[24] prefix caching} contradict each
+other. The first says move important text to the front. The second says the front
+must never change. \emph{Doing the first destroys the second}, and neither paper
+mentions the other. We price this at about 80$\times$ (\S6.2).
+
+\textbf{[16] GPTCache} set the pattern every cache follows: compare, then serve if
+similar enough. Our attack set shows the threshold is the wrong place to put the
+safety (\S6.3). \textbf{[22] SAFE-CACHE} reaches the same conclusion but answers it
+with a redesign; we answer it with four cheap checks.
+
+\textbf{[12] Empirical Study on Prompt Compression} names the two ways compression
+breaks an answer and counts how often it happens --- but does not stop it. Our
+module M8 is that stop.
+
+% -------------------------------------------------------------------- gaps
+\section{Research Gaps Identified}
+
+\subsection{Gap 1: The techniques have never been stacked}
+\begin{gap}{Gap 1 --- Isolated Modules, Unknown Interactions}
+\lbl{Current Problem:} Compression, caching, history trimming and routing each have
+their own literature, benchmarks and tuned settings. No published study runs all of
+them in one live pipeline, so nobody knows whether their savings add up.
+
+\lbl{Research Gap:} Do the savings add up, or do the modules eat each other's lunch?
+A compressor that rewrites a query changes what the cache sees. A trimmer that drops
+turns changes what the compressor has left to remove. Nobody has measured the sign or
+size of these interactions.
+
+\lbl{Our Solution:} A complete $2^4$ factorial ablation over the four headline
+modules, reported with confidence intervals and an analysis of variance on the
+interaction terms.
+\end{gap}
+\textbf{Answered:} savings fall short by \textbf{1.63\,pp}, 95\% CI $[-0.02, +3.23]$,
+and both real interaction terms are negative (\S6.1).
+
+\subsection{Gap 2: The output side of the bill is ignored}
+\begin{gap}{Gap 2 --- Everyone Optimises the Prompt, Nobody the Answer}
+\lbl{Current Problem:} Compression, caching and pruning all shrink the input. That
+made sense for paid APIs, where the prompt is what is billed. On a consumer CPU the
+economics change: reading the prompt is a parallel operation, writing the answer is
+strictly one token at a time.
+
+\lbl{Recent Evidence:} A length hint can cut output tokens by 74--86\% on chatty
+models, but the same hint hurts models whose answers are already short. Length must
+be set per question.
+
+\lbl{Research Gap:} No study reports the read/write cost split for CPU-hosted small
+models, and no optimisation stack contains an output-side module at all.
+
+\lbl{Our Solution:} Measure time-to-first-token and time-per-output-token separately,
+and add an adaptive output budgeter with a streaming early stop as its own module.
+\end{gap}
+\textbf{Answered, and the expected direction was wrong:} reading the prompt is
+\textbf{92--99\%} of the time (\S6.2). The budgeter is still the biggest single token
+saver (+13.44\,pp), because it is the only module touching the output at all.
+
+\subsection{Gap 3: Compression and caching have never met}
+\begin{gap}{Gap 3 --- The Compression--Cache Interaction Is Unmeasured}
+\lbl{Current Problem:} Semantic caches produce false hits: two questions that look
+alike but mean different things get matched, and the user is given the answer to a
+question they did not ask.
+
+\lbl{Recent Discovery:} Nobody has asked what compression does to that. It cuts both
+ways. Compression strips small words, and small words are often exactly what tells
+two similar questions apart --- so false hits could get worse. But compression also
+makes wording uniform, so two ways of asking the same thing match --- so true hits
+could get better.
+
+\lbl{Research Gap:} Does compression raise or lower the false-hit rate, and does the
+safe threshold move?
+
+\lbl{Our Solution:} A purpose-built set of near-identical question pairs differing in
+exactly one important word, swept across thresholds with compression on and off.
+\end{gap}
+\textbf{Answered, and the question dissolves:} no threshold separates the two classes
+at all, so the answer is a verifier, not a different threshold (\S6.3).
+
+\subsection{Gap 4: Fewer tokens can cost more time}
+\begin{gap}{Gap 4 --- Optimisation That Defeats the Key-Value Cache}
+\lbl{Current Problem:} Local runtimes reuse their key-value cache for any prompt
+opening identical to the last request, so a stable opening is processed once and then
+skipped. This is the biggest speed win on CPU, and a token counter cannot see it.
+
+\lbl{Recent Discovery:} Every technique in the literature rewrites the prompt. A
+compressor that changes the first sentence, or a trimmer that drops an early turn,
+throws that reuse away. The system then sends fewer tokens and takes longer.
+
+\lbl{Research Gap:} No published work measures token savings and prefix reuse
+together. Token count is treated as a stand-in for cost, and on local hardware that
+stand-in can invert.
+
+\lbl{Our Solution:} A prompt assembler that pins unchanging content to the front and
+keeps all rewriting at the end, plus a direct measurement of where more compression
+starts costing time.
+\end{gap}
+\textbf{Answered:} the same content, 0.5\% apart in tokens, is \textbf{80$\times$
+apart in cost} --- 212\,ms against 18{,}914\,ms (\S6.2).
+
+\subsection{Gap 5: Thresholds tuned on models that do not break}
+\begin{gap}{Gap 5 --- Small Models Are More Brittle Than the Tuning Set}
+\lbl{Current Problem:} The compression ratios and cache thresholds quoted as safe
+were all calibrated against GPT-3.5 and GPT-4 class models.
+
+\lbl{Recent Discovery:} Small open models change their answer across rewordings that
+mean the same thing, while GPT-class models rarely do. A compressed prompt is, to the
+model, an aggressive rewording.
+
+\lbl{Research Gap:} Do published safe settings transfer downward, or does the safe
+ratio for a 1B model sit far below the published figure?
+
+\lbl{Our Solution:} Re-run the standard protocol on local models and publish a
+calibration table per model instead of one universal number.
+\end{gap}
+\textbf{Answered:} the published 0.85--0.92 cache range is \textbf{unsafe here} --- it
+accepts a negation pair at 0.924 and returns the opposite answer (\S6.3). Reduction
+\emph{ratios}, though, do transfer within 0.1\,pp (\S6.5).
+
+\subsection{Gap 6: Every cache in the literature starts empty}
+\begin{gap}{Gap 6 --- The Unused Signal in the User's Own Conversations}
+\lbl{Current Problem:} Every caching result is reported on a warm cache. On day one
+the cache is empty, the hit rate is zero, and the user pays full price for exactly the
+questions they have asked many times before in some other chat window.
+
+\lbl{Recent Discovery:} MeanCache showed that about a third of real queries closely
+resemble an earlier one, and that keeping the cache on the user's own device is both
+workable and more private --- but it still starts from scratch.
+
+\lbl{Research Gap:} A user's own chat history is a large, free, perfectly on-topic
+corpus that no optimisation system uses. Nothing in the literature mines it to warm up
+a cache or to learn the phrases that user always writes and never needs.
+
+\lbl{Our Solution:} An offline policy learner that replays exported chat logs,
+re-scores each turn under candidate policies, and produces a pre-filled cache, a
+personal redundancy list and a context digest --- all locally, with nothing leaving the
+machine.
+\end{gap}
+\textbf{Answered, and made conditional:} mined policy is worth \textbf{+0.00\,pp when
+nothing repeats and +17.83\,pp at 57\% repetition} (\S6.5). ``Self-improving'' is a
+property of the traffic, not of the module.
+
+% ------------------------------------------------------------- RQ and PS
+\section{Research Questions and Problem Statement}
+
+\textbf{RQ1.} When several token-saving techniques run in one pipeline, do their
+savings add up --- and if not, by how much do they fall short? \emph{(Gap 1)}
+
+\textbf{RQ2.} On CPU-only hardware, which half of a request costs more, and what is
+one input token worth in milliseconds? \emph{(Gaps 2, 4)}
+
+\textbf{RQ3.} Can answer reuse be made safe against near-identical, opposite-meaning
+questions without running a second model? \emph{(Gaps 3, 4)}
+
+\textbf{RQ4.} Do settings tuned in one configuration transfer to another, or to
+conversations never seen before? \emph{(Gaps 5, 6)}
+
+\subsection*{Problem statement}
+\begin{tcolorbox}[colback=soft,colframe=accent,boxrule=0pt,leftrule=2.5pt,arc=0pt]
+Build a middleware layer that measurably cuts the token cost of using a small language
+model on CPU-only consumer hardware, \textbf{without changing the meaning of any
+request}, and instrument it so that the contribution of every module, and every
+interaction between modules, can be measured separately and reproduced independently.
+\end{tcolorbox}
+The emphasis is deliberate. A system that saves tokens by quietly damaging requests is
+not a contribution; safety is the constraint every optimisation must work under.
+
+% ------------------------------------------------------- contributions
+\section{Contributions}
+
+\begin{enumerate}[label=\textbf{C\arabic*.}]
+\item \textbf{The shortfall, measured.} A full $2^4$ factorial over compressor,
+cache, history manager and output budgeter. Savings do not add up: the shortfall is
+\textbf{1.63\,pp}, 95\% CI $[-0.02,+3.23]$. Its size depends on the configuration ---
+a better encoder moved it from 2.53 to 1.63\,pp. \emph{(RQ1, Gap 1)}
+
+\item \textbf{The CPU cost structure, and the price of prompt order.} Reading the
+prompt is \textbf{92--99\%} of the time, straight-line at \textbf{$\approx$8.5\,ms per
+input token}. This turns every token result into seconds. It also prices a conflict
+the literature never names: one changing word at the very start of a prompt costs
+\textbf{212\,ms $\rightarrow$ 18{,}914\,ms} for the same content. \emph{(RQ2, Gaps 2, 4)}
+
+\item \textbf{A verifier that makes reuse safe without a second model.} 45 attack
+pairs one word apart, plus 45 controls. The negation pair scores \textbf{0.924 ---
+above every genuine reworded pair}, so no threshold can separate them. Four cheap set
+comparisons take the wrong-answer rate from \textbf{26.7\% to 0.0\%}. \emph{(RQ3,
+Gaps 3, 4)}
+
+\item \textbf{Transfer, tested both ways.} Against a second vocabulary the reduction
+percentages transfer within 0.1\,pp with the same module ranking, but the
+\emph{explanations} do not --- one of our own two explanations turned out to be true of
+only one tokenizer. Mined policy transfers as a function of repetition:
+\textbf{+0.00\,pp at 0\%, +17.83\,pp at 57\%}, with zero safety violations at any
+level. \emph{(RQ4, Gaps 5, 6)}
+\end{enumerate}
+
+% ---------------------------------------------------------------- method
+\section{Proposed Method}
+
+\subsection{The one design decision everything follows from}
+Every module \textbf{suggests} a change; one controller \textbf{applies} it. A
+suggestion is a description of an edit, not the edit itself. Three things follow that
+no module has to implement:
+
+\begin{enumerate}
+\item \textbf{Clean on/off switches.} Turning a module off really removes its effect,
+so an experiment cell means what it claims.
+\item \textbf{One safety checkpoint.} Every edit passes one gate, so the safety check
+is not written seven times.
+\item \textbf{Undo is free.} A refused suggestion is simply never applied.
+\end{enumerate}
+
+Stage order is \textbf{a setting, not code}. Gap 3 is only answerable because the
+cache can be moved before or after the compressor without editing the pipeline.
+
+\subsection{The pipeline, tier by tier}
+
+\begin{tabularx}{\textwidth}{@{}c L{3.3cm} X l@{}}
+\toprule
+\textbf{\#} & \textbf{Tier} & \textbf{What it does} & \textbf{Effect} \\
+\midrule
+1 & M6a Deterministic router & Works out maths and date questions exactly, without the model & 23 tokens $\rightarrow$ \textbf{0} \\
+2 & M2 Semantic cache & Looks for an earlier answer; borderline matches are checked by four comparisons before reuse & prompt $\rightarrow$ stored answer \\
+3 & M3a History selector & Keeps only the earlier turns that matter to this question & 8 turns $\rightarrow$ 6 \\
+4 & M3b History arranger & Decides the order of the kept turns & order changes cost \\
+5 & M1a Tier 1 & Removes greetings, politeness and formatting & 28 $\rightarrow$ 17 tokens \\
+6 & M1b Tier 2 & Deletes a sentence that repeats a fact already said & 36 $\rightarrow$ 26 tokens \\
+7 & M1c Tier 3 & Shortens wordy phrasing, and rejects any edit that does not actually save tokens & rejects no-gain edits \\
+8 & M4 Prefix-stable assembler & Puts unchanging text first so the model can reuse its cache & 212\,ms vs 18{,}914\,ms \\
+9 & M5 Output budgeter & Sets the answer length by question type, plus an early stop & 48 \ldots 640 tokens \\
+10 & M6b Escalation router & Decides if a bigger model is needed & calibrated, off by default \\
+\midrule
+--- & M8 Fidelity gate & \textbf{Checks every suggestion} from every stage; refuses anything that would drop a number, name, ``not'' or qualifier & 26.7\% $\rightarrow$ 0.0\% \\
+--- & M7 Policy learner & Offline: mines past chats into a bundle that pre-fills the cache & +17.83\,pp at 57\% repetition \\
+\bottomrule
+\end{tabularx}
+
+\subsection{Experimental protocol}
+\begin{tabularx}{\textwidth}{@{}l X@{}}
+\toprule
+Design & $2^4$ full factorial over M1 $\times$ M2 $\times$ M3 $\times$ M5, 17 cells \\
+Corpus & 151 conversations, 263 requests; 45 attack pairs + 45 controls; 40 test questions \\
+Model & \texttt{qwen2.5:1.5b-instruct}, 4-bit, via Ollama, CPU only, offline \\
+Hardware & AMD Ryzen 7 5800HS, 16\,GB RAM, no GPU used \\
+Statistics & Bootstrap 95\% intervals, partial $\eta^2$, two-way ANOVA, exact McNemar \\
+Reproduction & \texttt{python reproduce.py} --- every table regenerates in $\approx$100\,s \\
+Verification & 719 automated tests, including one that fails the build if a layer imports upward \\
+\bottomrule
+\end{tabularx}
+
+\newpage
+% ---------------------------------------------------------- architecture
+\section{System Architecture}
+
+This section lists what is actually inside the system: its layers, its parts, and the
+record it leaves behind.
+
+\subsection{The request path}
+\begin{center}
+\begin{tikzpicture}[
+  font=\scriptsize,
+  box/.style={draw, rounded corners=2pt, minimum width=7.4cm, minimum height=0.52cm,
+              align=left, inner xsep=6pt, text width=7.1cm},
+  cap/.style={draw, fill=black!6, rounded corners=2pt, minimum width=7.4cm,
+              minimum height=0.5cm, align=center, font=\scriptsize\bfseries},
+  ar/.style={-latex, gray}
+]
+\node[cap] (in) {USER QUESTION};
+\node[box, below=2.6pt of in, draw=green!40!black] (m6a)
+  {\textbf{M6a} Deterministic router \hfill 23 tokens $\rightarrow$ 0};
+\node[box, below=2.6pt of m6a, draw=green!40!black] (m2)
+  {\textbf{M2} Semantic cache \hfill reuse a stored answer};
+\node[box, below=2.6pt of m2, draw=blue!50!black] (m3a)
+  {\textbf{M3a} History selector \hfill 8 turns $\rightarrow$ 6};
+\node[box, below=2.6pt of m3a, draw=blue!50!black] (m3b)
+  {\textbf{M3b} History arranger \hfill order changes cost};
+\node[box, below=2.6pt of m3b, draw=violet!60!black] (m1a)
+  {\textbf{M1a} Tier 1 --- boilerplate \hfill 28 $\rightarrow$ 17 tokens};
+\node[box, below=2.6pt of m1a, draw=violet!60!black] (m1b)
+  {\textbf{M1b} Tier 2 --- repeated facts \hfill 36 $\rightarrow$ 26 tokens};
+\node[box, below=2.6pt of m1b, draw=violet!60!black] (m1c)
+  {\textbf{M1c} Tier 3 --- word level \hfill rejects no-gain edits};
+\node[box, below=2.6pt of m1c, draw=red!50!black] (m4)
+  {\textbf{M4} Prefix-stable assembler \hfill 212\,ms vs 18{,}914\,ms};
+\node[box, below=2.6pt of m4, draw=orange!70!black] (m5)
+  {\textbf{M5} Output budgeter \hfill 48 \ldots 640 tokens};
+\node[box, below=2.6pt of m5, draw=black!60] (m6b)
+  {\textbf{M6b} Escalation router \hfill off by default};
+\node[cap, below=2.6pt of m6b] (out) {PROMPT SENT TO THE MODEL};
+
+\foreach \a/\b in {in/m6a, m6a/m2, m2/m3a, m3a/m3b, m3b/m1a, m1a/m1b,
+                   m1b/m1c, m1c/m4, m4/m5, m5/m6b, m6b/out}
+  \draw[ar] (\a) -- (\b);
+
+\node[draw=yellow!50!black, fill=yellow!8, rounded corners=3pt, text width=2.7cm,
+      align=center, right=8pt of m1a, minimum height=5.4cm, font=\scriptsize] (gate)
+  {\textbf{M8 $\cdot$ FIDELITY GATE}\\[4pt]
+   Checks \emph{every} suggestion above before it is applied.\\[4pt]
+   Refuses any edit that would drop a number, name, ``not'' or qualifier.\\[5pt]
+   \textbf{Wrong answers}\\ \textbf{26.7\% $\rightarrow$ 0.0\%}};
+\draw[-latex, yellow!50!black] (gate.west) -- ++(-0.35,0);
+\end{tikzpicture}
+
+{\footnotesize\textit{Figure 1.} The request path. Each tier may answer outright,
+suggest an edit, or do nothing --- and records which. Every suggestion passes the gate
+before it is applied.}
+\end{center}
+
+\subsection{What is in the architecture}
+
+The system is built in six layers. A layer may use only the layers below it, and an
+automated test fails the build if that is broken.
+
+\begin{tabularx}{\textwidth}{@{}l l X@{}}
+\toprule
+\textbf{Layer} & \textbf{Name} & \textbf{What it holds} \\
+\midrule
+L0 & Contracts & The data types only: \texttt{Request}, \texttt{Turn}, \texttt{Proposal}, \texttt{LedgerRow}. No logic. \\
+L1 & Infrastructure & Tokeniser (Qwen2.5, 151{,}665 entries), two encoders, text clean-up, model providers, result memoisation. \\
+L2 & Modules & M1--M8. Each reads its inputs and returns a \emph{suggestion}; none changes the request itself. \\
+L3 & Orchestrator & Runs the stages in the configured order, sends every suggestion to the gate, applies or refuses, writes one log row per stage. \\
+L4 & Evaluation & Factorial sweep runner, quality measures, statistics, threshold calibration, cross-vocabulary study, latency instrument, learning study. \\
+L5 & Surfaces & The command line: \texttt{run}, \texttt{sweep}, \texttt{compare}, \texttt{tour}, \texttt{ask}. \\
+\bottomrule
+\end{tabularx}
+
+\subsection{The eight modules}
+\begin{itemize}
+\item \textbf{M1 Compressor} --- three tiers, sentence-aware, with a guard that rejects any edit not actually saving tokens.
+\item \textbf{M2 Cache} --- exact match plus a similarity tier with three zones (accept / check / reject) and a four-check verifier.
+\item \textbf{M3 History manager} --- four ways to choose turns, and a separate stage to order them, so \emph{what} is kept and \emph{where} it goes can be switched on and off apart.
+\item \textbf{M4 Assembler} --- builds the prompt unchanging-part-first, and reports the reuse percentage directly.
+\item \textbf{M5 Output budgeter} --- an answer length per question type, plus an early stop when the model starts repeating itself.
+\item \textbf{M6 Router} --- one tier that answers maths and dates using zero model tokens, and one that decides on a bigger model.
+\item \textbf{M7 Policy learner} --- offline replay of past chats into a bundle that pre-fills the cache.
+\item \textbf{M8 Fidelity gate} --- always on; checks numbers, names, negations, qualifiers and emptiness on every suggestion.
+\end{itemize}
+
+\subsection{Parts that cut across everything}
+\begin{tabularx}{\textwidth}{@{}l X@{}}
+\toprule
+\textbf{Ledger} & One row per stage per request: module, outcome, tokens before and after, time taken, reason, gate event, model fingerprint. \textbf{A stage that did nothing still writes a row} --- an invisible stage cannot be audited. \\
+\textbf{Fidelity gate} & The single safety checkpoint, before anything is applied. \\
+\textbf{Provider layer} & Ollama and a deterministic stand-in. A run that asks for the real model and cannot reach it \textbf{stops} rather than quietly using the fake one. \\
+\textbf{Memoisation} & Identical generations are not paid for twice during a sweep. \\
+\textbf{Order validator} & Checks the configured stage order against a dependency graph before running. \\
+\textbf{Corpus} & 151 conversations, 45 attack pairs, 45 controls, 40 test questions. \\
+\textbf{Tests} & 719, including the layering test. \\
+\bottomrule
+\end{tabularx}
+
+\subsection{Technology stack}
+Python 3.11; Ollama running \texttt{qwen2.5:1.5b-instruct} (4-bit) on CPU;
+\texttt{tokenizers} for the model's own vocabulary; \texttt{numpy} for maths;
+\texttt{typer} and \texttt{rich} for the demo; \texttt{pytest} for the tests.
+Deliberately absent: PyTorch, any GPU requirement, any paid service.
+
+\newpage
+% --------------------------------------------------------------- results
+\section{Results and Discussion}
+
+Every figure regenerates from raw logs with one command in about 100 seconds.
+\textbf{719 automated tests pass.}
+
+\subsection{The headline: savings do not add up}
+Full $2^4$ factorial, 151 conversations, 263 requests, 17 cells.
+
+\begin{center}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Effect} & \textbf{Estimate} & \textbf{Partial $\eta^2$} \\
+\midrule
+M5 output budgeter & +13.44\,pp & 0.556 \\
+M3 history manager & +11.82\,pp & 0.430 \\
+M2 semantic cache  & +1.94\,pp  & 0.012 \\
+M1 compressor      & +0.23\,pp  & 0.000 \\
+M3 $\times$ M5 interaction & \textbf{$-$0.70\,pp} & 0.002 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Full stack: \textbf{+33.9\%} total token reduction. Both real interaction terms are
+negative and both involve M5 --- trimming history and shortening the answer are cutting
+the same conversation. \textbf{Shortfall: 1.63\,pp, 95\% CI $[-0.02,+3.23]$.}
+
+And the sharper result: the shortfall depends on the configuration.
+
+\begin{center}
+\begin{tabular}{@{}lrrl@{}}
+\toprule
+\textbf{Encoder} & \textbf{M2 effect} & \textbf{M3$\times$M5} & \textbf{Shortfall} \\
+\midrule
+\texttt{hashing-v1} & +1.61\,pp & $-$1.14 & 2.53\,pp, $[+0.93,+3.99]$ \\
+\texttt{content-v1} (default) & +1.94\,pp & $-$0.70 & 1.63\,pp, $[-0.02,+3.23]$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+A better encoder made the cache hit more often, so it overlapped its neighbours less.
+The weaker encoder was \textbf{not} put back to protect the interval: choosing a
+component you know is worse because it gives a nicer number is exactly the failure this
+project is written against.
+
+\subsection{Reading the prompt dominates, and prompt order has a price}
+Measured on \texttt{qwen2.5:1.5b-instruct}, Ryzen 7 5800HS, using the server's own
+counters rather than a stopwatch.
+
+\begin{center}
+\begin{tabular}{@{}rrrr@{}}
+\toprule
+\textbf{Input tokens} & \textbf{Reading} & \textbf{Writing} & \textbf{Reading share} \\
+\midrule
+146 & 1{,}360\,ms & 122\,ms & 91.7\% \\
+474 & 3{,}902\,ms & 165\,ms & 95.9\% \\
+1{,}338 & 11{,}609\,ms & 136\,ms & 98.8\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{$\approx$8.5\,ms per input token.} The 11{,}836 tokens the full stack saves are
+\textbf{100.6 seconds} across the corpus --- 383\,ms per request.
+
+\begin{center}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\textbf{Prompt arrangement} & \textbf{Tokens} & \textbf{Steady-state read} & \textbf{Reuse} \\
+\midrule
+Unchanging front (M4) & 1{,}490 & \textbf{212\,ms} & \textbf{98.5\%} \\
+Changing front & 1{,}497 & \textbf{18{,}914\,ms} & 0.5\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Same content, 0.5\% apart in tokens, about \textbf{80$\times$ apart in cost}. Every
+metric in the compression literature scores these two the same.
+
+\subsection{The verifier, not the threshold}
+45 attack pairs plus 45 controls.
+
+\begin{center}
+\begin{tabular}{@{}rl@{}}
+\toprule
+\textbf{Similarity} & \textbf{Pair} \\
+\midrule
+\textbf{0.924} & ``Is it safe to mix bleach and vinegar?'' / ``Is it \textbf{not} safe\ldots'' \\
+0.869 & ``capital of \textbf{Australia}'' / ``capital of \textbf{Austria}'' \\
+0.653 & ``What causes rain?'' / ``What causes rainfall to occur?'' \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The attack pair scores \emph{above every genuine reworded pair}, so the published
+0.85--0.92 range would accept it and return the opposite answer.
+
+\begin{center}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Difference} & \textbf{Before} & \textbf{After the verifier} \\
+\midrule
+qualifier & 78\% & \textbf{0\%} \\
+negation  & 31\% & \textbf{0\%} \\
+name      & 11\% & \textbf{0\%} \\
+\textbf{overall} & \textbf{26.7\%} & \textbf{0.0\%} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Quality is not the price}
+On 40 test questions with the real model: baseline \textbf{37/40 (92.5\%)}, full stack
+\textbf{39/40 (97.5\%)}. Compared item by item, \textbf{no answer that was right before
+became wrong}. The two gains are maths questions handled by M6a without the model; two
+differing pairs is not statistically significant (McNemar $p = 0.50$), so the claim is
+\emph{no measurable damage}, not improvement.
+
+\subsection{Transfer}
+\textbf{Across vocabularies.} Re-running the whole sweep against GPT-2's vocabulary
+with the same settings: reduction percentages land within 0.1\,pp and the module
+ranking is identical. The \emph{explanations} do worse --- one of our two stated reasons
+for a tokenizer effect turned out to be true only of Qwen.
+
+\textbf{Across conversations.} M7 mined from one half and tested on the other half:
+
+\begin{center}
+\begin{tabular}{@{}rrrr@{}}
+\toprule
+\textbf{Repetition in traffic} & \textbf{Gain} & \textbf{Extra cache hits} & \textbf{Extra gate refusals} \\
+\midrule
+0.0\%  & \textbf{+0.00\,pp}  & 0 & 0 \\
+22.5\% & +5.43\,pp  & +4 & 0 \\
+57.5\% & \textbf{+17.83\,pp} & +12 & 0 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The exact zero at 0\% repetition is what makes the rest believable.
+
+\subsection{Summary of metrics}
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}X ll@{}}
+\toprule
+\textbf{Metric} & \textbf{Baseline} & \textbf{With Parsimony} \\
+\midrule
+Total token reduction & --- & \textbf{33.9\%} \\
+Accuracy on 40 test questions & 92.5\% & \textbf{97.5\%}, no answer made worse \\
+Wrong-answer rate on attack pairs & 26.7\% & \textbf{0.0\%} \\
+Prefix reuse & 0.5\% & \textbf{98.5\%} \\
+Time saved across the corpus & --- & \textbf{100.6\,s} (383\,ms per request) \\
+Middleware overhead per request & --- & under 120\,ms \\
+Mined-policy gain at 57\% repetition & --- & \textbf{+17.83\,pp} \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{Threats to validity}
+\begin{enumerate}
+\item \textbf{One machine.} The 8.5\,ms per token figure is not claimed to hold elsewhere.
+\item \textbf{Small test set.} 40 questions; after a grading fix only two defeat both models, and both are maths already handled without the model.
+\item \textbf{Simple encoder.} Operating points move with the encoder; the ranking does not.
+\item \textbf{Our corpus repeats only 1.9\%}, which is why \S6.5 reports a curve rather than one number. The repetition is synthetic; every question and answer in it is real.
+\end{enumerate}
+
+% ------------------------------------------------------------ conclusion
+\section{Conclusion}
+
+The efficiency literature has produced a rich toolbox and a thin account of what
+happens when the tools are used together. Our contribution is not a new compression
+algorithm but a \textbf{measuring instrument}: eight techniques in one harness, each
+with its own switch, every decision written to a log that can be audited.
+
+What that instrument found, again and again, is that \textbf{published settings are
+specific to the setup they were tuned on}. A threshold called safe is unsafe here. A
+placement rule backed by a well-cited paper is 80$\times$ more expensive here. A
+calibration transfers as a ratio but not as an explanation. A routing assumption that
+holds at 70B does not hold at 3B.
+
+For this kind of system, the deliverable is \textbf{a calibration procedure, not a
+number}.
+
+% ------------------------------------------------------------ references
+\begin{thebibliography}{40}
+\footnotesize
+\bibitem{r1} Li, Y., Dong, B., Lin, C., Guerin, F. \emph{Compressing Context to Enhance Inference Efficiency of LLMs.} EMNLP 2023. arXiv:2310.06201
+\bibitem{r2} Jiang, H. et al. \emph{LLMLingua: Compressing Prompts for Accelerated Inference of LLMs.} EMNLP 2023. arXiv:2310.05736
+\bibitem{r3} Jiang, H. et al. \emph{LongLLMLingua.} arXiv:2310.06839
+\bibitem{r4} \emph{LLMLingua-2: Data Distillation for Task-Agnostic Prompt Compression.} arXiv:2403.12968
+\bibitem{r5} \emph{Efficient Prompt Compression with Evaluator Heads.} arXiv:2501.12959
+\bibitem{r6} \emph{SCOPE: A Generative Approach for LLM Prompt Compression.} arXiv:2508.15813
+\bibitem{r7} \emph{Long Context In-Context Compression by Getting to the Gist of Gisting.} arXiv:2504.08934
+\bibitem{r8} \emph{Compressing Lengthy Context With UltraGist.} arXiv:2405.16635
+\bibitem{r9} \emph{ATACompressor: Adaptive Task-Aware Compression.} arXiv:2602.03226
+\bibitem{r10} \emph{SARA: Selective and Adaptive Retrieval-augmented Generation.} arXiv:2507.05633
+\bibitem{r11} \emph{PCToolkit: A Unified Prompt Compression Toolkit.} arXiv:2403.17411
+\bibitem{r12} \emph{An Empirical Study on Prompt Compression for LLMs.} ICLR 2025.
+\bibitem{r13} \emph{Understanding and Improving Information Preservation in Prompt Compression.} arXiv:2503.19114
+\bibitem{r14} \emph{When Summaries Distort Decisions.} arXiv:2606.29251
+\bibitem{r15} \emph{The Compression Paradox in LLM Inference.} arXiv:2603.23528
+\bibitem{r16} Bang, F. \emph{GPTCache: An Open-Source Semantic Cache for LLM Applications.} NLP-OSS @ EMNLP 2023.
+\bibitem{r17} \emph{GPT Semantic Cache.} arXiv:2411.05276
+\bibitem{r18} \emph{MeanCache: User-Centric Semantic Caching for LLM Web Services.} arXiv:2403.02694
+\bibitem{r19} \emph{ContextCache: Context-Aware Semantic Cache for Multi-Turn Queries.} arXiv:2506.22791
+\bibitem{r20} \emph{A Generative Caching System for Large Language Models.} arXiv:2503.17603
+\bibitem{r21} \emph{From Similarity to Vulnerability: Key Collision Attack on LLM Semantic Caching.} arXiv:2601.23088
+\bibitem{r22} \emph{Enhancing adversarial resilience in semantic caching.} Scientific Reports, 2026.
+\bibitem{r23} Kwon, W. et al. \emph{Efficient Memory Management for LLM Serving with PagedAttention.} SOSP 2023.
+\bibitem{r24} vLLM. \emph{Automatic Prefix Caching.} docs.vllm.ai
+\bibitem{r25} \emph{ChunkAttention: Prefix-Aware KV Cache and Two-Phase Partition.} arXiv:2402.15220
+\bibitem{r26} \emph{Sparse Prefix Caching for Hybrid and Recurrent LLM Serving.} arXiv:2605.05219
+\bibitem{r27} \emph{Multi-Segment Attention: Efficient KV-Cache Management.} arXiv:2606.02964
+\bibitem{r28} Liu, N. F. et al. \emph{Lost in the Middle: How Language Models Use Long Contexts.} TACL 12:157--173, 2024.
+\bibitem{r29} \emph{Adaptive Focus Memory for Language Models.} arXiv:2511.12712
+\bibitem{r30} \emph{A Survey on Multi-Turn Interaction Capabilities of LLMs.} arXiv:2501.09959
+\bibitem{r31} \emph{From Human Memory to AI Memory.} arXiv:2504.15965
+\bibitem{r32} Chen, L., Zaharia, M., Zou, J. \emph{FrugalGPT.} arXiv:2305.05176
+\bibitem{r33} Ong, I. et al. \emph{RouteLLM: Learning to Route LLMs with Preference Data.} arXiv:2406.18665
+\bibitem{r34} \emph{When to Reason: Semantic Router for vLLM.} arXiv:2510.08731
+\bibitem{r35} \emph{UCCI: Calibrated Uncertainty for Cost-Optimal LLM Cascade Routing.} arXiv:2605.18796
+\bibitem{r36} \emph{Confident or Seek Stronger: Uncertainty-Based On-device LLM Routing.} arXiv:2502.04428
+\bibitem{r37} \emph{Cluster, Route, Escalate: Cascaded Framework for Cost-Aware LLM Serving.} arXiv:2606.27457
+\bibitem{r38} \emph{Precise length control for large language models.} Natural Language Processing Journal, Elsevier.
+\bibitem{r39} \emph{BudgetThinker: Budget-aware LLM Reasoning with Control Tokens.} arXiv:2508.17196
+\bibitem{r40} \emph{An Empirical Study of LLM Reasoning Ability Under Strict Output Length Constraint.} arXiv:2504.14350
+\end{thebibliography}
+
+\end{document}
