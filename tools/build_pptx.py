@@ -17,6 +17,7 @@ import copy
 from pathlib import Path
 
 from pptx import Presentation
+from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.util import Emu, Inches, Pt
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -32,13 +33,12 @@ SLIDES: list[tuple[str, list[tuple[str, int]]]] = [
 
     # 2 -- approval
     ("Approval Mail From Guide", [
-        ("Approval obtained from the faculty guide for the following:", 0),
-        ("Project title: Token-Efficient LLM Interaction on CPU-Only Hardware", 1),
-        ("Problem statement, six research gaps and four research questions", 1),
+        ("Approval obtained from the faculty guide for:", 0),
+        ("Project title, problem statement and the six research gaps", 1),
         ("Proposed architecture: seven optimisation modules and a fidelity gate", 1),
         ("Evaluation plan: 2^4 factorial ablation over 151 conversations", 1),
         ("Outcome target: conference paper (Scopus-indexed)", 1),
-        ("Approval mail attached in the submission folder.", 0),
+        ("[ Paste the screenshot of the guide's approval mail here ]", 0),
     ]),
 
     # 3 -- aim
@@ -69,26 +69,8 @@ SLIDES: list[tuple[str, list[tuple[str, int]]]] = [
          "regressions - and three findings the literature had not reported.", 0),
     ]),
 
-    # 5 -- literature review
-    ("Literature Review", [
-        ("40 papers across six strands, each assessed for its limitation in "
-         "our setting:", 0),
-        ("Prompt compression (15): LLMLingua, LLMLingua-2, Selective Context - "
-         "need a second model or fine-tuning; measured on GPU; never composed "
-         "with a cache", 1),
-        ("Semantic caching (7): GPTCache, MeanCache, ContextCache - single "
-         "similarity threshold, no verification step, never adversarially "
-         "tested", 1),
-        ("KV cache and prefix reuse (5): PagedAttention, vLLM prefix caching - "
-         "state the stability rule, never price violating it", 1),
-        ("Positional effects (4): Lost in the Middle - recommends reordering, "
-         "which destroys prefix reuse; the conflict is unnamed", 1),
-        ("Routing (6) and output length control (3): assume a better large "
-         "model exists, or require training", 1),
-        ("Five limitations recur: tested in isolation; GPU assumption; failures "
-         "diagnosed but not prevented; settings quoted as universal; training "
-         "required.", 0),
-    ]),
+    # 5 -- literature review (a real table replaces the template's picture)
+    ("Literature Review", []),
 
     # 6 -- research gap
     ("Research Gap", [
@@ -118,9 +100,6 @@ SLIDES: list[tuple[str, list[tuple[str, int]]]] = [
          "incorrect one", 0),
         ("O5  Keep total middleware overhead under 120 ms per request", 0),
         ("O6  Make every result reproducible from raw logs by a single command", 0),
-        ("SDG 9 Industry, Innovation and Infrastructure  |  SDG 4 Quality "
-         "Education  |  SDG 12 Responsible Consumption", 0),
-        ("Outcome: conference paper (Scopus-indexed)", 0),
     ]),
 
     # 8 -- architecture (image slide)
@@ -231,17 +210,51 @@ SLIDES: list[tuple[str, list[tuple[str, int]]]] = [
     ]),
 ]
 
-TITLE_SLIDE = (
-    "Programme: B.Tech  |  Course Code: BCSE497J - Project I\n"
-    "Token-Efficient LLM Interaction on CPU-Only Hardware",
-    "Team members:\n"
-    "Alok Singh\t\t(23BCI0158)\n"
-    "Arrsh Tripathi\t\t(23BCI0191)\n"
-    "Dev Singh\t\t(23BCE0794)\n"
-    "\n"
-    "Faculty guide:\n"
-    "Dr Sathya K",
-)
+TITLE_SLIDE_HEAD = [
+    ("Programme: B.Tech   |   Course Code: BCSE497J - Project I", 16, False),
+    ("Token-Efficient LLM Interaction on CPU-Only Hardware", 28, True),
+]
+TITLE_SLIDE_BODY = [
+    ("Team members:", 16, True),
+    ("Alok Singh   -   23BCI0158", 16, False),
+    ("Arrsh Tripathi   -   23BCI0191", 16, False),
+    ("Dev Singh   -   23BCE0794", 16, False),
+    ("", 10, False),
+    ("Faculty guide:   Dr Sathya K", 16, True),
+]
+
+# Slide 5 ships a PICTURE of an empty five-column table inside a placeholder,
+# so it cannot be filled. It is removed and a real table is drawn instead.
+LIT_TABLE_HEAD = ["Paper", "Objective", "Methodology", "Pros / Cons",
+                  "Our finding"]
+LIT_TABLE_ROWS = [
+    ["LLMLingua\n(EMNLP 2023)",
+     "Cut prompt tokens",
+     "Budget controller plus token-level iterative compression, scored by perplexity",
+     "+ Up to 20x compression\n- GPU only; tested alone, never with a cache",
+     "Weakest module in our stack: +0.23 pp of 33.9%"],
+    ["GPTCache\n(NLP-OSS 2023)",
+     "Reuse a past answer",
+     "Embed the query, compare, serve above a similarity threshold",
+     "+ Large saving on repeats\n- One threshold, no verification, never attacked",
+     "E3: no threshold is safe - false hits flat at 51.1%"],
+    ["Lost in the Middle\n(TACL 2024)",
+     "Improve long-context accuracy",
+     "Measure accuracy against the position of relevant content",
+     "+ Well evidenced\n- Implies reordering, which destroys prefix reuse",
+     "E2: that reordering costs about 89x in prefill"],
+    ["vLLM Prefix Caching\n(2025)",
+     "Skip re-reading a stable prefix",
+     "Hash KV blocks and share identical prompt prefixes",
+     "+ Largest latency win on CPU\n- States the rule, never prices breaking it",
+     "E2: 98.5% vs 0.5% reuse; 212 ms vs 18,914 ms"],
+    ["Empirical Study on Prompt Compression (ICLR 2025)",
+     "Characterise compression failures",
+     "Measure hallucination rates across three models",
+     "+ Names two failure modes\n- Offers no run-time guard against them",
+     "Our M8 gate is that guard: 51.1% to 0.0%"],
+]
+LIT_COL_W = [1.95, 1.75, 2.85, 3.05, 2.70]        # inches, total 12.30
 
 
 def fix_dates(prs) -> None:
@@ -289,28 +302,93 @@ def fill_body(shape, bullets, size=15):
         p.space_after = Pt(6)
 
 
+def drop(shape) -> None:
+    shape._element.getparent().remove(shape._element)
+
+
+def set_lines(shape, lines):
+    """Write (text, pt, bold) triples into a text frame, one per paragraph."""
+    tf = shape.text_frame
+    tf.word_wrap = True
+    for p in list(tf.paragraphs[1:]):
+        p._p.getparent().remove(p._p)
+    tf.paragraphs[0].clear()
+    for i, (text, size, bold) in enumerate(lines):
+        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+        run = p.add_run()
+        run.text = text
+        run.font.size = Pt(size)
+        run.font.bold = bold
+        p.space_after = Pt(3)
+
+
+def lit_table(slide) -> None:
+    """Draw the five-column survey table the template only mocked up."""
+    top, left = Inches(1.55), Inches(0.45)
+    rows, cols = len(LIT_TABLE_ROWS) + 1, len(LIT_TABLE_HEAD)
+    width = Inches(sum(LIT_COL_W))
+    graphic = slide.shapes.add_table(rows, cols, left, top, width,
+                                     Inches(4.9))
+    table = graphic.table
+    for j, w in enumerate(LIT_COL_W):
+        table.columns[j].width = Inches(w)
+
+    for j, text in enumerate(LIT_TABLE_HEAD):
+        cell = table.cell(0, j)
+        cell.text = text
+        for p in cell.text_frame.paragraphs:
+            for r in p.runs:
+                r.font.size, r.font.bold = Pt(11), True
+
+    for i, row in enumerate(LIT_TABLE_ROWS, start=1):
+        for j, text in enumerate(row):
+            cell = table.cell(i, j)
+            cell.text = text
+            cell.margin_top = cell.margin_bottom = Pt(2)
+            cell.margin_left = cell.margin_right = Pt(4)
+            for p in cell.text_frame.paragraphs:
+                for r in p.runs:
+                    r.font.size = Pt(8.5)
+                    r.font.bold = j == 0
+
+
+def fit_picture(slide, image: Path, prs, top_in: float, bottom_in: float,
+                max_w_frac: float = 0.92) -> None:
+    """Place an image so it fits the free band, constrained by BOTH axes.
+
+    The first version constrained width only. The architecture figure is
+    1180x760, so a 0.86-width placement came out 7.4 inches tall on a 7.5-inch
+    slide and its bottom two layers fell off the page.
+    """
+    from PIL import Image                                   # noqa: PLC0415
+    try:
+        iw, ih = Image.open(image).size
+    except Exception:                                        # no Pillow
+        iw, ih = 1180, 760
+    avail_h = Inches(bottom_in - top_in)
+    avail_w = Emu(int(prs.slide_width * max_w_frac))
+    scale = min(avail_w / iw, avail_h / ih)
+    w, h = Emu(int(iw * scale)), Emu(int(ih * scale))
+    left = Emu(int((prs.slide_width - w) / 2))
+    top = Emu(int(Inches(top_in) + (avail_h - h) / 2))
+    slide.shapes.add_picture(str(image), left, top, width=w, height=h)
+
+
 def build(template: Path, out: Path) -> None:
     prs = Presentation(str(template))
     print(f"slides in template: {len(prs.slides)}")
 
     for idx, slide in enumerate(prs.slides):
         title = slide.shapes.title
+
         # ---- slide 1: title slide -------------------------------------
         if idx == 0:
-            shapes = [s for s in slide.shapes if s.has_text_frame]
             if title is not None:
-                title.text_frame.text = TITLE_SLIDE[0]
-                for p in title.text_frame.paragraphs:
-                    for r in p.runs:
-                        r.font.size = Pt(28)
-                        r.font.bold = True
+                set_lines(title, TITLE_SLIDE_HEAD)
             body = body_placeholder(slide, title)
             if body is not None:
-                body.text_frame.text = TITLE_SLIDE[1]
-                for p in body.text_frame.paragraphs:
-                    for r in p.runs:
-                        r.font.size = Pt(16)
-            print(f"  slide 1: title ({len(shapes)} text shapes)")
+                set_lines(body, TITLE_SLIDE_BODY)
+            print("  slide 1: title")
             continue
 
         heading, bullets = SLIDES[idx]
@@ -323,16 +401,44 @@ def build(template: Path, out: Path) -> None:
 
         body = body_placeholder(slide, title)
 
-        # ---- slide 8: architecture image ------------------------------
+        # ---- slide 2: drop the template's specimen approval mail ------
+        if idx == 1:
+            for sh in list(slide.shapes):
+                if sh.shape_type == MSO_SHAPE_TYPE.PICTURE:
+                    drop(sh)
+                    print("  slide 2: removed template's sample mail image")
+            if body is not None:
+                fill_body(body, bullets, 16)
+            continue
+
+        # ---- slide 5: replace the mocked-up table with a real one -----
+        if idx == 4:
+            for sh in list(slide.shapes):
+                if sh is title:
+                    continue
+                if sh.shape_type == MSO_SHAPE_TYPE.PICTURE or sh is body:
+                    drop(sh)                 # table picture + "Note:" image
+            lit_table(slide)
+            print("  slide 5: real 5-column table drawn")
+            continue
+
+        # ---- slide 7: stop the body above the SDG / TRL block ---------
+        if idx == 6 and body is not None:
+            # All four must be set: a placeholder inherits its geometry from
+            # the layout, and writing only two collapses the other two to zero.
+            body.left, body.width = Inches(0.92), Inches(11.5)
+            body.top, body.height = Inches(1.55), Inches(3.15)
+            fill_body(body, bullets, 15)
+            print("  slide 7: body clipped above the SDG block")
+            continue
+
+        # ---- slide 8: architecture image, fitted on both axes ---------
         if idx == 7:
             if body is not None:
-                body._element.getparent().remove(body._element)
+                drop(body)
             if ARCH.exists():
-                pic_w = Emu(int(prs.slide_width * 0.86))
-                left = int((prs.slide_width - pic_w) / 2)
-                slide.shapes.add_picture(str(ARCH), left, Inches(1.45),
-                                         width=pic_w)
-                print("  slide 8: architecture image inserted")
+                fit_picture(slide, ARCH, prs, 1.45, 6.80)
+                print("  slide 8: architecture image fitted")
             continue
 
         if body is None:
@@ -340,7 +446,7 @@ def build(template: Path, out: Path) -> None:
             continue
 
         size = 15
-        if idx in (4, 10):        # literature review, results -- denser
+        if idx == 10:             # results -- denser
             size = 13
         if idx == 12:             # references
             size = 12
