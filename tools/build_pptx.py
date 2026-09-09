@@ -258,14 +258,26 @@ LIT_COL_W = [1.95, 1.75, 2.85, 3.05, 2.70]        # inches, total 12.30
 
 
 def fix_dates(prs) -> None:
-    """Rewrite the cached text of every auto-updating date field."""
-    n = 0
+    """Rewrite the cached text of auto-updating DATE fields only.
+
+    A field carries its kind in @type: "datetime*" for the footer date,
+    "slidenum" for the page number. The first version rewrote every field it
+    found, which stamped the date into the slide-number placeholder on all 13
+    slides. PowerPoint recomputes slidenum on render so it looked right, but
+    the stored value was wrong.
+    """
+    dates = nums = 0
     for slide in prs.slides:
         for fld in slide._element.iter(f"{A}fld"):
-            for t in fld.iter(f"{A}t"):
-                t.text = REVIEW_DATE
-                n += 1
-    print(f"  date fields rewritten: {n}")
+            kind = (fld.get("type") or "").lower()
+            if kind.startswith("datetime"):
+                for t in fld.iter(f"{A}t"):
+                    t.text = REVIEW_DATE
+                    dates += 1
+            elif kind == "slidenum":
+                nums += 1
+    print(f"  date fields rewritten: {dates}  (slide-number fields "
+          f"left alone: {nums})")
 
 
 def body_placeholder(slide, title_shape):
@@ -285,7 +297,24 @@ def body_placeholder(slide, title_shape):
     return best
 
 
-def fill_body(shape, bullets, size=15):
+def no_bullet(paragraph) -> None:
+    """Force <a:buNone/> so the paragraph carries no bullet glyph.
+
+    Needed where entries are already numbered. The template's first body
+    paragraph is styled differently from the rest, so reusing it left
+    reference [1] unbulleted and indented differently from [2] onward;
+    clearing every paragraph is the consistent fix.
+    """
+    pPr = paragraph._p.get_or_add_pPr()
+    for tag in ("buChar", "buAutoNum", "buNone"):
+        for el in pPr.findall(f"{A}{tag}"):
+            pPr.remove(el)
+    pPr.append(pPr.makeelement(f"{A}buNone", {}))
+    pPr.set("indent", "0")
+    pPr.set("marL", "0")
+
+
+def fill_body(shape, bullets, size=15, bulleted=True):
     tf = shape.text_frame
     tf.word_wrap = True
     for p in list(tf.paragraphs[1:]):
@@ -300,6 +329,8 @@ def fill_body(shape, bullets, size=15):
         run.font.size = Pt(size if level == 0 else size - 2)
         run.font.bold = level == 0 and len(bullets) > 4 and text.endswith(":")
         p.space_after = Pt(6)
+        if not bulleted:
+            no_bullet(p)
 
 
 def drop(shape) -> None:
@@ -449,8 +480,13 @@ def build(template: Path, out: Path) -> None:
         if idx == 10:             # results -- denser
             size = 13
         if idx == 12:             # references
+            # The template's box is 2.12in tall and holds one sample entry;
+            # nine references overflow it upward into the title. Give it the
+            # full band, setting all four values (see slide 7).
             size = 12
-        fill_body(body, bullets, size)
+            body.left, body.width = Inches(0.6), Inches(11.9)
+            body.top, body.height = Inches(1.58), Inches(5.15)
+        fill_body(body, bullets, size, bulleted=idx != 12)
         print(f"  slide {idx + 1}: {heading} ({len(bullets)} lines)")
 
     fix_dates(prs)
