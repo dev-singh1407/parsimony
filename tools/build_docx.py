@@ -33,45 +33,46 @@ TITLE = "TOKEN-EFFICIENT LLM INTERACTION ON CPU-ONLY HARDWARE"
 SUBTITLE = ("A Stacked, Self-Improving Optimisation Layer "
             "for Small Language Models")
 GUIDE = "Dr Sathya K"
+DESIGNATION = "Associate Professor"
+SCHOOL = "School of Computer Science and Engineering"
 TEAM = [("Alok Singh", "23BCI0158"),        # sorted on register number
         ("Arrsh Tripathi", "23BCI0191"),
         ("Dev Singh", "23BCE0794")]
 
+ABSTRACT_MAX_WORDS = 300          # the template: "not exceeding 300 words"
+
 ABSTRACT = [
     "A language model charges for every token it reads and every token it "
-    "writes. On a CPU-only laptop it is also slow, and this project's "
-    "measurements show that 91.7 to 98.8 percent of that slowness is the model "
-    "reading the prompt rather than writing the answer. A substantial "
-    "literature reduces this cost through prompt compression, semantic "
-    "caching, key-value cache reuse, model routing and output budgeting, but "
-    "every technique is proposed, measured against an uncompressed baseline "
-    "and published in isolation. Nothing establishes what happens when they "
-    "are composed, or whether their published operating points survive a "
-    "descent to a 1.5-billion-parameter model on consumer hardware.",
+    "writes, and on a CPU-only laptop it is slow: this project measures 91.7 "
+    "to 98.8 percent of that time as the model reading the prompt rather than "
+    "writing the answer. A literature reduces this cost through prompt "
+    "compression, semantic caching, key-value cache reuse, routing and output "
+    "budgeting, but every technique is published in isolation, on GPU, against "
+    "an uncompressed baseline. Nothing establishes what happens when they are "
+    "composed, or whether their published operating points survive a descent "
+    "to a 1.5-billion-parameter model on consumer hardware.",
 
-    "This project surveys forty papers, extracts the limitation of each with "
-    "respect to a CPU-only single-user deployment, and derives six research "
-    "gaps. It then builds Parsimony, a middleware layer of seven optimisation "
-    "modules and an always-on fidelity gate, in which every module proposes an "
-    "edit and a single orchestrator commits it only after an invariant check. "
-    "Because each module is independently switchable, the system is a "
-    "factorial experiment as well as a pipeline.",
+    "This project surveys forty papers, extracts the limitation of each for a "
+    "CPU-only single-user deployment, and derives six research gaps. It then "
+    "builds Parsimony, a middleware layer of seven optimisation modules and an "
+    "always-on fidelity gate, in which every module proposes an edit and one "
+    "orchestrator commits it only after an invariant check. Because each "
+    "module is independently switchable, the system is a factorial experiment "
+    "as well as a pipeline.",
 
-    "Over 151 conversations and 263 requests the full stack removes 33.9 "
-    "percent of tokens at a measured middleware cost of 4.06 milliseconds per "
-    "request, with zero quality regressions on a 40-item gold subset "
-    "(92.5 to 97.5 percent). Three findings are reported. Savings are not "
-    "additive: four modules whose individual reductions sum to 29.0 percentage "
-    "points deliver 27.4 combined, the shortfall concentrated in a single "
-    "negative interaction. Token count is an unreliable proxy for cost: two "
-    "prompts 0.5 percent apart in length differ by roughly 89 times in "
-    "steady-state cost. And no similarity threshold makes cached-answer reuse "
-    "safe -- the false-hit rate is flat at 51.1 percent across every usable "
-    "threshold -- whereas four non-neural set comparisons reduce it to zero.",
+    "Across 151 conversations and 263 requests the full stack removes 33.9 "
+    "percent of tokens for 4.06 milliseconds of middleware overhead, with zero "
+    "quality regressions on 40 gold items. Three findings are new. Savings are "
+    "not additive: modules whose individual reductions sum to 29.0 percentage "
+    "points deliver 27.4 together, the shortfall concentrated in one negative "
+    "interaction. Token count is an unreliable proxy for cost: two prompts 0.5 "
+    "percent apart in length differ roughly 89-fold in steady-state cost. And "
+    "no similarity threshold makes cached-answer reuse safe, the false-hit "
+    "rate staying flat at 51.1 percent across every usable threshold, whereas "
+    "four non-neural set comparisons reduce it to zero.",
 
     "Keywords - Prompt Compression, Semantic Caching, KV-Cache Reuse, Small "
-    "Language Models, CPU Inference, Factorial Ablation, Fidelity "
-    "Verification, Token Optimisation",
+    "Language Models, CPU Inference, Factorial Ablation, Fidelity Verification",
 ]
 
 # Each node is (kind, payload). Kinds: h1 h2 h3 p b img tbl
@@ -258,6 +259,16 @@ CONTENT = [
           "the empirical justification for stating the deliverable this way."),
 
     ("h2", "2.5 Project Plan"),
+    ("p", "The schedule below organises the work into nine phases across the "
+          "sixteen weeks of Project-I, with the dependencies that constrain "
+          "their order. Phases 2 and 3 overlap because the contracts layer was "
+          "stable before the modules that consume it were finished; phases 3 "
+          "and 4 overlap because the corpus could be authored while the "
+          "modules were being built. Phase 6 could not begin until both the "
+          "modules and the harness existed, which is the critical path. The "
+          "final phase is carried into Project-II."),
+    ("img", (DIAG / "gantt.png", 6.5,
+             "Figure 2.1  Gantt chart of the Project-I schedule.")),
     ("tbl", (["Phase", "Work", "Status"], [
         ["1", "Literature survey of 40 papers; extraction of limitations; derivation of six research gaps", "Complete"],
         ["2", "Contracts (L0) and infrastructure (L1): tokeniser, encoders, providers, ledger schema", "Complete"],
@@ -451,6 +462,10 @@ CONTENT = [
           "sent to the provider, the response is streamed back subject to the "
           "early-stop rule, and the answer is returned. At every step, "
           "including refusals and no-ops, a LedgerRow is written."),
+    ("img", (DIAG / "sequence.png", 6.5,
+             "Figure 4.4  Sequence diagram for a single request, showing the "
+             "propose-check-commit cycle, both early-exit paths, and the "
+             "ledger write that follows every stage.")),
 ]
 
 REFERENCES = [
@@ -497,6 +512,41 @@ REFERENCES = [
 ]
 
 
+# The template shows references grouped by source type, each in IEEE format.
+# Grouping changes the order, so numbers are reassigned in the printed order
+# and every citation in the body is remapped from the same table -- doing it by
+# hand across fifteen call sites is how a report ends up citing the wrong paper.
+REFERENCE_GROUPS = [
+    ("Journals: <IEEE Format>", [28, 22, 38]),
+    ("Conference: <IEEE Format>", [1, 2, 16, 12, 23]),
+    ("Preprints and technical reports: <IEEE Format>",
+     [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 17, 18, 19, 20, 21,
+      25, 26, 27, 29, 30, 31, 32, 33, 34, 35, 36, 37, 39, 40]),
+    ("Weblinks:", [24]),
+]
+
+RENUM = {old: new for new, old in enumerate(
+    [r for _, members in REFERENCE_GROUPS for r in members], start=1)}
+
+
+def remap_citations(text: str) -> str:
+    """Rewrite [n] and [a]-[b] ranges in body text to the printed numbering."""
+    import re                                              # noqa: PLC0415
+
+    def one(m):
+        n = int(m.group(1))
+        return f"[{RENUM.get(n, n)}]"
+
+    def rng(m):
+        a, b = int(m.group(1)), int(m.group(2))
+        lo = min(RENUM.get(i, i) for i in range(a, b + 1))
+        hi = max(RENUM.get(i, i) for i in range(a, b + 1))
+        return f"[{lo}]-[{hi}]"
+
+    text = re.sub(r"\[(\d+)\]-\[(\d+)\]", rng, text)
+    return re.sub(r"\[(\d+)\]", one, text)
+
+
 # ---------------------------------------------------------------- writing --
 
 def clear_body(doc) -> None:
@@ -524,13 +574,29 @@ def para(doc, text="", *, size=12, bold=False, italic=False, upper=False,
 
 
 def heading(doc, text, level):
+    """Heading levels exactly as the template specifies them.
+
+        level 1   Times New Roman 14, Bold, Upper Case, spacing 1.5
+        level 2   Times New Roman 13, Bold, Title Case, spacing 1.5
+        level 3   Times New Roman 12, Bold WITH ITALIC, Title Case, 1.5
+    """
     if level == 1:
         return para(doc, text, size=14, bold=True, upper=True, spacing=1.5,
                     before=18, after=8)
     if level == 2:
         return para(doc, text, size=13, bold=True, spacing=1.5,
                     before=14, after=6)
-    return para(doc, text, size=12, bold=True, spacing=1.5, before=10, after=5)
+    return para(doc, text, size=12, bold=True, italic=True, spacing=1.5,
+                before=10, after=5)
+
+
+def borderless(table) -> None:
+    ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    for row in table.rows:
+        for cell in row.cells:
+            tcPr = cell._tc.get_or_add_tcPr()
+            for b in tcPr.findall(f"{ns}tcBorders"):
+                tcPr.remove(b)
 
 
 def add_table(doc, header, rows, caption):
@@ -575,55 +641,88 @@ def title_page(doc) -> None:
     para(doc, "in", size=12, align=C, spacing=1.5)
     para(doc, "Computer Science and Engineering", size=13, bold=True, align=C,
          spacing=1.5, after=20)
-    para(doc, "by", size=12, align=C, spacing=1.5)
-    for name, reg in TEAM:
-        para(doc, f"{name}   ({reg})", size=13, bold=True, align=C,
-             spacing=1.5, after=2)
+    para(doc, "by", size=12, align=C, spacing=1.5, after=8)
+
+    # The template gives the candidates as a 3x2 table, Reg. No. then NAME in
+    # upper case and bold, sorted on register number.
+    t = doc.add_table(rows=len(TEAM), cols=2)
+    for i, (name, reg) in enumerate(TEAM):
+        for j, text in enumerate((reg, name.upper())):
+            cell = t.cell(i, j)
+            cell.text = ""
+            p = cell.paragraphs[0]
+            p.alignment = C
+            p.paragraph_format.line_spacing = 1.5
+            run = p.add_run(text)
+            run.font.name, run.font.size, run.bold = FONT, Pt(13), True
+    borderless(t)
+
     para(doc, "Under the Supervision of", size=12, align=C, spacing=1.5,
-         before=16)
-    para(doc, GUIDE, size=13, bold=True, align=C, spacing=1.5)
-    para(doc, "School of Computer Science and Engineering", size=12, align=C,
-         spacing=1.5, before=16)
+         before=18, after=8)
+
+    # ...and the guide as a 3x1 table: name (bold), designation, school.
+    g = doc.add_table(rows=3, cols=1)
+    for i, (text, bold) in enumerate(((GUIDE, True),
+                                      (DESIGNATION, False),
+                                      (SCHOOL, False))):
+        cell = g.cell(i, 0)
+        cell.text = ""
+        p = cell.paragraphs[0]
+        p.alignment = C
+        p.paragraph_format.line_spacing = 1.5
+        run = p.add_run(text)
+        run.font.name, run.font.size, run.bold = FONT, Pt(13 if bold else 12), bold
+    borderless(g)
+
     para(doc, "Vellore Institute of Technology, Vellore", size=12, align=C,
-         spacing=1.5)
+         spacing=1.5, before=14)
     para(doc, "September 2026", size=12, bold=True, align=C, spacing=1.5,
          before=16)
     doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
 
 
 def contents_page(doc) -> None:
+    """Three columns -- Sl.No | Contents | Page No. -- as the template's own
+    table of contents is laid out, with borders removed as it instructs."""
     heading(doc, "TABLE OF CONTENTS", 1)
-    rows = [("ABSTRACT", "i")]
-    page = 1
+
+    rows = [("", "Abstract", "i")]
+    n = 0
     for kind, payload in CONTENT:
         if kind == "h1":
-            rows.append((payload, str(page)))
-            page += 1
+            n += 1
+            num, _, title = payload.partition(" ")
+            rows.append((num, title.upper(), ""))
         elif kind == "h2":
-            rows.append(("     " + payload, ""))
+            rows.append(("", payload, ""))
         elif kind == "h3":
-            rows.append(("          " + payload, ""))
-    rows.append(("5. REFERENCES", str(page)))
+            rows.append(("", "     " + payload.strip(), ""))
+    rows.append((f"{n + 1}.", "REFERENCES", ""))
 
-    table = doc.add_table(rows=len(rows), cols=2)
-    for i, (label, pg) in enumerate(rows):
-        for j, text in enumerate((label, pg)):
+    table = doc.add_table(rows=len(rows) + 1, cols=3)
+    header = ("Sl.No", "Contents", "Page No.")
+    for j, text in enumerate(header):
+        cell = table.cell(0, j)
+        cell.text = ""
+        p = cell.paragraphs[0]
+        p.paragraph_format.line_spacing = 1.5
+        run = p.add_run(text)
+        run.font.name, run.font.size, run.bold = FONT, Pt(12), True
+
+    for i, (sl, label, pg) in enumerate(rows, start=1):
+        top_level = bool(sl)
+        for j, text in enumerate((sl, label, pg)):
             cell = table.cell(i, j)
             cell.text = ""
-            run = cell.paragraphs[0].add_run(text)
+            p = cell.paragraphs[0]
+            p.paragraph_format.line_spacing = 1.5
+            run = p.add_run(text)
             run.font.name = FONT
             run.font.size = Pt(12)
-            run.bold = j == 0 and not label.startswith(" ")
-            cell.paragraphs[0].paragraph_format.line_spacing = 1.5
-            if j == 1:
-                cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    for row in table.rows:                       # the template says: no borders
-        for cell in row.cells:
-            tcPr = cell._tc.get_or_add_tcPr()
-            for b in tcPr.findall(
-                    "{http://schemas.openxmlformats.org/wordprocessingml/"
-                    "2006/main}tcBorders"):
-                tcPr.remove(b)
+            run.bold = top_level or label == "Abstract"
+            if j == 2:
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    borderless(table)
     doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
 
 
@@ -642,6 +741,13 @@ def build(template: Path, out: Path) -> None:
 
     J = WD_ALIGN_PARAGRAPH.JUSTIFY
     for kind, payload in CONTENT:
+        if kind in ("p", "b"):
+            payload = remap_citations(payload)
+        elif kind == "tbl":
+            head, body_rows, cap = payload
+            body_rows = [[remap_citations(str(c)) for c in r]
+                         for r in body_rows]
+            payload = (head, body_rows, cap)
         if kind == "h1":
             heading(doc, payload, 1)
         elif kind == "h2":
@@ -665,10 +771,14 @@ def build(template: Path, out: Path) -> None:
             add_image(doc, *payload)
 
     heading(doc, "5. REFERENCES", 1)
-    for i, ref in enumerate(REFERENCES, start=1):
-        p = para(doc, f"[{i}]  {ref}", size=11.5, after=5)
-        p.paragraph_format.left_indent = Pt(30)
-        p.paragraph_format.first_line_indent = Pt(-30)
+    for group, members in REFERENCE_GROUPS:
+        para(doc, group, size=12, bold=True, italic=True, spacing=1.5,
+             before=10, after=5)
+        for old in members:
+            p = para(doc, f"[{RENUM[old]}]  {REFERENCES[old - 1]}",
+                     size=11.5, after=5)
+            p.paragraph_format.left_indent = Pt(30)
+            p.paragraph_format.first_line_indent = Pt(-30)
 
     doc.save(str(out))
     print(f"wrote {out}")

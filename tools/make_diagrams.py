@@ -371,6 +371,145 @@ USECASE = f"""
 </svg>"""
 
 
+# --------------------------------------------------------------------------
+# 4. Gantt chart -- section 2.5 asks for one explicitly
+# --------------------------------------------------------------------------
+def _gantt() -> str:
+    tasks = [
+        ("Literature survey: 40 papers, limitations, six gaps", 1, 3, "#4a148c"),
+        ("Contracts (L0) and infrastructure (L1)", 3, 5, "#0d47a1"),
+        ("Modules M1-M8 and the orchestrator", 4, 8, "#1b5e20"),
+        ("Corpus: 151 conversations, 45 pairs, 40 gold items", 5, 8, "#00695c"),
+        ("Evaluation harness and factorial sweep runner", 7, 10, "#6a1b9a"),
+        ("Experiments E1-E5 and statistical analysis", 9, 12, "#b71c1c"),
+        ("Attach the real model; re-measure latency and quality", 11, 13, "#e65100"),
+        ("Reporting: report, paper, reproducibility package", 12, 15, "#37474f"),
+        ("Energy instrumentation, per-cell quality (Project-II)", 15, 17, "#9e9e9e"),
+    ]
+    x0, colw, y0, rowh = 430, 42.0, 96, 34
+    out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="{y0 + rowh * len(tasks) + 50}" {FONT}>',
+           f'<rect width="1180" height="{y0 + rowh * len(tasks) + 50}" fill="#ffffff"/>',
+           '<text x="590" y="34" font-size="20" font-weight="700" text-anchor="middle"'
+           ' fill="#16181d">Project Plan &#8212; Gantt Chart</text>',
+           '<text x="590" y="56" font-size="12" text-anchor="middle" fill="#5a6069">'
+           'Weeks 1&#8211;16 of the Project-I schedule. The final bar is carried into Project-II.</text>']
+    for w in range(1, 18):
+        x = x0 + (w - 1) * colw
+        out.append(f'<line x1="{x}" y1="{y0 - 18}" x2="{x}" y2="{y0 + rowh * len(tasks)}"'
+                   f' stroke="#e0e0e0" stroke-width="1"/>')
+        if w < 17:
+            out.append(f'<text x="{x + colw / 2}" y="{y0 - 24}" font-size="10.5"'
+                       f' text-anchor="middle" fill="#5a6069">W{w}</text>')
+    for i, (name, start, end, colour) in enumerate(tasks):
+        y = y0 + i * rowh
+        out.append(f'<text x="24" y="{y + 21}" font-size="11.5" fill="#16181d">{name}</text>')
+        bx = x0 + (start - 1) * colw
+        bw = (end - start + 1) * colw - 6
+        out.append(f'<rect x="{bx + 3}" y="{y + 7}" width="{bw}" height="18" rx="4"'
+                   f' fill="{colour}" opacity="0.85"/>')
+        out.append(f'<text x="{bx + bw / 2 + 3}" y="{y + 20}" font-size="10"'
+                   f' text-anchor="middle" fill="#ffffff">W{start}&#8211;W{end}</text>')
+        out.append(f'<line x1="24" y1="{y + 31}" x2="1150" y2="{y + 31}"'
+                   f' stroke="#f0f0f0" stroke-width="1"/>')
+    out.append('</svg>')
+    return "\n".join(out)
+
+
+GANTT = _gantt()
+
+# --------------------------------------------------------------------------
+# 5. Sequence diagram -- section 4.2.4
+# --------------------------------------------------------------------------
+SEQUENCE = f"""
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="720" {FONT}>
+<rect width="1180" height="720" fill="#ffffff"/>
+<defs>
+  <marker id="s" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+    <path d="M0,0 L7,3 L0,6 z" fill="#37474f"/></marker>
+  <marker id="sr" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+    <path d="M0,0 L7,3 L0,6 z" fill="#b8860b"/></marker>
+</defs>
+<text x="590" y="30" font-size="20" font-weight="700" text-anchor="middle" fill="#16181d">
+  Sequence Diagram &#8212; one request through the pipeline</text>
+
+<g font-size="11.5" font-weight="700" fill="#16181d">
+<rect x="40"  y="52" width="130" height="34" rx="4" fill="#eceff1" stroke="#37474f"/><text x="105" y="74" text-anchor="middle">User / CLI</text>
+<rect x="230" y="52" width="150" height="34" rx="4" fill="#fff8e1" stroke="#b8860b"/><text x="305" y="74" text-anchor="middle">Orchestrator</text>
+<rect x="440" y="52" width="150" height="34" rx="4" fill="#e8f5e9" stroke="#1b5e20"/><text x="515" y="74" text-anchor="middle">Module M1..M6</text>
+<rect x="650" y="52" width="150" height="34" rx="4" fill="#fff8e1" stroke="#b8860b"/><text x="725" y="74" text-anchor="middle">M8 Fidelity gate</text>
+<rect x="860" y="52" width="140" height="34" rx="4" fill="#eceff1" stroke="#37474f"/><text x="930" y="74" text-anchor="middle">Ollama (CPU)</text>
+<rect x="1030" y="52" width="120" height="34" rx="4" fill="#f6f4ef" stroke="#37474f"/><text x="1090" y="74" text-anchor="middle">Ledger</text>
+</g>
+
+<g stroke="#b0bec5" stroke-width="1" stroke-dasharray="4 4">
+<line x1="105" y1="86" x2="105" y2="690"/><line x1="305" y1="86" x2="305" y2="690"/>
+<line x1="515" y1="86" x2="515" y2="690"/><line x1="725" y1="86" x2="725" y2="690"/>
+<line x1="930" y1="86" x2="930" y2="690"/><line x1="1090" y1="86" x2="1090" y2="690"/>
+</g>
+
+<g font-size="10.5" fill="#37474f" stroke="#37474f" stroke-width="1.2">
+<line x1="105" y1="118" x2="299" y2="118" marker-end="url(#s)"/>
+<text x="112" y="112" stroke="none">1: Request(query, history)</text>
+
+<line x1="305" y1="152" x2="509" y2="152" marker-end="url(#s)"/>
+<text x="312" y="146" stroke="none">2: propose(request)   [for each stage, in configured order]</text>
+
+<line x1="509" y1="186" x2="311" y2="186" marker-end="url(#s)"/>
+<text x="330" y="180" stroke="none">3: Proposal = ContextPatch | ShortCircuit | NoOp</text>
+
+<line x1="305" y1="220" x2="719" y2="220" marker-end="url(#s)"/>
+<text x="312" y="214" stroke="none">4: check(before, after)   [skipped for NoOp]</text>
+</g>
+
+<rect x="240" y="238" width="700" height="86" rx="4" fill="none" stroke="#b8860b" stroke-dasharray="5 3"/>
+<text x="252" y="256" font-size="10.5" font-weight="700" fill="#7a5c00">alt  [invariants preserved]</text>
+<g font-size="10.5" fill="#7a5c00" stroke="#b8860b" stroke-width="1.2">
+<line x1="719" y1="276" x2="311" y2="276" marker-end="url(#sr)"/>
+<text x="330" y="270" stroke="none">5a: accept &#8594; orchestrator commits the patch to the Request</text>
+</g>
+<line x1="240" y1="288" x2="940" y2="288" stroke="#b8860b" stroke-dasharray="3 3"/>
+<text x="252" y="304" font-size="10.5" font-weight="700" fill="#7a5c00">else  [a number, entity, negation or modifier would be lost]</text>
+<g font-size="10.5" fill="#7a5c00" stroke="#b8860b" stroke-width="1.2">
+<line x1="719" y1="318" x2="311" y2="318" marker-end="url(#sr)"/>
+<text x="330" y="312" stroke="none">5b: refuse &#8594; proposal discarded, Request unchanged</text>
+</g>
+
+<rect x="240" y="340" width="700" height="80" rx="4" fill="none" stroke="#1b5e20" stroke-dasharray="5 3"/>
+<text x="252" y="358" font-size="10.5" font-weight="700" fill="#1b5e20">opt  [M6a solved it, or M2 returned a verified hit]</text>
+<g font-size="10.5" fill="#1b5e20" stroke="#1b5e20" stroke-width="1.2">
+<line x1="305" y1="382" x2="111" y2="382" marker-end="url(#s)"/>
+<text x="120" y="376" stroke="none">6: ShortCircuit &#8212; answer returned, model never called (0 model tokens)</text>
+<line x1="305" y1="406" x2="1084" y2="406" marker-end="url(#s)"/>
+<text x="330" y="400" stroke="none">7: write LedgerRow(outcome = short-circuit)</text>
+</g>
+
+<g font-size="10.5" fill="#37474f" stroke="#37474f" stroke-width="1.2">
+<line x1="305" y1="446" x2="924" y2="446" marker-end="url(#s)"/>
+<text x="312" y="440" stroke="none">8: generate(assembled prompt, num_predict from M5)</text>
+
+<line x1="924" y1="486" x2="311" y2="486" marker-end="url(#s)"/>
+<text x="330" y="480" stroke="none">9: streamed tokens + prompt_eval_duration / eval_duration</text>
+</g>
+
+<rect x="240" y="504" width="700" height="46" rx="4" fill="none" stroke="#e65100" stroke-dasharray="5 3"/>
+<text x="252" y="522" font-size="10.5" font-weight="700" fill="#e65100">loop  [while streaming]</text>
+<text x="330" y="540" font-size="10.5" fill="#e65100">10: M5 early stop when trigram novelty falls below threshold</text>
+
+<g font-size="10.5" fill="#37474f" stroke="#37474f" stroke-width="1.2">
+<line x1="305" y1="576" x2="1084" y2="576" marker-end="url(#s)"/>
+<text x="312" y="570" stroke="none">11: write one LedgerRow per stage &#8212; including stages that did nothing</text>
+
+<line x1="305" y1="610" x2="111" y2="610" marker-end="url(#s)"/>
+<text x="120" y="604" stroke="none">12: answer + token ledger</text>
+</g>
+
+<text x="40" y="654" font-size="11" fill="#5a6069">
+  Steps 2 to 5 repeat for every stage in the configured order. The gate is consulted on every proposal, so no edit reaches the prompt unchecked.</text>
+<text x="40" y="674" font-size="11" fill="#5a6069">
+  Because a module only ever returns a proposal, disabling one removes its effect entirely &#8212; which is what makes the factorial ablation sound.</text>
+</svg>"""
+
+
 def find_chrome() -> str:
     for path in CHROME:
         if Path(path).exists():
@@ -399,6 +538,8 @@ def main() -> None:
     render(ARCHITECTURE, out / "architecture.png", (1180, 760))
     render(DFD, out / "dfd.png", (1180, 690))
     render(USECASE, out / "usecase.png", (1120, 720))
+    render(GANTT, out / "gantt.png", (1180, 452))
+    render(SEQUENCE, out / "sequence.png", (1180, 700))
 
 
 if __name__ == "__main__":
