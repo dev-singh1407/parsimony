@@ -803,6 +803,52 @@ configuration containing all four measures $+27.4$\,pp. The
 \textbf{additivity shortfall is therefore 1.6\,pp}, or 5.5\% of the predicted
 saving. Figure~\ref{fig:additivity} shows where it accumulates.
 
+Repeating the computation over input tokens alone sharpens it
+(Table~\ref{tab:inputside}). Input reduction is the more defensible quantity on
+two counts: it is counted with the model's own tokenizer before any text is
+generated, so no provider behaviour enters it, and it is the half that becomes
+prefill --- 92 to 98.8\% of CPU inference time (§\ref{sec:e2}).
+
+\begin{table}[htbp]
+\centering
+\caption{E1 --- reduction measured on input tokens alone, against the combined
+figure. The full stack removes more than a third of all input.}
+\label{tab:inputside}
+\footnotesize
+\begin{tabular}{@{}l rrr@{}}
+\toprule
+\textbf{Configuration} & \textbf{Input red.\ (\%)} &
+\textbf{Output red.\ (\%)} & \textbf{Combined (\%)} \\
+\midrule
+M1 only  & \phantom{0}+0.23 & \phantom{0}+0.25 & \phantom{0}+0.23 \\
+M2 only  & \phantom{0}+1.05 & \phantom{0}+3.85 & \phantom{0}+2.03 \\
+M3 only  & +20.01 & $-1.39$ & +12.52 \\
+M5 only  & +11.45 & +19.51 & +14.27 \\
+\midrule
+Sum of the four   & \textbf{+32.73} & --- & +29.06 \\
+M1+M2+M3+M5       & \textbf{+29.79} & +23.04 & +27.43 \\
+\textbf{Shortfall} & \textbf{2.94\,pp} & --- & 1.63\,pp \\
+\midrule
+\textbf{Full stack ($+$M4, M6)} & \textbf{+37.56} & +27.22 & +33.9 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\obs{Two things are visible here that the combined column conceals. First, the
+non-additivity is \emph{larger} on the side that costs time: 2.94\,pp against
+1.63\,pp. The interaction bites hardest exactly where it matters, and the
+mechanism is the one Table~\ref{tab:effects} names --- M3 and M5 compete over the
+same history tokens. Second, and unexpectedly, \textbf{M5 is responsible for
+11.45\,pp of the \emph{input} saving despite being the output budgeter.} A
+shortened answer becomes shortened history on the following turn, so a module
+that acts only on generation returns most of its benefit to the prompt side of
+later requests. That is independent confirmation of the $M3\times M5$
+interaction: the two modules are shown to be operating on the same tokens by a
+measurement that does not involve the interaction term at all. The full stack
+removes \textbf{37.6\% of all input tokens}, a larger figure than the 33.9\%
+headline, and the one that converts into the 100.6\,s of prefill reported in
+§\ref{sec:e2}.}
+
 \begin{figure}[htbp]
 \centering
 \begin{tikzpicture}
@@ -906,25 +952,68 @@ M1+M2+M3+M5    & +16.8 & +17.6 & +13.6 & +30.3 & +42.5 & +12.0 \\
 \end{tabular}
 \end{table}
 
-\obs{No module is uniformly useful, and one is locally harmful. M3 delivers
-$+17.3$\,pp on follow-up queries and exactly zero on the other five classes,
-because only follow-ups carry history worth trimming. M2 delivers $+33.0$\,pp on
-paraphrases and near-zero elsewhere, which is what a cache should do. M1 is
-\emph{negative} on paraphrases ($-0.5$\,pp): compression occasionally perturbs a
-query enough to lose a cache hit that would otherwise have been free, which is a
-direct instance of the compression--cache interaction posited in Gap 3, now
-observed with a sign. The full stack's $+69.3$\,pp on arithmetic is M6a answering
-without the model at all. This spread is the empirical argument for the paper's
-central claim that the deliverable is an operating curve rather than a
-number: a deployment serving mostly summarisation should expect 20\%, not 34\%.}
+\obs{No module is uniformly useful. M3 delivers $+17.3$\,pp on follow-up queries
+and exactly zero on the other five classes, because only follow-ups carry history
+worth trimming. M2 delivers $+33.0$\,pp on paraphrases and near-zero elsewhere,
+which is what a cache should do. The full stack's $+69.3$\,pp on arithmetic is
+M6a answering without the model at all. This spread is the empirical argument for
+the paper's central claim that the deliverable is an operating curve rather than
+a number: a deployment serving mostly summarisation should expect 20\%, not 34\%.
+The one apparently negative entry, M1 at $-0.5$\,pp on paraphrases, is an
+artefact and not a regression; §\ref{sec:artefact} separates it out.}
 
 \plain{The ``33.9\% saving'' is an average, and averages hide a lot. If your
 users mostly ask maths questions you save 69\%; if they mostly ask for summaries
-you save 21\%. And one trick actually \emph{hurts} in one situation: the
-compressor rewrites a question just enough that the system no longer recognises
-it as one it has answered before, and a free answer is lost. That is why we say
-the real result of this project is not a number but a recipe --- ``for your kind
-of traffic, switch on these parts''.}
+you save 21\%. That is why we say the real result of this project is not a number
+but a recipe --- ``for your kind of traffic, switch on these parts''.}
+
+\subsubsection{Separating a measurement artefact from a regression}
+\label{sec:artefact}
+
+One cell of Table~\ref{tab:perclass} shows a saving below zero: M1 on paraphrase
+traffic, $-0.5$\,pp. Because the combined column cannot say whether a module
+acted on the prompt or on the answer, that entry was re-measured with input and
+output separated.
+
+\begin{table}[htbp]
+\centering
+\caption{E1 --- M1 against baseline, input and output tokens separated, by query
+class. The combined column is the sum of the two and is what
+Table~\ref{tab:perclass} reports.}
+\label{tab:m1split}
+\footnotesize
+\begin{tabular}{@{}l rr r rr r r@{}}
+\toprule
+& \multicolumn{2}{c}{\textbf{Input tokens}} & &
+  \multicolumn{2}{c}{\textbf{Output tokens}} & & \\
+\cmidrule(lr){2-3}\cmidrule(lr){5-6}
+\textbf{Class} & \textbf{Base} & \textbf{M1} & $\boldsymbol{\Delta}$ &
+\textbf{Base} & \textbf{M1} & $\boldsymbol{\Delta}$ & \textbf{Combined} \\
+\midrule
+arithmetic    &   929 &   929 & \phantom{$-$}0 & 1{,}782 & 1{,}782 & \phantom{$-$}0 & \phantom{$+$}0.00 \\
+code          &   947 &   934 & $-13$ & 1{,}699 & 1{,}639 & $-60$ & $+2.76$ \\
+factual       &   791 &   768 & $-23$ & 1{,}546 & 1{,}544 & $-2$  & $+1.07$ \\
+follow\_up    & 26{,}901 & 26{,}901 & \phantom{$-$}0 & 8{,}706 & 8{,}706 & \phantom{$-$}0 & \phantom{$+$}0.00 \\
+paraphrase    &   755 &   743 & $\mathbf{-12}$ & 1{,}725 & 1{,}749 & $\mathbf{+24}$ & $\mathbf{-0.48}$ \\
+summarisation & 1{,}637 & 1{,}613 & $-24$ & 1{,}744 & 1{,}739 & $-5$  & $+0.86$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\obs{The negative entry is entirely output-side, and it is a property of the
+provider rather than of compression. On paraphrase queries M1 \emph{did} shorten
+the prompt, by 12 tokens; the response then grew by 24. The deterministic
+provider's output length is a function of the prompt it is given, so any module
+that changes the prompt perturbs the answer length in a direction that carries no
+meaning --- and M2 is switched off in this cell, so no cache hit can have been
+lost. An explanation in terms of the compression--cache interaction of Gap 3,
+which the combined column invites, is therefore unavailable: the mechanism it
+names is not present in the configuration being measured. The general lesson is
+that a combined token figure can attribute a provider artefact to a module. Input
+reduction is the quantity that survives this objection, because it is counted
+with the model's own tokenizer before generation happens, and it is also the
+quantity that converts into prefill time. Movements below roughly 1\% in the
+output column should be read as zero.}
 
 \subsubsection{Where compression actually pays}
 
@@ -1434,7 +1523,8 @@ gold subset, item for item, so M6's escalation tier is calibrated but disabled.
 \subsection{What the results imply for deployment}
 Three implications follow. First, module selection should be conditioned on query
 mix: Table~\ref{tab:perclass} shows a 3.4$\times$ spread in benefit across
-classes, and M1 is measurably counter-productive on paraphrase traffic. Second,
+classes, and M1 earns its place on code and summarisation traffic while
+contributing nothing measurable on arithmetic or follow-ups. Second,
 the cache verifier should be treated as mandatory rather than as a refinement,
 since the alternative is a documented 51.1\% error rate on the adversarial class.
 Third, prompt assembly deserves the same engineering attention as compression:
@@ -1463,6 +1553,16 @@ E4 supplies the real-model quality evidence and covers only the baseline-vs-full
 stack contrast. Per-configuration quality on the real model is not established:
 \todoval{gold accuracy for each of the 17 configurations, real model, paired per
 item}
+
+\paragraph{The provider's output length responds to the prompt.} In E1, E3 and E5
+the answer length is a function of the prompt, so any module that edits the
+prompt perturbs the output token count in a direction that carries no meaning.
+The effect is small --- at most 24 tokens in a single class-cell
+(Table~\ref{tab:m1split}) --- but it is large enough to move a per-class combined
+figure across zero, and it is why every reduction in this paper is also reported
+on input tokens alone (Table~\ref{tab:inputside}). Output-side movements below
+about 1\% should be read as zero. The input-side figures are unaffected: they are
+tokenizer counts taken before generation.
 
 \paragraph{Small gold subset.} Forty items is enough to demonstrate the absence of
 regressions but not to resolve small differences; the McNemar test on two
