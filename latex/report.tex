@@ -501,7 +501,7 @@ L1 & Infrastructure & Tokeniser (Qwen2.5, 151{,}665 entries), two encoders, text
 L2 & Modules & M1--M8. Each reads its inputs and returns a \emph{suggestion}; none changes the request itself. \\
 L3 & Orchestrator & Runs the stages in the configured order, sends every suggestion to the gate, applies or refuses, writes one log row per stage. \\
 L4 & Evaluation & Factorial sweep runner, quality measures, statistics, threshold calibration, cross-vocabulary study, latency instrument, learning study. \\
-L5 & Surfaces & The command line: \texttt{run}, \texttt{sweep}, \texttt{compare}, \texttt{tour}, \texttt{ask}. \\
+L5 & Surfaces & The command line: \texttt{chat}, \texttt{bench}, \texttt{compare}, \texttt{ask}, \texttt{tour}. \\
 \bottomrule
 \end{tabularx}
 

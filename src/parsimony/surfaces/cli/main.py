@@ -40,6 +40,42 @@ app = typer.Typer(add_completion=False, help="Token-efficient LLM middleware for
 console = Console()
 
 
+def require_query(query: str, *, what: str = "question") -> str:
+    """Reject a blank query instead of answering it.
+
+    Without this the pipeline happily takes "" and returns a confident,
+    generic-sounding paragraph, because nothing downstream treats an empty
+    payload as special on the way IN -- the fidelity gate guards against a
+    module *producing* an empty payload, which is a different direction. A
+    question with no content is a user error and should be reported as one.
+    """
+    cleaned = query.strip()
+    if not cleaned:
+        raise typer.BadParameter(
+            f"the {what} is empty. Pass some text, e.g. "
+            f'parsimony chat "What is recursion?"'
+        )
+    return cleaned
+
+
+def fail(message: str, *, hint: str = "") -> None:
+    """One clean line, not a traceback.
+
+    A stack trace is the right output for a bug and the wrong output for a
+    predictable condition like a misspelled provider or an unreachable model
+    server -- it buries the one sentence that tells the user what to do.
+
+    Exits through SystemExit rather than typer.Exit because this is also called
+    from the top-level handler, which runs after Click has finished and so
+    would let a typer.Exit escape as an unhandled exception -- swapping one
+    traceback for another.
+    """
+    console.print(f"[bold red]Error:[/bold red] {message}")
+    if hint:
+        console.print(f"[dim]{hint}[/dim]")
+    raise SystemExit(2)
+
+
 @app.command()
 def chat(
     query: str = typer.Argument(..., help="The query to send."),
@@ -55,6 +91,7 @@ def chat(
     model: str = typer.Option(None, "--model", help="Ollama model tag."),
 ) -> None:
     """Run one query through the pipeline."""
+    query = require_query(query)
     cfg = baseline() if plain else full_stack()
     capture = text or modules
     pipeline = Pipeline(cfg, provider=make_provider(provider, model=model), capture_text=capture)
@@ -647,6 +684,7 @@ def compare(
 
     The one screen that shows what the project is for.
     """
+    query = require_query(query)
     prov = make_provider(provider, model=model)
     simulated = provider == "mock"
     history = _synthetic_history(turns, nonce=secrets.token_hex(4))
@@ -1216,5 +1254,27 @@ def _print_shortfall(results, axes=None) -> None:
     )
 
 
+def main() -> None:
+    """Entry point that turns expected failures into one readable line.
+
+    Typer lets exceptions escape to the interpreter, so a mistyped provider or
+    a stopped Ollama printed forty lines of traceback ending in the only
+    sentence that mattered. Genuine bugs still raise: only the conditions the
+    system knows how to describe are caught here.
+    """
+    from parsimony.infra.providers import ProviderError
+
+    try:
+        app()
+    except ProviderError as exc:
+        fail(str(exc), hint="Run 'parsimony chat --help' to see the valid options.")
+    except FileNotFoundError as exc:
+        fail(f"file not found: {exc.filename or exc}",
+             hint="Check the path, or run from the project root.")
+    except KeyboardInterrupt:
+        console.print("\n[dim]Interrupted.[/dim]")
+        raise typer.Exit(code=130) from None
+
+
 if __name__ == "__main__":
-    app()
+    main()

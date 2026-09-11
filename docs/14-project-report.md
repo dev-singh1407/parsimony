@@ -548,7 +548,7 @@ automated test rather than by convention.
 | **L2** | Modules | M1–M8. Each is a pure function of its inputs that returns a **proposal**; none mutates the request. |
 | **L3** | Orchestrator | Applies stages in the configured order, submits every proposal to the gate, commits or refuses, and writes one ledger row per stage. |
 | **L4** | Evaluation | Factorial sweep runner, quality measures, bootstrap and effect-size statistics, threshold calibration, cross-vocabulary generalisation, latency instrumentation, learning study, judge calibration. |
-| **L5** | Surfaces | The command-line interface: `run`, `sweep`, `compare`, `tour`, `ask`, `judge`, `learning`, `latency`. |
+| **L5** | Surfaces | The command-line interface: `chat`, `bench`, `compare`, `ask`, `tour`, `judge`, `learning`, `latency`. |
 
 ## 6.3 The eight modules
 

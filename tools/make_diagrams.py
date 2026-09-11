@@ -38,7 +38,7 @@ ARCHITECTURE = f"""
 <rect x="60" y="80" width="1060" height="72" rx="6" fill="#eceff1" stroke="#37474f" stroke-width="1.4"/>
 <text x="78" y="106" font-size="14" font-weight="700" fill="#37474f">L5 &#183; SURFACES</text>
 <text x="78" y="128" font-size="12.5" fill="#16181d">Command line interface</text>
-<text x="78" y="145" font-size="11.5" fill="#5a6069">run &#183; sweep &#183; compare &#183; ask &#183; tour &#183; judge &#183; learning &#183; latency</text>
+<text x="78" y="145" font-size="11.5" fill="#5a6069">chat &#183; bench &#183; compare &#183; ask &#183; tour &#183; judge &#183; learning &#183; latency</text>
 <rect x="700" y="96" width="400" height="42" rx="4" fill="#ffffff" stroke="#90a4ae"/>
 <text x="900" y="113" font-size="11.5" text-anchor="middle" fill="#37474f">User query + conversation history in</text>
 <text x="900" y="129" font-size="11.5" text-anchor="middle" fill="#37474f">Response + token ledger out</text>
