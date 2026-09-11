@@ -28,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 from parsimony.core.config import factorial_cells, full_stack  # noqa: E402
 from parsimony.core.types import Mode  # noqa: E402
 from parsimony.eval.calibration import by_operative, sweep_thresholds  # noqa: E402
+from parsimony.eval.judging import admit_judge  # noqa: E402
 from parsimony.eval.corpus import load_adversarial, load_corpus, load_gold  # noqa: E402
 from parsimony.eval.metrics import LengthBiasedMockJudge  # noqa: E402
 from parsimony.eval.runner import (  # noqa: E402
@@ -75,6 +76,7 @@ class Context:
     corpus: object
     out: Path
     timing: list[CellResult] = field(default_factory=list)
+    judge_calibration: object | None = None
 
 
 def _table(headers: list[str], rows: list[list[str]]) -> str:
@@ -133,14 +135,23 @@ def render_quality(ctx: Context) -> str:
         for r in ctx.results
     ]
     _write_csv(ctx.out / "quality.csv", headers, rows)
-    return (
-        _table(headers, rows)
-        + "\n\nThe four measures are never averaged. Only `gold` is ground truth; the other "
-        "three compare against the baseline's own answer. `token overlap` is structurally "
-        "biased against M5, whose job is to produce shorter answers. A high judge "
-        "disagreement rate means the judge flipped when the options were swapped and its "
-        "score should be discounted."
+    note = (
+        "\n\nThe measures are never averaged. Only `gold` is ground truth; the others "
+        "compare against the baseline's own answer. `token overlap` is structurally "
+        "biased against M5, whose job is to produce shorter answers."
     )
+    cal = getattr(ctx, "judge_calibration", None)
+    if cal is not None and not cal.usable:
+        note += (
+            f"\n\n**The judge column is empty by design.** Before scoring anything the "
+            f"judge was handed {cal.n} pairs of *identical* answers and asked which was "
+            f"better. An unbiased judge is at chance; this one sits "
+            f"{cal.position_bias:.1f} percentage points off 50/50, with "
+            f"{cal.unreadable_rate:.0f}% unreadable verdicts. It therefore fails "
+            f"calibration and is not allowed to score the sweep. Attaching a real model "
+            f"as judge is what `parsimony judge` does, and it runs the same check first."
+        )
+    return _table(headers, rows) + note
 
 
 def render_effects(ctx: Context) -> str:
@@ -572,6 +583,21 @@ def main() -> int:
     # result), and it is the only mode in which the generation memo is
     # consulted at all — a served request must never receive a memoised answer.
     cells = [replace(c, mode=Mode.EXPERIMENT) for c in cells]
+
+    # Calibrate the judge BEFORE it scores anything, and drop it if it fails.
+    # The default judge is a deliberate stand-in that prefers the longer answer,
+    # so it fails and its column is omitted -- which is the honest outcome, and
+    # better than printing its verdicts with a footnote asking the reader to
+    # discount them.
+    judge = None
+    judge_calibration = None
+    if not args.no_quality:
+        judge, judge_calibration = admit_judge(LengthBiasedMockJudge(), corpus)
+        verdict = "admitted" if judge else "REJECTED, judge column omitted"
+        print(f"  judge calibration: position bias "
+              f"{judge_calibration.position_bias:.1f} pp, unreadable "
+              f"{judge_calibration.unreadable_rate:.0f}% -> {verdict}")
+
     # Two passes (ADR-019/020, docs/05-evaluation-harness.md): a memoised
     # quality pass over the full corpus, and an unmemoised timing pass with
     # repeats over a stratified subset. Latency from a memoised run is
@@ -582,7 +608,7 @@ def main() -> int:
         timing_subset=args.timing_subset,
         timing_repeats=args.timing_repeats,
         resume_log=(args.out / "completed.log") if args.resume else None,
-        judge=None if args.no_quality else LengthBiasedMockJudge(),
+        judge=judge,
         gold=() if args.no_quality else load_gold(),
         progress=lambda msg: print(f"  {msg}"),
     )
@@ -593,7 +619,8 @@ def main() -> int:
           f"x {report.timing_repeats} repeats"
           + (f", {report.resumed} cells resumed from a previous run" if report.resumed else ""))
 
-    ctx = Context(results=results, corpus=corpus, out=args.out, timing=report.timing)
+    ctx = Context(results=results, corpus=corpus, out=args.out, timing=report.timing,
+                  judge_calibration=judge_calibration)
     parts = [
         "# Parsimony — reproduced results",
         "",

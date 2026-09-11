@@ -122,6 +122,34 @@ def calibrate_judge(judge, questions: list[str], answers: list[str]) -> JudgeCal
     return JudgeCalibration(n=len(answers), unreadable=unreadable, chose_a=chose_a)
 
 
+def admit_judge(judge, corpus: Corpus, sample: int = 20):
+    """Calibrate a judge and refuse it if it fails.
+
+    The sweep used to take whatever judge it was handed and print its verdicts,
+    with a sentence underneath advising the reader to discount them when the
+    disagreement rate was high. That is the wrong place for the check: a
+    measurement shown to be invalid should not be reported at all, and a note
+    asking the reader to do the discounting is how an unusable number ends up
+    quoted in someone's slides.
+
+    Calibration needs no ground truth -- it hands the judge two identical
+    answers and asks which is better. Anything other than a coin flip is
+    position bias.
+
+    Returns ``(judge_or_None, calibration)``. A ``None`` judge means the caller
+    must omit the judge column rather than fill it.
+    """
+    texts = [
+        t
+        for conv in corpus.conversations
+        for t in conv.user_turns
+    ][:sample]
+    if not texts:
+        return None, JudgeCalibration(n=0, unreadable=0, chose_a=0)
+    calibration = calibrate_judge(judge, texts, texts)
+    return (judge if calibration.usable else None), calibration
+
+
 @dataclass(frozen=True, slots=True)
 class JudgeStudy:
     judge_model: str
