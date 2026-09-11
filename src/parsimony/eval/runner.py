@@ -118,8 +118,46 @@ class CellResult:
         return 100.0 * self.gold_correct / self.gold_total if self.gold_total else 0.0
 
     @property
-    def total_joules(self) -> float:
+    def measured_joules(self) -> float:
+        """Sum over the rows that carry an estimate. NOT comparable across cells.
+
+        The orchestrator records no energy for a memoised generation, because
+        the wall clock of a dictionary lookup is not the energy of producing
+        the text. With a memo hit rate near 80% that leaves a different number
+        of contributing rows in every cell, so the raw sum answers "what did
+        the rows that happened to miss the memo cost", which is a fact about
+        the memo and not about the configuration. Use `corpus_joules`.
+        """
         return sum(self.joules)
+
+    @property
+    def mean_joules_per_generation(self) -> float:
+        """Energy of one real generation. The comparable quantity."""
+        return sum(self.joules) / len(self.joules) if self.joules else 0.0
+
+    @property
+    def joule_coverage(self) -> float:
+        """Percentage of requests that actually contributed an estimate."""
+        return 100.0 * len(self.joules) / self.n_requests if self.n_requests else 0.0
+
+    @property
+    def corpus_joules(self) -> float:
+        """Estimated energy for the whole corpus under this configuration.
+
+        Scales the mean of the rows that did generate up to the full request
+        count. A memoised row stood in for an identical generation that would
+        have cost the same, so charging it the mean is the right imputation --
+        and it restores a common denominator, without which the full stack
+        appeared to cost MORE than the baseline purely because its distinct
+        prompts missed the memo more often.
+        """
+        return self.mean_joules_per_generation * self.n_requests
+
+    # Retained under the old name so existing callers keep working, now
+    # pointing at the comparable figure rather than the raw sum.
+    @property
+    def total_joules(self) -> float:
+        return self.corpus_joules
 
     @property
     def tokens_per_joule(self) -> float:

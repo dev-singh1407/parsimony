@@ -357,16 +357,71 @@ def render_calibration_table(ctx: Context) -> str:
 
 def render_energy(ctx: Context) -> str:
     cfg_energy = full_stack().energy
-    headers = ["cell", "joules", "tokens per joule", "USD equivalent", "vs baseline"]
-    baseline = next((r for r in ctx.results if r.label == "baseline"), None)
-    base_j = baseline.total_joules if baseline else 0.0
+    # The TIMING pass ONLY, for the same reason render_middleware uses it:
+    # energy here is derived from wall clock, and the quality pass memoises
+    # ~80% of its generations. No energy is recorded for a memoised row, so
+    # reading energy off the quality pass compares cells over wildly different
+    # samples -- 0 of 263 rows in one cell, 263 of 263 in another -- and the
+    # rows that do survive are selected by having missed the memo, which
+    # correlates with prompt distinctness. That is a confound, not a small
+    # sample, and no rescaling repairs it.
+    source = ctx.timing
+    if not source:
+        return (
+            "_No unmemoised timing data in this run, so no energy figures._\n\n"
+            "Energy is derived from wall clock and the memoised quality pass "
+            "does not record it. Re-run without `--no-timing` to populate this "
+            "section; substituting the quality pass would report the energy of "
+            "whichever generations happened to miss the memo."
+        )
+
+    # Under a simulated provider these numbers are not energy, and publishing
+    # them with a caveat is how a meaningless figure ends up quoted. Energy is
+    # wall clock times package power; with generation simulated, wall clock is
+    # dominated by MIDDLEWARE, so the column ranks configurations by how many
+    # modules they run and reports the full stack as the most expensive. That
+    # is a true statement about middleware and a false one about energy.
+    simulated = all(not r.joules or r.mean_joules_per_generation < 0.5
+                    for r in source)
+    if simulated:
+        # Remove any CSV a previous run left behind. A stale file on disk is
+        # worse than no file: the prose says "not measured" and the numbers sit
+        # next to it, and the numbers are what get pasted into a slide.
+        (ctx.out / "energy.csv").unlink(missing_ok=True)
+        cov = ", ".join(f"{r.label} {len(r.joules)}/{r.n_requests}"
+                        for r in source[:3])
+        return (
+            "**Not measured.** No energy figure is claimed anywhere in this project, "
+            "and this section deliberately reports none.\n\n"
+            "Two things would have to be true for a number here to mean anything, and "
+            "neither is. First, energy is *derived* — wall clock multiplied by an "
+            f"assumed package power of {cfg_energy.package_power_watts:.0f} W — not "
+            "metered at the socket. Second, and decisively, generation in this sweep is "
+            "simulated, so wall clock is dominated by Parsimony's own middleware rather "
+            "than by the model. Computed anyway, the column ranks configurations by how "
+            "many modules they run and declares the full stack the most expensive, which "
+            "is a true statement about middleware and a false one about energy.\n\n"
+            "What would make it real: socket-level or RAPL instrumentation against the "
+            "Ollama provider, at least 30 repetitions per configuration, baseline "
+            "against full stack. The harness records the per-row estimate and its "
+            f"coverage either way ({cov}, ...), so the arithmetic is available to anyone "
+            "who wants to redo it under those conditions.\n\n"
+            "The related quantity this project *can* defend is prefill time, which is "
+            "metered by the server itself: see the latency section."
+        )
+
+    headers = ["cell", "J per generation", "generations measured",
+               "tokens per joule", "USD equivalent", "vs baseline"]
+    baseline = next((r for r in source if r.label == "baseline"), None)
+    base_j = baseline.mean_joules_per_generation if baseline else 0.0
 
     rows = []
-    for r in ctx.results:
-        delta = (100.0 * (1 - r.total_joules / base_j)) if base_j else 0.0
+    for r in source:
+        per_gen = r.mean_joules_per_generation
+        delta = (100.0 * (1 - per_gen / base_j)) if base_j else 0.0
         rows.append([
-            r.label, f"{r.total_joules:.1f}", f"{r.tokens_per_joule:.1f}",
-            f"${r.usd:.4f}", f"{delta:+.1f}%",
+            r.label, f"{per_gen:.3f}", f"{len(r.joules)}/{r.n_requests}",
+            f"{r.tokens_per_joule:.1f}", f"${r.usd:.4f}", f"{delta:+.1f}%",
         ])
     _write_csv(ctx.out / "energy.csv", headers, rows)
 
@@ -379,7 +434,15 @@ def render_energy(ctx: Context) -> str:
         f"${cfg_energy.usd_per_million_output:.2f}/M output — the project spends nothing; the "
         f"column exists to make the magnitude legible.\n\n"
         "**These figures come from simulated generation timings and are not a power "
-        "measurement.** They become meaningful when a real provider is attached."
+        "measurement.** They become meaningful when a real provider is attached.\n\n"
+        "Figures come from the **unmemoised timing pass**, and are reported per "
+        "generation rather than as a corpus total. An earlier version summed raw "
+        "per-row estimates from the memoised quality pass, where no energy is "
+        "recorded for a memoised generation. With a memo hit rate near 80% every "
+        "cell was summing a different number of rows — 0 of 263 in one, 263 of 263 "
+        "in another — and the surviving rows were selected by having missed the "
+        "memo. That made the full stack appear to cost *more* than the baseline. "
+        "The `generations measured` column keeps the denominator visible."
     )
 
 
