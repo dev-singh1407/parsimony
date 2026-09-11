@@ -58,6 +58,12 @@ class CellResult:
     # aggregate percentage (Contribution 6).
     per_class_tokens: dict[str, int] = field(default_factory=dict)
     per_class_requests: dict[str, int] = field(default_factory=dict)
+    # Kept split as well as combined. A per-class total alone cannot say
+    # whether a module saved on the prompt or on the answer, and those have
+    # very different costs on CPU (prefill is 92-99% of the time), so the
+    # combined figure can hide an input saving cancelled by a longer answer.
+    per_class_input: dict[str, int] = field(default_factory=dict)
+    per_class_output: dict[str, int] = field(default_factory=dict)
 
     responses: dict[tuple[str, int], str] = field(default_factory=dict)
     # Per-conversation totals: the resampling unit for the bootstrap. Requests
@@ -125,6 +131,12 @@ class CellResult:
             self.per_class_tokens.get(cls, 0) + row.tokens_in_final + row.tokens_out
         )
         self.per_class_requests[cls] = self.per_class_requests.get(cls, 0) + 1
+        self.per_class_input[cls] = (
+            self.per_class_input.get(cls, 0) + row.tokens_in_final
+        )
+        self.per_class_output[cls] = (
+            self.per_class_output.get(cls, 0) + row.tokens_out
+        )
         if row.joules_estimated is not None:
             self.joules.append(row.joules_estimated)
         if row.usd_equivalent is not None:
@@ -309,7 +321,9 @@ def summarise(results: Sequence[CellResult]) -> list[CellResult]:
 
 
 def additivity_shortfall(
-    results: Sequence[CellResult], axes: Sequence[str] | None = None
+    results: Sequence[CellResult],
+    axes: Sequence[str] | None = None,
+    metric: str = "total_reduction_pct",
 ) -> dict[str, float]:
     """The primary result of the whole project (Contribution 1, report figure 1).
 
@@ -321,9 +335,15 @@ def additivity_shortfall(
     measurement (M6, which is studied on top of the winner rather than as an
     axis) must not appear on either side of the comparison — including it once
     produced a *negative* shortfall, which is arithmetic, not a finding.
+
+    ``metric`` selects which reduction the shortfall is computed over. The
+    default is the combined total. Passing ``input_reduction_pct`` answers the
+    sharper question, because input reduction is a real tokenizer count that
+    converts directly into prefill time, whereas the output side under the
+    deterministic provider partly reflects the prompt having changed.
     """
     solo = {
-        r.label: r.total_reduction_pct
+        r.label: getattr(r, metric)
         for r in results
         if r.label != "baseline" and "+" not in r.label
     }
@@ -340,10 +360,12 @@ def additivity_shortfall(
 
     full = max(candidates, key=lambda r: len(r.label.split("+")))
     predicted = sum(solo.values())
+    measured = getattr(full, metric)
     return {
+        "metric": metric,
         "predicted_additive_pct": predicted,
-        "measured_stacked_pct": full.total_reduction_pct,
-        "shortfall_pct": predicted - full.total_reduction_pct,
+        "measured_stacked_pct": measured,
+        "shortfall_pct": predicted - measured,
         "stacked_label": full.label,
         "n_solo_modules": len(solo),
     }

@@ -98,11 +98,21 @@ def _write_csv(path: Path, headers: list[str], rows: list[list[str]]) -> None:
 
 
 def render_ablation(ctx: Context) -> str:
-    headers = ["cell", "input", "output", "total", "reduction %", "cache hits",
-               "tier 0", "gate fires", "early stops", "middleware ms"]
+    # Input and output reductions are reported separately as well as combined.
+    # They are not interchangeable: input reduction is a real tokenizer count
+    # and converts directly into prefill time (92-99% of CPU cost), whereas the
+    # output column under the deterministic provider is partly a response to
+    # the prompt having changed. Reporting only the total lets one hide the
+    # other -- M3 saves 20.0% of input while its output column moves the wrong
+    # way, and the combined figure shows neither.
+    headers = ["cell", "input", "input red %", "output", "output red %",
+               "total", "reduction %", "cache hits", "tier 0", "gate fires",
+               "early stops", "middleware ms"]
     rows = [
-        [r.label, str(r.tokens_in_final), str(r.tokens_out), str(r.total_tokens),
-         f"{r.total_reduction_pct:+.1f}", str(r.cache_hits), str(r.deterministic_hits),
+        [r.label, str(r.tokens_in_final), f"{r.input_reduction_pct:+.2f}",
+         str(r.tokens_out), f"{r.output_reduction_pct:+.2f}",
+         str(r.total_tokens), f"{r.total_reduction_pct:+.1f}",
+         str(r.cache_hits), str(r.deterministic_hits),
          str(r.gate_fires), str(r.early_stops), f"{r.middleware_mean_ms:.2f}"]
         for r in ctx.results
     ]
@@ -178,11 +188,33 @@ def render_shortfall(ctx: Context) -> str:
         f"- Measured stacked reduction ({summary['stacked_label']}): "
         f"**{summary['measured_stacked_pct']:.2f}%**\n"
         f"- **Additivity shortfall: {summary['shortfall_pct']:.2f} percentage points{ci}**\n\n"
+        f"{_input_side_shortfall(ctx)}\n"
         "Bootstrap resamples conversations, not requests: turns within a conversation "
         "share history and are not independent observations.\n\n"
         "Quantifying this shortfall is the primary result. No published study runs these "
         "modules in one pipeline, so the field has no evidence about whether their savings "
         "compound."
+    )
+
+
+def _input_side_shortfall(ctx: Context) -> str:
+    """The same computation over input tokens alone.
+
+    Worth reporting separately because the two answers differ, and the
+    input-side one is the more defensible: input tokens are counted with the
+    model's own tokenizer and convert directly into prefill time, whereas the
+    output side under the deterministic provider partly reflects the prompt
+    having changed rather than any module deciding to emit less.
+    """
+    s = additivity_shortfall(ctx.results, AXES, metric="input_reduction_pct")
+    if "shortfall_pct" not in s:
+        return ""
+    return (
+        f"On **input tokens alone** — the half that becomes prefill time — the same "
+        f"computation gives {s['predicted_additive_pct']:.2f}% predicted against "
+        f"{s['measured_stacked_pct']:.2f}% measured, a shortfall of "
+        f"**{s['shortfall_pct']:.2f} pp**. The interaction is therefore *stronger* on "
+        f"the side that costs time than the combined figure suggests.\n"
     )
 
 
