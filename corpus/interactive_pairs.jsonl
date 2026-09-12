@@ -1,0 +1,37 @@
+{"pair_id":"int_courtesy_01","expect":"hit","category":"courtesy","a":"Hello, could you please explain what recursion is? Thanks!","b":"What is recursion?","notes":"the demo that failed live: politeness wrapped the stored question, so the plain one never matched"}
+{"pair_id":"int_courtesy_02","expect":"hit","category":"courtesy","a":"Hi! Can you tell me what a closure is in JavaScript?","b":"What is a closure in JavaScript?","notes":"greeting plus request framing"}
+{"pair_id":"int_courtesy_03","expect":"hit","category":"courtesy","a":"I was wondering if you could explain how DNS works. Thanks in advance!","b":"How does DNS work?","notes":"long courtesy wrapper and sign-off"}
+{"pair_id":"int_courtesy_04","expect":"hit","category":"courtesy","a":"Please explain gradient descent.","b":"Explain gradient descent","notes":"please and trailing punctuation"}
+{"pair_id":"int_framing_01","expect":"hit","category":"framing","a":"What is machine learning?","b":"Define machine learning","notes":"failed live: framing verb counted as content, overlap 0.40"}
+{"pair_id":"int_framing_02","expect":"hit","category":"framing","a":"What is the capital of France?","b":"Tell me the capital of France","notes":"imperative framing"}
+{"pair_id":"int_framing_03","expect":"hit","category":"framing","a":"What is recursion?","b":"Can you explain recursion?","notes":"polite imperative, not a yes/no question"}
+{"pair_id":"int_framing_04","expect":"hit","category":"framing","a":"What is photosynthesis?","b":"Describe photosynthesis","notes":"describe as a definition request"}
+{"pair_id":"int_framing_05","expect":"hit","category":"framing","a":"Explain what an API is","b":"What is an API?","notes":"framing verb followed by the wh-word"}
+{"pair_id":"int_framing_06","expect":"hit","category":"framing","a":"Give me an example of a Python decorator","b":"Show me an example of a Python decorator","notes":"give and show are both framing"}
+{"pair_id":"int_plural_01","expect":"hit","category":"plural","a":"How does a hash table work?","b":"Explain how hash tables work","notes":"failed live: stemmer made tables->tabl but left table as table"}
+{"pair_id":"int_plural_02","expect":"hit","category":"plural","a":"How do linked lists work?","b":"How does a linked list work?","notes":"plural subject"}
+{"pair_id":"int_plural_03","expect":"hit","category":"plural","a":"What are microservices?","b":"What is a microservice?","notes":"plural definition question"}
+{"pair_id":"int_plural_04","expect":"hit","category":"plural","a":"What are the benefits of unit tests?","b":"What is the benefit of a unit test?","notes":"two plurals in one question"}
+{"pair_id":"int_rephrase_01","expect":"hit","category":"rephrase","a":"How do I reverse a list in Python?","b":"How can I reverse a Python list?","notes":"word order and modal"}
+{"pair_id":"int_rephrase_02","expect":"hit","category":"rephrase","a":"Which city is the capital of Japan?","b":"What is the capital of Japan?","notes":"which and what ask the same thing"}
+{"pair_id":"int_rephrase_03","expect":"hit","category":"rephrase","a":"How to install Python on Windows","b":"How do I install Python on Windows?","notes":"fragment against full question"}
+{"pair_id":"int_case_01","expect":"hit","category":"surface","a":"what is a pointer","b":"What is a pointer?","notes":"case and punctuation only"}
+{"pair_id":"int_expletive_01","expect":"hit","category":"expletive_it","a":"What causes rain?","b":"Why does it rain?","notes":"failed live: 'it' marked the question as a follow-up, so it was never compared"}
+{"pair_id":"int_expletive_02","expect":"hit","category":"expletive_it","a":"Is it safe to mix bleach and ammonia?","b":"Is mixing bleach and ammonia safe?","notes":"dummy it in 'is it safe to'"}
+{"pair_id":"int_expletive_03","expect":"hit","category":"expletive_it","a":"Is it possible to learn Python in a month?","b":"Can I learn Python in a month?","notes":"dummy it in 'is it possible to'"}
+{"pair_id":"int_deictic_01","expect":"hit","category":"adverbial_first","a":"When was Python first released?","b":"What year was Python first released?","notes":"'first' as an adverb is not a reference to an earlier item. (An earlier draft paired this with 'When was Python released?', which is a genuinely different question -- Python 3 shipped in 2008, Python in 1991 -- so a miss there was correct.)"}
+{"pair_id":"int_neg_01","expect":"miss","category":"negation","a":"Is it safe to mix bleach and vinegar?","b":"Is it not safe to mix bleach and vinegar?","notes":"must be refused BY THE VERIFIER, not by accident"}
+{"pair_id":"int_neg_02","expect":"miss","category":"negation","a":"Can you run Docker on Windows?","b":"Can you not run Docker on Windows?","notes":"negation survives framing removal"}
+{"pair_id":"int_neg_03","expect":"miss","category":"negation","a":"Should I water succulents daily?","b":"Should I never water succulents daily?","notes":"never as negation"}
+{"pair_id":"int_num_01","expect":"miss","category":"number","a":"Convert 100 km to miles","b":"Convert 200 km to miles","notes":"different quantity"}
+{"pair_id":"int_num_02","expect":"miss","category":"number","a":"What was the population of India in 2011?","b":"What was the population of India in 2021?","notes":"different year"}
+{"pair_id":"int_entity_01","expect":"miss","category":"entity","a":"What is the capital of Australia?","b":"What is the capital of Austria?","notes":"one letter apart, different country"}
+{"pair_id":"int_entity_02","expect":"miss","category":"entity","a":"How do I use pandas?","b":"How do I use Panda3D?","notes":"alphanumeric identifier"}
+{"pair_id":"int_mod_01","expect":"miss","category":"modifier","a":"What is the minimum wage in Kerala?","b":"What is the maximum wage in Kerala?","notes":"opposite operative modifier"}
+{"pair_id":"int_mod_02","expect":"miss","category":"modifier","a":"Give me a short summary of World War 2","b":"Give me a long summary of World War 2","notes":"opposite length modifier"}
+{"pair_id":"int_qtype_01","expect":"miss","category":"question_type","a":"What is Java?","b":"Where is Java?","notes":"the language against the island: identical content words, cosine 1.000"}
+{"pair_id":"int_qtype_02","expect":"miss","category":"question_type","a":"When was the Eiffel Tower built?","b":"Why was the Eiffel Tower built?","notes":"when against why"}
+{"pair_id":"int_qtype_03","expect":"miss","category":"question_type","a":"Who invented the telephone?","b":"When was the telephone invented?","notes":"who against when, same content words"}
+{"pair_id":"int_qtype_04","expect":"miss","category":"question_type","a":"How many people live in Tokyo?","b":"Why do so many people live in Tokyo?","notes":"quantity against cause"}
+{"pair_id":"int_topic_01","expect":"miss","category":"topic","a":"How do I sort a list in Python?","b":"How do I reverse a list in Python?","notes":"different operation on the same object"}
+{"pair_id":"int_topic_02","expect":"miss","category":"topic","a":"What is supervised learning?","b":"What is unsupervised learning?","notes":"prefix negation changes the subject"}

@@ -30,7 +30,12 @@ from parsimony.core.config import ParsimonyConfig
 from parsimony.eval.corpus import AdversarialPair, load_adversarial
 from parsimony.infra.embedding import get_embedder
 from parsimony.modules.m1_compressor import normalise_lossless
-from parsimony.modules.m2_cache import SemanticCache, verify_match
+from parsimony.modules.m2_cache import (
+    SemanticCache,
+    cache_key_text,
+    question_types_agree,
+    verify_match,
+)
 
 
 class ApproximateIndexError(RuntimeError):
@@ -79,10 +84,25 @@ def _lookup_hits(
     verifier_on: bool,
     index_factory=None,
 ) -> bool:
-    """Would this query be served from a cache holding only `stored_query`?"""
+    """Would this query be served from a cache holding only `stored_query`?
+
+    Mirrors `CacheLookupStage.propose`, including the two behaviours that make
+    reuse work for a person typing freely: both sides are embedded as their
+    CACHE KEY TEXT (courtesy, request framing and plural inflection removed),
+    and the accept zone refuses a question of a different kind -- "What is
+    Java?" against "Where is Java?" reduce to the same content word and score
+    cosine 1.000. A calibration that skipped either would be measuring a cache
+    other than the one that ships.
+
+    The kind-of-question guard belongs to verification, so `verifier_on=False`
+    turns it off too. That arm stays a pure single-threshold cache -- the
+    literature's design, which is the comparison it exists to make.
+    """
     index = index_factory(embedder.dim) if index_factory is not None else None
     cache = SemanticCache(cfg.cache.ttl_seconds, embedder, index=index)
-    vec_stored, vec_query = embedder.embed([stored_query, query])
+    vec_stored, vec_query = embedder.embed(
+        [cache_key_text(stored_query), cache_key_text(query)]
+    )
     cache.store("k", stored_query, "stored answer", chain="root", model_id="m", vec=vec_stored)
 
     if SemanticCache.make_key(query, "root", "m") == SemanticCache.make_key(
@@ -96,7 +116,7 @@ def _lookup_hits(
     entry, score = found[0]
 
     if score >= cfg.cache.tau_hi:
-        return True
+        return True if not verifier_on else question_types_agree(query, entry.query)
     if score < cfg.cache.tau_lo:
         return False
     if not verifier_on:

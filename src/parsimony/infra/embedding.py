@@ -175,6 +175,11 @@ please kindly just really very much
 me tell explain give show
 """.split())
 
+#: Public alias. The cache compares CONTENT words and must take the same
+#: view of what a content word is; two stopword lists would mean the
+#: overlap floor and the encoder disagreed about the same sentence.
+STOPWORDS = _STOPWORDS
+
 # Order matters: longest first, so "ingly" is not left as "ly" -> "l".
 _SUFFIXES = (
     "ational", "iveness", "fulness", "ousness", "ization", "ation", "ments",

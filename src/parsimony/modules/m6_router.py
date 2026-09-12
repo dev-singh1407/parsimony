@@ -314,13 +314,41 @@ class EscalationRouterStage:
             # Three decimals on both sides, because two rendered a score of
             # 0.1996 against a threshold of 0.2 as "complexity 0.20 < 0.2",
             # which reads as a contradiction to anyone watching the trace.
-            rationale=(
-                f"complexity {score:.3f} "
-                f"{'>=' if escalate else '<'} {cfg.router.escalation_complexity:.3f} "
-                f"-> {tier.name}"
+            #
+            # The comparison operator is derived from the SCORE, not from the
+            # routing decision. They differ whenever the escalation tier is
+            # switched off (the default, ADR-037): a score of 0.301 against a
+            # 0.200 threshold used to print "complexity 0.301 < 0.200", a false
+            # statement shown to every viewer, because `escalate` was False for
+            # a reason that had nothing to do with the comparison.
+            rationale=_route_rationale(
+                score, cfg.router.escalation_complexity,
+                cfg.router.escalation_tier, tier,
             ),
-            evidence={"complexity": score, "escalated": escalate, **features},
+            evidence={"complexity": score, "escalated": escalate,
+                      "threshold": cfg.router.escalation_complexity,
+                      "escalation_enabled": cfg.router.escalation_tier,
+                      "above_threshold": score >= cfg.router.escalation_complexity,
+                      **features},
         )
+
+
+def _route_rationale(score: float, threshold: float, enabled: bool,
+                     tier: RouteTier) -> str:
+    """State the comparison truthfully, then the decision and why.
+
+    Three cases a viewer must be able to tell apart:
+      below the threshold             -> small model, because it is simple
+      above it, escalation switched on  -> large model
+      above it, escalation switched off -> small model ANYWAY, and say so
+    The third is the default configuration, and it is the one the old wording
+    got wrong.
+    """
+    op = ">=" if score >= threshold else "<"
+    head = f"complexity {score:.3f} {op} {threshold:.3f} -> {tier.name}"
+    if score >= threshold and not enabled:
+        return f"{head} (escalation tier disabled)"
+    return head
 
 
 class DeterministicRouterStage:
