@@ -137,7 +137,7 @@ replication, and a warm-start study across six traffic-recurrence levels. The
 full stack removes \textbf{33.9\%} of tokens at a measured middleware cost of
 \textbf{4.06\,ms} per request. Three results are reported. Savings are
 \textbf{not additive}: four modules whose individual reductions sum to 29.0
-percentage points deliver 27.4 when combined, a shortfall of 1.6\,pp
+percentage points deliver 27.4 when combined, a shortfall of 1.66\,pp
 concentrated in a single negative interaction ($M3\times M5 = -0.70$\,pp).
 Prefill accounts for \textbf{91.7--98.8\%} of CPU inference time at
 $\approx$8.5\,ms per input token, so a prompt rearrangement that changes token
@@ -747,7 +747,7 @@ single-machine; see Section~\ref{sec:limits}.
 \label{sec:results}
 
 Every figure and table in this section regenerates from raw logs by a single
-command in approximately 100 seconds. The implementation carries 719 automated
+command in approximately 100 seconds. The implementation carries 853 automated
 tests.
 
 \subsection{E1: Do stacked savings add? }
@@ -800,7 +800,7 @@ M1+M2+M3+M5        & 22{,}438 & 13{,}239 & 35{,}677 & +27.4 & 11 & 0 & 228 \\
 
 The four individual reductions sum to $0.2 + 2.0 + 12.5 + 14.3 = 29.0$\,pp. The
 configuration containing all four measures $+27.4$\,pp. The
-\textbf{additivity shortfall is therefore 1.6\,pp}, or 5.5\% of the predicted
+\textbf{additivity shortfall is therefore 1.66\,pp}, or 5.7\% of the predicted
 saving. Figure~\ref{fig:additivity} shows where it accumulates.
 
 Repeating the computation over input tokens alone sharpens it
@@ -821,22 +821,22 @@ figure. The full stack removes more than a third of all input.}
 \textbf{Output red.\ (\%)} & \textbf{Combined (\%)} \\
 \midrule
 M1 only  & \phantom{0}+0.23 & \phantom{0}+0.25 & \phantom{0}+0.23 \\
-M2 only  & \phantom{0}+1.05 & \phantom{0}+3.85 & \phantom{0}+2.03 \\
+M2 only  & \phantom{0}+1.04 & \phantom{0}+3.91 & \phantom{0}+2.03 \\
 M3 only  & +20.01 & $-1.39$ & +12.52 \\
 M5 only  & +11.45 & +19.51 & +14.27 \\
 \midrule
-Sum of the four   & \textbf{+32.73} & --- & +29.06 \\
-M1+M2+M3+M5       & \textbf{+29.79} & +23.04 & +27.43 \\
-\textbf{Shortfall} & \textbf{2.94\,pp} & --- & 1.63\,pp \\
+Sum of the four   & \textbf{+32.73} & --- & +29.07 \\
+M1+M2+M3+M5       & \textbf{+29.77} & +23.03 & +27.41 \\
+\textbf{Shortfall} & \textbf{2.96\,pp} & --- & 1.66\,pp \\
 \midrule
-\textbf{Full stack ($+$M4, M6)} & \textbf{+37.56} & +27.22 & +33.9 \\
+\textbf{Full stack ($+$M4, M6)} & \textbf{+37.53} & +27.16 & +33.9 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \obs{Two things are visible here that the combined column conceals. First, the
-non-additivity is \emph{larger} on the side that costs time: 2.94\,pp against
-1.63\,pp. The interaction bites hardest exactly where it matters, and the
+non-additivity is \emph{larger} on the side that costs time: 2.96\,pp against
+1.66\,pp. The interaction bites hardest exactly where it matters, and the
 mechanism is the one Table~\ref{tab:effects} names --- M3 and M5 compete over the
 same history tokens. Second, and unexpectedly, \textbf{M5 is responsible for
 11.45\,pp of the \emph{input} saving despite being the output budgeter.} A
@@ -845,7 +845,7 @@ that acts only on generation returns most of its benefit to the prompt side of
 later requests. That is independent confirmation of the $M3\times M5$
 interaction: the two modules are shown to be operating on the same tokens by a
 measurement that does not involve the interaction term at all. The full stack
-removes \textbf{37.6\% of all input tokens}, a larger figure than the 33.9\%
+removes \textbf{37.5\% of all input tokens}, a larger figure than the 33.9\%
 headline, and the one that converts into the 100.6\,s of prefill reported in
 §\ref{sec:e2}.}
 
@@ -891,9 +891,9 @@ above are $|{\cdot}| < 0.01$\,pp and are omitted.}
 \toprule
 \textbf{Term} & \textbf{Order} & \textbf{Estimate (pp)} & \textbf{Partial $\eta^2$} \\
 \midrule
-M5 (output budgeter)  & 1 & $+13.44$ & 0.5563 \\
-M3 (history manager)  & 1 & $+11.82$ & 0.4304 \\
-M2 (semantic cache)   & 1 & $+1.94$  & 0.0116 \\
+M5 (output budgeter)  & 1 & $+13.43$ & 0.5560 \\
+M3 (history manager)  & 1 & $+11.82$ & 0.4308 \\
+M2 (semantic cache)   & 1 & $+1.93$  & 0.0115 \\
 M1 (compressor)       & 1 & $+0.23$  & 0.0002 \\
 \midrule
 M3 $\times$ M5        & 2 & \hl{$\mathbf{-0.70}$} & 0.0015 \\
@@ -1451,7 +1451,7 @@ you repeat, the more it helps, up to about 18\% extra saving.}
 & \textbf{RQ} & \textbf{Exp.} & \textbf{Evidence} & \textbf{Finding} \\
 \midrule
 C1 & RQ1 & E1 & Tables~\ref{tab:ablation}, \ref{tab:effects}; Fig.~\ref{fig:additivity} &
-  Savings are not additive: 29.0\,pp predicted, 27.4\,pp measured. The 1.6\,pp shortfall is carried almost entirely by one negative interaction, $M3\times M5 = -0.70$\,pp. \\
+  Savings are not additive: 29.0\,pp predicted, 27.4\,pp measured. The 1.66\,pp shortfall is carried almost entirely by one negative interaction, $M3\times M5 = -0.70$\,pp. \\
 \addlinespace
 C2 & RQ2 & E2 & Tables~\ref{tab:prefill}, \ref{tab:prefix} &
   Prefill is 91.7--98.8\% of inference time at $\approx$8.5\,ms/token. Two prompts 0.5\% apart in tokens differ $\approx$89$\times$ in cost, so token count is not a reliable proxy for cost on CPU. \\

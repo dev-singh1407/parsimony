@@ -170,7 +170,7 @@ SLIDES: list[tuple[str, list[tuple[str, int]]]] = [
     # 12 -- conclusion
     ("Conclusion", [
         ("Eight techniques were composed in one instrumented pipeline and "
-         "measured, rather than assumed. 719 automated tests; every table "
+         "measured, rather than assumed. 853 automated tests; every table "
          "regenerates from raw logs in ~100 seconds.", 0),
         ("Three results the literature had not reported:", 0),
         ("Savings do not compound, and the shortfall is one interaction, not a "

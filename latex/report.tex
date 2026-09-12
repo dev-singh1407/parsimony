@@ -425,7 +425,7 @@ Model & \texttt{qwen2.5:1.5b-instruct}, 4-bit, via Ollama, CPU only, offline \\
 Hardware & AMD Ryzen 7 5800HS, 16\,GB RAM, no GPU used \\
 Statistics & Bootstrap 95\% intervals, partial $\eta^2$, two-way ANOVA, exact McNemar \\
 Reproduction & \texttt{python reproduce.py} --- every table regenerates in $\approx$100\,s \\
-Verification & 719 automated tests, including one that fails the build if a layer imports upward \\
+Verification & 853 automated tests, including one that fails the build if a layer imports upward \\
 \bottomrule
 \end{tabularx}
 
@@ -541,7 +541,7 @@ Deliberately absent: PyTorch, any GPU requirement, any paid service.
 \section{Results and Discussion}
 
 Every figure regenerates from raw logs with one command in about 100 seconds.
-\textbf{719 automated tests pass.}
+\textbf{853 automated tests pass.}
 
 \subsection{The headline: savings do not add up}
 Full $2^4$ factorial, 151 conversations, 263 requests, 17 cells.
@@ -553,7 +553,7 @@ Full $2^4$ factorial, 151 conversations, 263 requests, 17 cells.
 \midrule
 M5 output budgeter & +13.44\,pp & 0.556 \\
 M3 history manager & +11.82\,pp & 0.430 \\
-M2 semantic cache  & +1.94\,pp  & 0.012 \\
+M2 semantic cache  & +1.93\,pp  & 0.012 \\
 M1 compressor      & +0.23\,pp  & 0.000 \\
 M3 $\times$ M5 interaction & \textbf{$-$0.70\,pp} & 0.002 \\
 \bottomrule
@@ -572,7 +572,7 @@ And the sharper result: the shortfall depends on the configuration.
 \textbf{Encoder} & \textbf{M2 effect} & \textbf{M3$\times$M5} & \textbf{Shortfall} \\
 \midrule
 \texttt{hashing-v1} & +1.61\,pp & $-$1.14 & 2.53\,pp, $[+0.93,+3.99]$ \\
-\texttt{content-v1} (default) & +1.94\,pp & $-$0.70 & 1.63\,pp, $[-0.02,+3.23]$ \\
+\texttt{content-v1} (default) & +1.93\,pp & $-$0.70 & 1.66\,pp, $[+0.02,+3.25]$ \\
 \bottomrule
 \end{tabular}
 \end{center}

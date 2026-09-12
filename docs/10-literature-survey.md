@@ -221,12 +221,12 @@ raw logs with `python reproduce.py`.
 A full 2⁴ factorial over compressor × cache × history manager × output budgeter, 151 conversations, 263
 requests, 17 cells, with bootstrap confidence intervals and partial η² effect sizes.
 
-**Result:** savings do **not** compound. The additivity shortfall is **1.63 pp, 95% CI [−0.02, +3.23]** under
+**Result:** savings do **not** compound. The additivity shortfall is **1.66 pp, 95% CI [+0.02, +3.25]** under
 our default configuration.
 
 **And the sharper finding:** the shortfall is **not a constant of the technique stack — it is a property of
 the configuration.** Improving our encoder made the cache hit more often, which made it overlap its
-neighbours *less*, moving the shortfall from 2.53 pp [+0.93, +3.99] to 1.63 pp [−0.02, +3.23]. We kept the
+neighbours *less*, moving the shortfall from 2.53 pp [+0.93, +3.99] to 1.66 pp [+0.02, +3.25]. We kept the
 better encoder and reported both. No work in Strand 1 or 2 is positioned to observe this, because observing
 it requires holding four techniques in one harness while varying a fifth component.
 

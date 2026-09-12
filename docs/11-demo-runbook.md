@@ -156,7 +156,7 @@ Counter-intuitive, and it is what separates a project from a report. Pick **one*
 
 **Option C — a number moved against us.**
 > "We improved our encoder, and it made our headline result weaker — the cache got better, so the modules
-> overlapped less, so the shortfall shrank and its interval now touches zero. We kept the better encoder and
+> overlapped less, so the shortfall shrank and its interval now barely clears zero. We kept the better encoder and
 > reported both. Choosing a worse component because it gives a nicer number is the failure mode this whole
 > project is written against."
 

@@ -33,7 +33,7 @@ independently switchable, the whole system is a 2⁴ factorial experiment rather
 
 Measured over 151 conversations and 263 requests against `qwen2.5:1.5b-instruct` running locally on CPU, the
 full stack removes **33.9%** of tokens with **no loss of answer accuracy** (92.5% → 97.5% on 40 gold items,
-zero regressions). Three findings are new. **Savings do not compound**: an additivity shortfall of 1.63
+zero regressions). Three findings are new. **Savings do not compound**: an additivity shortfall of 1.66
 percentage points whose size is a property of the configuration rather than a constant. **Prefill dominates
 CPU inference** at 92–99% of total time, ~8.5 ms per input token, making input reduction worth far more than
 the GPU-centric framing of the literature implies. And **the cache thresholds published as safe are unsafe
@@ -180,7 +180,7 @@ on the interaction terms &mdash; the first stacked-interaction table for this co
 </div>
 </div>
 
-**Status: answered.** The additivity shortfall is **1.63 pp, 95% CI [−0.02, +3.23]**, and both material
+**Status: answered.** The additivity shortfall is **1.66 pp, 95% CI [+0.02, +3.25]**, and both material
 interaction terms are negative (§7.1).
 
 ## 2.2 Gap 2: The Output Side of the Bill Is Ignored
@@ -350,8 +350,8 @@ safety property is the constraint under which every optimisation must operate.
 
 **Contribution 1 — The additivity shortfall, measured.** A full 2⁴ factorial over compressor × cache × history
 manager × output budgeter with bootstrap confidence intervals and partial η² effect sizes. Savings do not
-compound: the shortfall is **1.63 pp, 95% CI [−0.02, +3.23]**. Further, its magnitude is a property of the
-*configuration* — improving the encoder moved it from 2.53 pp to 1.63 pp, because a cache that hits more often
+compound: the shortfall is **1.66 pp, 95% CI [+0.02, +3.25]**. Further, its magnitude is a property of the
+*configuration* — improving the encoder moved it from 2.53 pp to 1.66 pp, because a cache that hits more often
 overlaps its neighbours less. *(Answers RQ1, closes Gap 1.)*
 
 **Contribution 2 — The CPU cost structure, and the price of prompt order.** Prefill is **92–99%** of total
@@ -418,7 +418,7 @@ Requests flow top to bottom. Each stage may short-circuit, propose an edit, or d
 | Hardware | AMD Ryzen 7 5800HS, 16 GB RAM, no GPU used |
 | Statistics | Bootstrap 95% confidence intervals, partial η² effect sizes, two-way ANOVA on interactions, exact McNemar for paired accuracy |
 | Reproduction | `python reproduce.py --out figures` — every table regenerates in ~100 s |
-| Verification | 719 automated tests, including architecture-layering and golden-output tests |
+| Verification | 853 automated tests, including architecture-layering and golden-output tests |
 
 <div class="pagebreak"></div>
 
@@ -581,7 +581,7 @@ entities, negations, operative modifiers and payload emptiness on every proposal
 | **Generation memoisation** | Bit-exact at temperature 0, so repeated sweep cells do not re-pay for identical generations. |
 | **Stage-order validator** | Checks the configured order against a reads/writes dependency graph before the pipeline runs. |
 | **Corpus** | 151 conversations, 45 adversarial pairs, 45 controls, 40 gold items, CC BY 4.0. |
-| **Test suite** | 719 tests, including `test_architecture.py`, which fails the build if a layer imports upward. |
+| **Test suite** | 853 tests, including `test_architecture.py`, which fails the build if a layer imports upward. |
 
 ## 6.5 Technology stack
 
@@ -592,14 +592,14 @@ entities, negations, operative modifiers and payload emptiness on every proposal
 | Tokenisation | `tokenizers` (Qwen2.5 vocabulary) | The counts must come from the model's own vocabulary |
 | Numerics | `numpy` | Embeddings and statistics |
 | CLI | `typer` + `rich` | The demo surface |
-| Testing | `pytest` | 719 tests |
+| Testing | `pytest` | 853 tests |
 | Deliberately absent | PyTorch, any GPU dependency, any paid API | The target machine is a CPU-only laptop |
 
 <div class="pagebreak"></div>
 
 # 7. Results and Discussion
 
-All figures regenerate from raw logs with a single command in about 100 seconds. **719 automated tests pass.**
+All figures regenerate from raw logs with a single command in about 100 seconds. **853 automated tests pass.**
 
 ## 7.1 The headline: savings do not compound
 
@@ -609,21 +609,21 @@ Full 2⁴ factorial, 151 conversations, 263 requests, 17 cells.
 |---|---|---|
 | M5 output budgeter | +13.44 pp | 0.556 |
 | M3 history manager | +11.82 pp | 0.430 |
-| M2 semantic cache | +1.94 pp | 0.012 |
+| M2 semantic cache | +1.93 pp | 0.012 |
 | M1 compressor | +0.23 pp | 0.000 |
 | M3 × M5 interaction | **−0.70 pp** | 0.002 |
 
 Full stack: **+33.9%** total token reduction. Both material interaction terms are negative and both involve
 M5 — trimming history and shortening output reduce the same conversation.
 
-> **Additivity shortfall: 1.63 pp, 95% CI [−0.02, +3.23].**
+> **Additivity shortfall: 1.66 pp, 95% CI [+0.02, +3.25].**
 
 And the sharper result: the shortfall is **configuration-dependent**.
 
 | Encoder | M2 effect | M3 × M5 | Additivity shortfall |
 |---|---|---|---|
 | `hashing-v1` | +1.61 pp | −1.14 | 2.53 pp, [+0.93, +3.99] |
-| `content-v1` (default) | +1.94 pp | −0.70 | 1.63 pp, [−0.02, +3.23] |
+| `content-v1` (default) | +1.93 pp | −0.70 | 1.66 pp, [+0.02, +3.25] |
 
 Improving the encoder made the cache hit more often, so it overlapped its neighbours less. The weaker encoder
 was **not** reinstated to protect the interval: choosing a component known to be worse because it yields a more

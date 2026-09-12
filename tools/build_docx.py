@@ -309,7 +309,7 @@ CONTENT = [
         ["NFR5", "Operate fully offline after model download", "Mandatory", "Satisfied"],
         ["NFR6", "Every reported result reproducible by one command", "Mandatory", "reproduce.py, ~100 s"],
         ["NFR7", "Auditability: every stage writes a ledger row whether or not it acted", "Mandatory", "Satisfied"],
-        ["NFR8", "Architectural layering enforced automatically", "Mandatory", "test_architecture.py, 719 tests pass"],
+        ["NFR8", "Architectural layering enforced automatically", "Mandatory", "test_architecture.py, 853 tests pass"],
     ], "Table 3.2  Non-functional requirements and measured outcomes")),
 
     ("h2", "3.2 Feasibility Study"),
@@ -365,7 +365,7 @@ CONTENT = [
         ["Tokenisation", "tokenizers (Qwen2.5 vocabulary, 151,665 entries)", "Exact token counts"],
         ["Numerics", "numpy", "Embeddings and statistics"],
         ["Interface", "typer, rich", "Command-line surface"],
-        ["Testing", "pytest", "719 automated tests"],
+        ["Testing", "pytest", "853 automated tests"],
         ["Deliberately absent", "PyTorch, any GPU dependency, any paid API", "Keeps the target hardware honest"],
     ], "Table 3.4  Software specification")),
 

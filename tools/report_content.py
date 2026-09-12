@@ -181,7 +181,7 @@ SECTIONS = [
                 ("Remaining", "Neural encoder swap; full sweep on the real model; a usable judge; "
                               "a second model for escalation", "Planned"),
             ], ["Phase", "Work", "Status"]),
-            "Current status: all eight modules built, 719 automated tests passing, 39 "
+            "Current status: all eight modules built, 853 automated tests passing, 39 "
             "architecture decision records, and every reported figure regenerating from raw logs "
             "in approximately 100 seconds.",
         ]),
@@ -305,7 +305,7 @@ SECTIONS = [
             ([
                 ("M5 output budgeter", "+13.44", "0.556"),
                 ("M3 history manager", "+11.82", "0.430"),
-                ("M2 semantic cache", "+1.94", "0.012"),
+                ("M2 semantic cache", "+1.93", "0.012"),
                 ("M1 compressor", "+0.23", "0.000"),
                 ("M3 x M5 interaction", "-0.70", "0.002"),
             ], ["Effect", "Estimate (pp)", "Partial eta-squared"]),

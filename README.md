@@ -21,7 +21,7 @@ VIT University · B.Tech BCSE497J Project I · Guide: Dr Sathya K
 python reproduce.py --out figures
 ```
 
-**715 tests passing.** Every table below regenerates from a live run in ~40 s. Setup and commands:
+**853 tests passing.** Every table below regenerates from a live run in ~40 s. Setup and commands:
 [`docs/08-setup.md`](docs/08-setup.md).
 
 | Module | State |
@@ -52,9 +52,9 @@ Every ledger row carries the provider's content digest, so the two can never be 
 
 | effect | estimate | partial η² |
 |---|---|---|
-| M5 output budgeter | +13.44 pp | 0.556 |
+| M5 output budgeter | +13.43 pp | 0.556 |
 | M3 history manager | +11.82 pp | 0.430 |
-| M2 semantic cache | +1.94 pp | 0.012 |
+| M2 semantic cache | +1.93 pp | 0.012 |
 | M1 compressor | +0.23 pp | 0.000 |
 
 Full stack reaches **+33.9%** total token reduction. The two material interaction terms are both
@@ -68,11 +68,12 @@ encoder (ADR-035) made the cache hit more often, which made it overlap its neigh
 | encoder | M2 effect | M3×M5 | additivity shortfall |
 |---|---|---|---|
 | `hashing-v1` | +1.61 pp | −1.14 | 2.53 pp, 95% CI **[+0.93, +3.99]** |
-| `content-v1` (default) | +1.94 pp | −0.70 | 1.63 pp, 95% CI **[−0.02, +3.23]** |
+| `content-v1` (default) | +1.93 pp | −0.70 | 1.66 pp, 95% CI **[+0.02, +3.25]** |
 
 So savings do not compound — but *by how much they fail to compound* is a property of the components, not a
-constant of the technique stack. Under the better encoder the shortfall is no longer distinguishable from
-zero at 95%. The weaker encoder was not reinstated to protect the interval: picking a component known to be
+constant of the technique stack. Under the better encoder the shortfall is smaller, and its interval clears zero by
+0.02 pp — close enough to the boundary that no weight should be put on which side
+of it the bound falls. The weaker encoder was not reinstated to protect the interval: picking a component known to be
 worse because it yields a more publishable number is the failure mode this project is written against.
 
 ### On a real model, prefill is 92–99% of the time

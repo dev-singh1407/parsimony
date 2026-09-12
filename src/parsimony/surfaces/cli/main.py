@@ -27,6 +27,7 @@ from parsimony.infra.providers import make_provider
 from parsimony.infra.storage import JsonlSink, import_jsonl
 from parsimony.infra.tokenization import get_tokenizer
 from parsimony.pipeline.orchestrator import DEFAULT_NUM_PREDICT, Pipeline
+from parsimony.surfaces.cli.explain import Session, turn_report
 from parsimony.surfaces.cli.render import (
     explain_report,
     walkthrough,
@@ -513,13 +514,16 @@ def ask(
     counter = get_tokenizer(cfg.tokenizer_id).count
     conversation_id = ulid()
     history: list[Turn] = []
+    session = Session()
 
     console.print(
         Panel(
-            "[bold]Ask anything.[/bold] Every module reports what it did on every turn.\n"
-            "[dim]The conversation is kept, so history builds up as you go — by the third or\n"
-            "fourth question M3 has something to trim. Ask something twice in different\n"
-            "words to land a cache hit. Type 'quit' to leave, 'reset' to start over.[/dim]",
+            "[bold]Ask anything.[/bold] Every layer reports what it did, every turn.\n\n"
+            "[dim]The conversation is kept, so history builds up as you go: by the third or\n"
+            "fourth question there is something to trim. Ask the same thing again in\n"
+            "different words to see the memory reuse an answer.\n\n"
+            "  help     what the layers are      memory   what has been remembered\n"
+            "  reset    start a new conversation  quit     leave[/dim]",
             border_style="bold blue",
         )
     )
@@ -536,15 +540,23 @@ def ask(
             return
         if query.lower() == "reset":
             history, conversation_id = [], ulid()
+            session = Session()
             console.print("[dim]conversation cleared[/dim]")
+            continue
+        if query.lower() in {"help", "?"}:
+            _layer_help()
+            continue
+        if query.lower() in {"memory", "cache"}:
+            _memory_contents(pipeline)
             continue
 
         console.print()
         outcome = pipeline.run(query, tuple(history), conversation_id=conversation_id,
                               turn_index=len(history))
-        walkthrough(console, outcome, query, counter)
+        turn_report(console, outcome, query, counter,
+                    cache=pipeline.cache, cfg=cfg, session=session)
         console.print(Panel(outcome.response or "[dim](empty)[/dim]",
-                            title="[bold]The AI's answer[/bold]", border_style="green",
+                            title="[bold]The answer[/bold]", border_style="green",
                             title_align="left"))
         if detail:
             console.print()
@@ -1234,6 +1246,42 @@ def _quality_table(results) -> Table:
             f" ({r.gold_correct}/{r.gold_total})" if r.gold_total else "[dim]-[/dim]",
         )
     return table
+
+
+def _layer_help() -> None:
+    """What each layer is for, without running anything."""
+    from parsimony.surfaces.cli.explain import LAYERS
+
+    table = Table(show_edge=False, box=None, padding=(0, 2))
+    table.add_column("Layer", style="bold")
+    table.add_column("What it does")
+    for _key, name, job in LAYERS:
+        table.add_row(name, job)
+    table.add_row("Safety check",
+                  "checks every proposed edit; refuses any that would drop a number, "
+                  "a name, a negation or a qualifier")
+    console.print(Panel(table, title="[bold]The layers[/bold]", border_style="blue",
+                        title_align="left"))
+
+
+def _memory_contents(pipeline) -> None:
+    """What the memory is holding, so a reuse is checkable rather than magic."""
+    entries = pipeline.cache.entries()
+    if not entries:
+        console.print("[dim]Nothing remembered yet. Ask something, then ask it again "
+                      "in different words.[/dim]")
+        return
+    table = Table(show_edge=False, box=None, padding=(0, 2))
+    table.add_column("#", style="dim", justify="right")
+    table.add_column("Remembered question", style="bold")
+    table.add_column("Compared as", style="dim")
+    table.add_column("Reused", justify="right")
+    from parsimony.modules.m2_cache import cache_key_text
+
+    for i, entry in enumerate(entries, start=1):
+        table.add_row(str(i), entry.query, cache_key_text(entry.query), str(entry.hits))
+    console.print(Panel(table, title="[bold]Memory[/bold]", border_style="green",
+                        title_align="left"))
 
 
 def _print_shortfall(results, axes=None) -> None:

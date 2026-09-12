@@ -1,6 +1,6 @@
 # Parsimony — Findings to date
 
-**Status:** all eight modules built · **715 tests passing** · every number below regenerates with
+**Status:** all eight modules built · **853 tests passing** · every number below regenerates with
 `python reproduce.py`
 
 This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (39 ADRs);
@@ -24,9 +24,9 @@ Full 2⁴ factorial over M1/M2/M3/M5, 151 conversations, 263 requests, 17 cells.
 
 | effect | estimate | partial η² |
 |---|---|---|
-| **M5** output budgeter | +13.44 pp | 0.556 |
+| **M5** output budgeter | +13.43 pp | 0.556 |
 | **M3** history manager | +11.82 pp | 0.430 |
-| **M2** semantic cache | +1.94 pp | 0.012 |
+| **M2** semantic cache | +1.93 pp | 0.012 |
 | **M1** compressor | +0.23 pp | 0.000 |
 | M3×M5 interaction | **−0.70 pp** | 0.002 |
 
@@ -36,7 +36,7 @@ modules that change what there is to shorten can overlap with it. Every other te
 indistinguishable from zero here, so the honest statement is not "the modules always interfere" but "where
 they interact at all, they interfere."
 
-> **Additivity shortfall: 1.63 percentage points, 95% CI [−0.02, +3.23].**
+> **Additivity shortfall: 1.66 percentage points, 95% CI [+0.02, +3.25].**
 
 This is Contribution 1, and the honest version of it is more interesting than the original. No published
 study runs these modules in one pipeline, so the field has no evidence about whether their savings compound.
@@ -45,7 +45,7 @@ They do not. But **how much they fail to compound is a property of the configura
 | encoder | M2 effect | M3×M5 | additivity shortfall |
 |---|---|---|---|
 | `hashing-v1` | +1.61 pp | −1.14 | 2.53 pp, **[+0.93, +3.99]** — excludes zero |
-| `content-v1` (default) | +1.94 pp | −0.70 | 1.63 pp, **[−0.02, +3.23]** — touches zero |
+| `content-v1` (default) | +1.93 pp | −0.70 | 1.66 pp, **[+0.02, +3.25]** — clears zero by 0.02 |
 
 Improving the encoder (ADR-035) made the cache hit more often, so it overlapped its neighbours less and the
 shortfall shrank until its interval reached zero. **The weaker encoder was not reinstated to protect the
@@ -493,7 +493,7 @@ The gate now refuses any transform that removes **all** word characters, checked
 comparison and independent of it — the only kind of check that can hold for languages the extractors cannot
 read. Widening the regex would have fixed the instance and left the class (ADR-038).
 
-**Every headline number is unchanged** by these fixes: +33.9% full stack, 0.0% false hits, 1.63 pp shortfall.
+**Every headline number is unchanged** by these fixes: +33.9% full stack, 0.0% false hits, 1.66 pp shortfall.
 They close holes without moving a result, which is what a security fix should look like when the original
 measurements were sound. What changed is the *scope* of the safety claim: 0.0% is now a statement about a
 corpus **and a sanitiser**, rather than about a corpus that happened to contain no adversarial Unicode.
