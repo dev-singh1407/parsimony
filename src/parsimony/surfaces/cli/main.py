@@ -87,6 +87,8 @@ def chat(
                               help="Show the text each stage changed, not just the token count."),
     modules: bool = typer.Option(False, "--modules", "-m",
                                  help="One panel per module: what each did, or why it did not."),
+    raw: bool = typer.Option(False, "--raw",
+                             help="The per-stage engineering table instead of the explanation."),
     provider: str = typer.Option("mock", "--provider",
                                  help="'mock' (simulated timings) or 'ollama' (a real model)."),
     model: str = typer.Option(None, "--model", help="Ollama model tag."),
@@ -94,12 +96,16 @@ def chat(
     """Run one query through the pipeline."""
     query = require_query(query)
     cfg = baseline() if plain else full_stack()
-    capture = text or modules
-    pipeline = Pipeline(cfg, provider=make_provider(provider, model=model), capture_text=capture)
+    # Text capture is always on here. It is display-only and provably does not
+    # change the result (tests/unit/test_text_capture.py), and without it the
+    # explanation cannot say WHICH words a stage removed -- only how many.
+    pipeline = Pipeline(cfg, provider=make_provider(provider, model=model), capture_text=True)
     counter = get_tokenizer(cfg.tokenizer_id).count
+    session = Session()
 
     def show(o):
         if modules:
+            # The engineering view: one panel per module, ids and rationales.
             module_report(console, o, counter)
             console.print()
             explain_report(console, o, counter)
@@ -107,15 +113,22 @@ def chat(
             console.print(summary_panel(o, simulated=o.row.model_digest.startswith("mock")))
             console.print(Panel(o.response or "[dim](empty)[/dim]", title="Answer",
                                 border_style="green"))
-        elif trace:
+        elif raw:
+            # The old per-stage table, for comparing against earlier transcripts.
             print_outcome(console, o, show_text=text, counter=counter)
+        elif trace:
+            turn_report(console, o, query, counter, cache=pipeline.cache, cfg=cfg,
+                        session=session)
+            console.print(Panel(o.response or "[dim](empty)[/dim]",
+                                title="[bold]The answer[/bold]", border_style="green",
+                                title_align="left"))
         else:
             console.print(o.response)
 
     show(pipeline.run(query))
 
     if repeat:
-        console.print(Rule("second identical request"))
+        console.print(Rule("the same question again"))
         show(pipeline.run(query))
 
 
@@ -578,107 +591,120 @@ def tour(
     """Walk through every module one at a time, showing what each one changes.
 
     Each stop uses an input chosen so that THAT module is the one doing the
-    work, because a single query never exercises all eight — and a demo where
-    six of the eight stages say "no-op" teaches nothing about what they do.
+    work, because a single query never exercises all eight. Every stop still
+    shows every layer, though: seeing the others decline is part of
+    understanding why this one acted.
     """
     cfg = full_stack()
     counter = get_tokenizer(cfg.tokenizer_id).count
 
-    stops: list[tuple[str, str, str, str, object]] = [
-        ("M1", "Tier 1 — boilerplate",
-         "Politeness and filler cost tokens and carry no instruction. Tier 1 removes "
-         "them losslessly: no word that changes the meaning is touched.",
+    # Each stop: module, title, why it matters, the question, and what to do
+    # first -- nothing, build up history, or ask an earlier question to prime
+    # the memory. No stop quotes a number: the explanation prints the live
+    # figures, so the narrative cannot drift from what the pipeline does.
+    stops: list[tuple[str, str, str, str, tuple]] = [
+        ("M1", "Politeness remover",
+         "Greetings, please and thanks cost tokens and carry no instruction. They are "
+         "removed without touching any word that changes the meaning.",
          "Hello, I was wondering if you could **please** explain to me what "
-         "photosynthesis is? Thanks in advance!", None),
+         "photosynthesis is? Thanks in advance!", ()),
 
-        ("M1", "Tier 2 — repeated facts",
-         "The same fact stated twice pays twice. Tier 2 drops the near-duplicate "
-         "sentence — but only when nothing distinguishes them.",
+        ("M1", "Repeat remover",
+         "The same fact stated twice is paid for twice. The repeated sentence is "
+         "dropped - but only when nothing distinguishes the two.",
          "Summarise this. The server runs Ubuntu Linux. The server runs Ubuntu Linux "
-         "and needs a restart. Please advise.", None),
+         "and needs a restart. Please advise.", ()),
 
-        ("M8", "The gate refusing a saving",
-         "Now the same shape of edit, but the two sentences carry DIFFERENT dates. "
-         "The compressor still proposes the deletion; the fidelity gate refuses it. "
-         "This is the module that makes the rest safe to use.",
-         "Explain the deadline. The deadline is 15 March. The deadline is 16 March.", None),
+        ("M8", "The safety check refusing a saving",
+         "The same shape of edit, but now the two sentences carry DIFFERENT dates. "
+         "The repeat remover still proposes deleting one; the safety check refuses, "
+         "because the deletion would lose a date. This is what makes the rest safe.",
+         "Explain the deadline. The deadline is 15 March. The deadline is 16 March.", ()),
 
-        ("M6", "The deterministic tier",
-         "Some questions do not need a language model at all. This one is answered "
-         "exactly, by a calculator, sending the model zero tokens.",
-         "What is 847 * 23?", None),
+        ("M6", "The calculator",
+         "Some questions need no language model at all. This one is worked out "
+         "exactly, and the AI is sent nothing.",
+         "What is 847 * 23?", ()),
 
-        ("M5", "The output budgeter",
-         "Left alone a small model rambles. M5 classifies the question and sets a "
-         "budget to match — 48 tokens for arithmetic, 640 for reasoning.",
-         "What is the boiling point of water at sea level?", None),
+        ("M5", "The answer limiter",
+         "Left alone a small model rambles. The question is classified and the answer "
+         "given a length to match: short for a fact, longer for reasoning.",
+         "What is the boiling point of water at sea level?", ()),
 
-        ("M3", "The history manager",
-         "In a long conversation most turns are irrelevant to the current question. "
-         "M3 keeps what is relevant and drops the rest.",
-         "So which of those should I use?", "history"),
+        ("M3", "The history trimmer",
+         "In a long conversation most earlier turns have nothing to do with the "
+         "current question. The relevant ones are kept and the rest dropped.",
+         "So which of those should I use?", ("history",)),
 
-        ("M2", "The semantic cache",
-         "Asked again in different words, the answer is served from cache and the "
-         "model is never called. This pair scores 0.80 — below the auto-accept "
-         "threshold — so it lands in the VERIFY zone and is served only because the "
-         "verifier confirmed the two questions agree on every number, entity, "
-         "negation and modifier.",
-         "What is the capital city of Australia?", "repeat"),
+        ("M2", "Memory: the same question, worded differently",
+         "Asked politely the first time and plainly the second. The memory compares "
+         "the questions with courtesy and phrasing set aside, finds they ask the same "
+         "thing, and reuses the answer - the AI is never called.",
+         "What is recursion?",
+         ("prime", "Hello, could you please explain what recursion is? Thanks!")),
+
+        ("M2", "Memory: a question that only LOOKS the same",
+         "One word apart, opposite meaning. The two score as very similar, which is "
+         "exactly why similarity alone is not trusted: the safety checks see the added "
+         "'not' and refuse to reuse the answer.",
+         "Is it not safe to mix bleach and vinegar?",
+         ("prime", "Is it safe to mix bleach and vinegar?")),
+
+        ("M2", "Memory: same words, different kind of question",
+         "Both questions reduce to the single subject 'Java', so they look identical. "
+         "But one asks WHAT it is and the other WHERE it is - the programming "
+         "language or the island. A different kind of question is never reused.",
+         "Where is Java?",
+         ("prime", "What is Java?")),
     ]
 
     console.print(
         Panel(
-            "[bold]A tour of the eight modules[/bold]\n"
-            "[dim]Each stop uses an input chosen to make that module do the work.\n"
-            "Responses come from the deterministic stand-in, so this runs in seconds "
+            "[bold]A tour of the layers[/bold]\n"
+            "[dim]Each stop uses a question chosen so that one layer does the work.\n"
+            "Every stop shows all the layers, what each did, and exactly which tokens\n"
+            "changed. Answers come from a deterministic stand-in, so it runs in seconds\n"
             "and gives the same result every time.[/dim]",
             border_style="bold blue",
         )
     )
 
-    for module, title, why, query, mode in stops:
+    for module, title, why, query, setup in stops:
         if only and only.upper() != module.upper():
             continue
 
-        console.print(Rule(f"[bold cyan]{module}[/bold cyan] · [bold]{title}[/bold]"))
+        console.print(Rule(f"[bold cyan]{module}[/bold cyan] - [bold]{title}[/bold]"))
         console.print(f"[dim]{why}[/dim]\n")
 
         pipeline = Pipeline(cfg, capture_text=True)
         history: tuple[Turn, ...] = ()
 
-        if mode == "history":
+        if setup and setup[0] == "history":
             history = _synthetic_history(8)
-            console.print(f"[dim]…after {len(history)} turns of prior conversation[/dim]\n")
-        elif mode == "repeat":
-            # Prime with the ORIGINAL wording, so the hit below is a genuine
-            # paraphrase match rather than a repeat of the same string.
-            #
-            # The cache stage runs BEFORE the compressor, so it compares raw
-            # text: priming with a differently-worded question scored cosine
-            # 0.058 and missed. That is not a bug, it is research gap 3 — what
-            # the cache sees depends on where it sits in the stage order.
-            primed = "What is the capital of Australia?"
-            pipeline.run(primed)
-            console.print(f"[dim]…already asked once, worded differently: [/dim]"
-                          f"[italic]{primed}[/italic]\n")
+            console.print(f"[dim]...after {len(history)} turns of earlier "
+                          f"conversation[/dim]\n")
+        elif setup and setup[0] == "prime":
+            pipeline.run(setup[1])
+            console.print(f"[dim]Asked earlier:[/dim] [italic]{setup[1]}[/italic]\n")
 
-        console.print(f"[bold]Question:[/bold] {query}\n")
         outcome = pipeline.run(query, history)
-        print_outcome(console, outcome, show_text=True, counter=counter,
-                      show_response=(module in ("M6", "M2")))
+        turn_report(console, outcome, query, counter, cache=pipeline.cache, cfg=cfg)
+        if not outcome.generated or module in ("M6", "M2"):
+            console.print(Panel(outcome.response or "[dim](empty)[/dim]",
+                                title="[bold]The answer[/bold]", border_style="green",
+                                title_align="left"))
 
         if pause and not only:
-            console.print("[dim]— Enter for the next module —[/dim]")
+            console.print("[dim]- press Enter for the next stop -[/dim]")
             input()
 
     if not only:
         console.print(Rule("[bold]That is the pipeline[/bold]"))
         console.print(
-            "[dim]Eight modules, each switchable independently. Every one PROPOSES a "
-            "change; the orchestrator commits it only after the gate has checked it. "
-            "That is what makes the ablation possible — switching a module off really "
-            "does remove its effect.[/dim]\n"
+            "[dim]Every layer only PROPOSES a change; a change is made only after the "
+            "safety check has approved it. Each layer can be switched off on its own, "
+            "which is how the project measures what every one of them is worth.\n"
+            "To try it yourself: parsimony ask[/dim]\n"
         )
 
 

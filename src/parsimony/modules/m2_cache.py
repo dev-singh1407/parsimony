@@ -742,7 +742,7 @@ class CacheLookupStage:
             if entry is not None:
                 evidence = {"zone": "accept", "tier": "exact", "cache_key": key[:12],
                             "entry_hits": entry.hits, "top_k": (),
-                            "probe_only": self.probe_only}
+                            "probe_only": self.probe_only, "best_entry": entry.entry_id}
                 if self.probe_only:
                     return NoOp("no_yield", "probe: exact hit (not acted on)", evidence)
                 return ShortCircuit(

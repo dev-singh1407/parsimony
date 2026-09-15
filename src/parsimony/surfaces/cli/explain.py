@@ -119,8 +119,20 @@ def _payload_before(outcome) -> int:
     return outcome.row.tokens_in_original
 
 
-def _pct(score: float) -> str:
-    return f"{100.0 * score:.0f}%"
+#: Question kinds as a reader would say them. "yesno" is an identifier.
+_KIND_WORDS = {
+    "what": "what", "where": "where", "why": "why", "when": "when", "who": "who",
+    "how": "how", "quantity": "how much / how many", "compare": "a comparison",
+    "yesno": "yes or no",
+}
+
+
+def _kind(label: str | None) -> str:
+    return _KIND_WORDS.get(label, "unclear") if label else "unclear"
+
+
+def _pct(score: float | None) -> str:
+    return "?" if score is None else f"{100.0 * score:.0f}%"
 
 
 def _memory_reason(trace, cache, cfg) -> str:
@@ -136,10 +148,15 @@ def _memory_reason(trace, cache, cfg) -> str:
         return "nothing stored yet to compare against"
     score = ev.get("score")
     if trace.outcome is StageOutcome.SHORT_CIRCUIT:
+        # An exact repeat is matched by hash, so it has no similarity score --
+        # and it is the first thing most people try.
+        if ev.get("tier") == "exact":
+            return "reused an earlier answer - the same question, word for word"
         return f"reused an earlier answer - {_pct(score)} match"
     if ev.get("type_agree") is False:
         return (f"{_pct(score)} match, but a different kind of question "
-                f"({ev.get('stored_question_type')} vs {ev.get('question_type')})")
+                f"({_kind(ev.get('stored_question_type'))} vs "
+                f"{_kind(ev.get('question_type'))})")
     if zone == "verify" and ev.get("rejected"):
         return f"{_pct(score)} match, refused: {trace.rationale.split(': ', 1)[-1]}"
     if zone == "reject":
@@ -307,10 +324,19 @@ def memory_panel(outcome, cache=None, cfg=None) -> Panel | None:
     if stored:
         body.add_row("Closest earlier question", f"[italic]{stored}[/italic]")
 
+    if ev.get("tier") == "exact":
+        body.add_row("How it matched", "the same wording as before (ignoring case "
+                                       "and punctuation) - no similarity needed")
+
     score = ev.get("score")
     if score is not None and cfg is not None:
         lo, hi = cfg.cache.tau_lo, cfg.cache.tau_hi
-        where = ("reuse it" if score >= hi else
+        # Say what the SCORE alone would do, and flag when a later check
+        # overrules it -- otherwise "-> reuse it" sits directly above
+        # "Did not reuse" and the panel contradicts itself.
+        overruled = score >= hi and ev.get("type_agree") is False
+        where = ("similar enough to reuse on its own - but see below" if overruled else
+                 "reuse it" if score >= hi else
                  "check it carefully" if score >= lo else "do not reuse")
         body.add_row("Similarity", f"[bold]{_pct(score)}[/bold]  "
                                    f"[dim](under {_pct(lo)}: do not reuse - "
@@ -321,7 +347,8 @@ def memory_panel(outcome, cache=None, cfg=None) -> Panel | None:
         same = ev.get("type_agree")
         mark = "same" if same is not False else "DIFFERENT"
         body.add_row("Kind of question",
-                     f"{ev.get('stored_question_type')} vs {ev.get('question_type')} ({mark})")
+                     f"earlier asked {_kind(ev.get('stored_question_type'))}, this asks "
+                     f"{_kind(ev.get('question_type'))} ({mark})")
 
     verifier = ev.get("verifier") or {}
     if verifier:

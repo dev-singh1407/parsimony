@@ -136,6 +136,22 @@ class TestTheMemoryAlwaysExplainsItself:
         assert "Reused the stored answer" in out
         assert "recursion" in out, "the matched question must be shown, not just a score"
 
+    def test_an_exact_repeat_renders_and_says_how_it_matched(self, make_pipeline, counter):
+        """An exact repeat is matched by hash and carries no similarity score.
+        The first version assumed every hit had one and crashed on precisely the
+        case a new user tries first: asking the same thing twice."""
+        pipeline = make_pipeline(full_stack())
+        pipeline.run("What is recursion?")
+        again = pipeline.run("What is recursion?")
+        assert again.row.cache_hit
+        out = render(memory_panel(again, cache=pipeline.cache, cfg=CFG))
+        assert "word for word" in out or "same wording" in out
+        assert "What is recursion?" in out
+        console = Console(width=110, record=True)
+        turn_report(console, again, "What is recursion?", counter,
+                    cache=pipeline.cache, cfg=CFG, session=Session())
+        assert "never called" in console.export_text()
+
     def test_the_similarity_is_shown_against_its_thresholds(self, make_pipeline):
         pipeline = make_pipeline(full_stack())
         outcomes = converse(pipeline, "What is recursion?", "What is a pointer?",

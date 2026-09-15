@@ -17,45 +17,67 @@ saved. Add `--detail` if you also want the engineering trace underneath.
 
 ## What you will see
 
-For the first question below, the whole screen is:
+For the first question below, the whole screen is (captured from a live run, not drawn by hand):
 
 ```
-┌─ Your question ──────────────────────────────────────────────────────┐
-│ Hello, I was wondering if you could please explain what recursion    │
-│ is? Thanks!                                                          │
-│                                                                      │
-│ 28 tokens as typed                                                   │
-└──────────────────────────────────────────────────────────────────────┘
-┌─ Step 1 — Politeness remover        saved 10 tokens ─────────────────┐
-│ was:  "Hello, I was wondering if you could please explain what       │
-│        recursion is? Thanks!"                                        │
-│ now:  "Explain what recursion is?"                                   │
-│                                                                      │
-│ words that went: "Hello, I was wondering if you could please"        │
-│                  · "Thanks!"                                         │
-└──────────────────────────────────────────────────────────────────────┘
-┌─ Step 2 — Prompt arranger ───────────────────────────────────────────┐
-│ Put the unchanging part of the prompt first.                         │
-│ The AI can then reuse the work it did on that part last turn.        │
-└──────────────────────────────────────────────────────────────────────┘
-┌─ Step 3 — Answer limiter ────────────────────────────────────────────┐
-│ Classified as factual, so the answer may run to 128 tokens.          │
-└──────────────────────────────────────────────────────────────────────┘
-┌─ Step 4 — Router ────────────────────────────────────────────────────┐
-│ Judged simple enough for the small model.                            │
-└──────────────────────────────────────────────────────────────────────┘
-Not needed for this question: Calculator, Memory, History trimmer,
-History arranger, Duplicate remover, Wordiness trimmer.
-┌─ Result ─────────────────────────────────────────────────────────────┐
-│ 28 tokens  →  17 tokens     11 fewer (39%)                           │
-│ roughly 0.09 seconds of waiting removed                              │
-│ Every deletion passed the safety check, so the meaning is unchanged. │
-└──────────────────────────────────────────────────────────────────────┘
+┌─ Your question ──────────────────────────────────────────────────────────┐
+│ Hello, I was wondering if you could please explain what recursion is?    │
+│ Thanks!                                                                  │
+│                                                                          │
+│ What you typed                    16 tokens                              │
+│ Fixed instructions                12 tokens                              │
+│ -------------------------------      ------                              │
+│ Full prompt, before any trimming  28 tokens                              │
+└──────────────────────────────────────────────────────────────────────────┘
+
+ #  Layer                  Tokens  What it did
+ 1  Calculator                  -  not a sum or a date question
+ 2  Memory                      -  nothing stored yet to compare against
+ 3  History trimmer             -  no earlier turns to work with yet
+ 4  History arranger            -  no earlier turns to work with yet
+ 5  Politeness remover        -10  removed "Hello, I was wondering if you
+                                   could please" · "Thanks!"
+ 6  Repeat remover              -  no repeated sentence
+ 7  Wordiness trimmer           -  no wordy phrase worth shortening
+ 8  Prompt arranger             -  pinned 8 unchanging tokens to the front
+ 9  Answer limiter              -  factual question, so up to 128 tokens
+10  Model chooser               -  simple enough (0.19) for the small model
+
+┌─ Memory - reuses an earlier answer when the question matches ────────────┐
+│ Compared against            nothing yet - no earlier question is stored  │
+│ Verdict                     Did not reuse - nothing stored yet to        │
+│                             compare against                              │
+└──────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│ Politeness remover changed your question                                 │
+│                                                                          │
+│ before   Hello, I was wondering if you could please explain what         │
+│          recursion is? Thanks!                                           │
+│ after    Explain what recursion is?                                      │
+└──────────────────────────────────────────────────────────────────────────┘
+┌─ Result ─────────────────────────────────────────────────────────────────┐
+│ Prompt: 28 -> 17 tokens                                                  │
+│ 11 fewer (39%) - about 0.09 s less reading, at the 8.5 ms per token      │
+│ measured on this machine                                                 │
+│ Answer allowed up to 128 tokens; it used 61.                             │
+│ Every deletion passed the safety check, so the meaning is unchanged.     │
+└──────────────────────────────────────────────────────────────────────────┘
+This conversation: 1 question(s) - 11 prompt tokens avoided (39%), about 0.1
+s of the AI's reading time
 ```
 
-Read it top to bottom and it explains itself: what you typed, what each step changed, what is left, and
-what it cost. The line naming what was *not* needed matters — a module that reports doing nothing is still
-accounted for.
+Read it top to bottom and it explains itself:
+
+- **Your question** separates what you typed from the conversation and the fixed instructions. Those three
+  add up to the full prompt. (An earlier version printed the whole prompt as "tokens as typed", so the
+  number grew every turn while your question stayed the same size.)
+- **Every layer is listed, every turn**, including the ones that did nothing — each says *why* it did
+  nothing. A layer that declines is still accounted for.
+- **Memory always explains itself**, hit or miss: what it compared against, how similar, and why it did
+  or did not reuse.
+- **Result** gives the arithmetic and what it is worth in seconds on this laptop.
+
+Inside `ask`, type `help` to list the layers and `memory` to see what has been remembered.
 
 ---
 
@@ -130,37 +152,85 @@ Why does quicksort degrade to quadratic time, and how would you avoid it?
 Budget **640 tokens** — classified as reasoning. Compare with the deterministic-tier question above, which
 is classified arithmetic and budgeted **48**. Same module, a 13× difference in what it allows.
 
-### M2 · the semantic cache
+### M2 · the memory (semantic cache)
 
-Ask something self-contained, ask two other things, then ask the first one again:
+The memory is the layer people ask about most, so it has the most questions. Every result below is what
+the pipeline actually does — measured, not expected. Each needs one unrelated question in between
+(`What is a pointer?` works), so the reuse is not just the previous turn.
+
+**1. The same question again — reused.**
 
 ```
 Explain recursion.
 ```
 ```
-What is the capital of Australia?
+What is a pointer?
+```
+```
+Explain recursion.
+```
+
+The memory panel says *"the same wording as before — no similarity needed"*. The AI is never called.
+
+**2. The same question, worded differently — reused.** This is the interesting one:
+
+| Asked first | Asked later | Result |
+|---|---|---|
+| `Hello, could you please explain what recursion is? Thanks!` | `What is recursion?` | **reused** — 100% match |
+| `How does a hash table work?` | `Explain how hash tables work` | **reused** — 100% match |
+| `What causes rain?` | `Why does it rain?` | **reused** — 100% match |
+
+The memory compares the questions with courtesy ("could you please… thanks"), request words ("explain",
+"tell me") and plurals set aside. All three pairs used to **miss** — the polite one scored 63%, the
+plural 71%, and "Why does it rain?" was never compared at all, because the word *it* made the system
+treat it as a follow-up. All three were fixed and are now tested.
+
+**3. A question that only LOOKS the same — refused.** This is the safety property, and the best thing to
+show someone:
+
+```
+Is it safe to mix bleach and vinegar?
 ```
 ```
 What is a pointer?
 ```
 ```
-What is the capital of Australia?
+Is it not safe to mix bleach and vinegar?
 ```
 
-Turn 4 comes back **`CACHE_EXACT` — the model was never called.**
+The two are **91% similar** — close enough that a similarity-only cache would hand back the opposite
+answer. The memory panel shows the safety checks, with **"not / never DIFFER"** in red, and refuses.
 
-This only started working after ADR-039. Before it, every cache entry was tagged with a hash of the last two
-turns, and that hash changes every turn — so an answer stored at turn 2 was filed under a label that no
-longer existed at turn 4, and the lookup reported *"cache miss (no candidates)"*. Not "too dissimilar": no
-candidate at all. The tag now applies only to questions that actually depend on the conversation.
+**4. Same words, a different kind of question — refused.**
 
-A follow-up still misses, correctly:
+```
+What is Java?
+```
+```
+What is a pointer?
+```
+```
+Where is Java?
+```
 
+These score **100%** — both reduce to the one subject word "Java". But one asks *what* (the language) and
+the other *where* (the island). The panel reads *"earlier asked what, this asks where (DIFFERENT)"* and
+refuses. Before this was fixed, the memory answered the where-question with the what-answer.
+
+**5. A follow-up — correctly not reused from elsewhere.**
+
+```
+Explain what a hash table is.
+```
 ```
 Why does that affect lookup time?
 ```
 
-*"that"* refers to something earlier, so its answer is scoped to this conversation and cannot be reused.
+*"that"* points back at something earlier, so the question only means something inside this conversation.
+The panel names the word: *"treated as a follow-up because of the word 'that'"*.
+
+The whole set of rephrasings the memory is checked against — 37 pairs, half of which must **not** be
+reused — is in `corpus/interactive_pairs.jsonl`, and every pair is a test.
 
 ### M3 · the history manager
 
