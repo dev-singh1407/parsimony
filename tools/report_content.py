@@ -181,7 +181,7 @@ SECTIONS = [
                 ("Remaining", "Neural encoder swap; full sweep on the real model; a usable judge; "
                               "a second model for escalation", "Planned"),
             ], ["Phase", "Work", "Status"]),
-            "Current status: all eight modules built, 942 automated tests passing, 39 "
+            "Current status: all eight modules built, 961 automated tests passing, 39 "
             "architecture decision records, and every reported figure regenerating from raw logs "
             "in approximately 100 seconds.",
         ]),

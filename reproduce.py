@@ -358,6 +358,67 @@ def render_longctx(ctx: Context) -> str:
     return text
 
 
+def render_encoders(ctx: Context) -> str:
+    """What the encoder is worth, and what it costs the safety design (ADR-041).
+
+    Two encoders x two designs. The neural arm needs Ollama, so it is computed
+    when reachable and otherwise left out with a note -- this file must stay
+    runnable on a machine with no model installed.
+    """
+    import json as _json
+    import time as _time
+    from dataclasses import replace as _replace
+
+    from parsimony.core.config import neural  # noqa: PLC0415
+    from parsimony.eval.calibration import _lookup_hits, evaluate_point  # noqa: PLC0415
+    from parsimony.infra.embedding import OllamaEmbedder  # noqa: PLC0415
+
+    pairs = load_adversarial()
+    free_typing = [_json.loads(line) for line
+                   in (Path("corpus") / "interactive_pairs.jsonl").read_text(
+                       encoding="utf-8").splitlines() if line.strip()]
+
+    arms = [("content-v1 (lexical)", full_stack())]
+    neural_up = OllamaEmbedder.available()
+    if neural_up:
+        arms.append(("all-minilm (neural)", neural()))
+
+    headers = ["encoder", "design", "false answers", "false %", "true hits", "true %",
+               "free-typing pairs", "ms per question"]
+    rows = []
+    for label, cfg in arms:
+        embedder = get_embedder(cfg.embedder_id)
+        start = _time.perf_counter()
+        embedder.embed([f"latency probe {_time.time()}"])
+        per_query = (_time.perf_counter() - start) * 1000
+        for design, always in (("accept zone above tau_hi", False),
+                               ("verify every hit", True)):
+            c = _replace(cfg, cache=_replace(cfg.cache, verify_always=always))
+            point = evaluate_point(pairs, c, embedder, verifier_on=True)
+            correct = sum(_lookup_hits(p["b"], p["a"], embedder, c, True)
+                          == (p["expect"] == "hit") for p in free_typing)
+            rows.append([label, design,
+                         f"{point.false_hits}/{point.adversarial_total}",
+                         f"{point.false_hit_rate:.1f}",
+                         f"{point.true_hits}/{point.control_total}",
+                         f"{point.true_hit_rate:.1f}",
+                         f"{correct}/{len(free_typing)}",
+                         f"{per_query:.0f}"])
+    _write_csv(ctx.out / "encoders.csv", headers, rows)
+
+    note = (
+        "\n\nThe accept zone -- a score high enough to skip verification -- was safe only "
+        "because the LEXICAL encoder never scored an adversarial pair that high. A better "
+        "encoder puts the same pairs straight through it. Verifying every hit costs "
+        "microseconds on memoised invariants, removes the dependence on the encoder's "
+        "weakness, and is what makes the better encoder usable at all."
+    )
+    if not neural_up:
+        note += ("\n\n_The neural arm was skipped: no embedding model reachable. "
+                 "`ollama pull all-minilm` and re-run to include it._")
+    return _table(headers, rows) + note
+
+
 def render_calibration_table(ctx: Context) -> str:
     """Contribution 6, in the form a practitioner can act on."""
     table = calibration_table(ctx.results)
@@ -627,6 +688,8 @@ SECTIONS: tuple[Section, ...] = (
                                           "q_embedding_sim"), render_pareto),
     Section("calibration", "Cache threshold calibration",
             ("cache_top_k", "cache_zone", "cache_verifier"), render_calibration),
+    Section("encoders", "What the encoder is worth, and what it costs the design", (),
+            render_encoders),
     Section("calibration_table", "Calibration table — per query class",
             ("tokens_in_final", "tokens_out"), render_calibration_table),
     Section("energy", "Energy and cost equivalent",

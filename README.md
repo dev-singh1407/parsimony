@@ -21,7 +21,7 @@ VIT University · B.Tech BCSE497J Project I · Guide: Dr Sathya K
 python reproduce.py --out figures
 ```
 
-**942 tests passing.** Every table below regenerates from a live run in ~40 s. Setup and commands:
+**961 tests passing.** Every table below regenerates from a live run in ~40 s. Setup and commands:
 [`docs/08-setup.md`](docs/08-setup.md).
 
 | Module | State |
@@ -153,6 +153,34 @@ struck through. `--compare` asks the same question again with every layer switch
 the two measurements side by side — on one attached handbook that is 8.9 s of reading against 3.0 s, for the
 same answer.
 
+### A better encoder broke the safety design — and that is the finding
+
+Replacing the lexical encoder with MiniLM (45 MB, served by the same local runtime, no PyTorch) was the
+roadmap's first item. It fixes what the lexical encoder cannot see — and it takes the cache's false-answer
+rate from **0.0% to 17.8%** (ADR-041):
+
+| encoder | design | false answers | true hits | ms per question |
+|---|---|---|---|---|
+| content-v1 (lexical) | accept zone above τ_hi | 0/45 — 0.0% | 13/45 — 28.9% | 1 |
+| all-minilm (neural) | accept zone above τ_hi | **8/45 — 17.8%** | 23/45 — 51.1% | 51 |
+| all-minilm (neural) | **verify every hit** | **0/45 — 0.0%** | **17/45 — 37.8%** | 51 |
+
+The adversarial negation pair scores 0.924 under the lexical encoder and **0.996** under MiniLM — above the
+threshold at which the old design skipped verification entirely. No threshold fixes that: a negation is a
+smaller edit than a rephrasing in any embedding space, so a better space makes it worse. The accept zone was
+safe only because the encoder was weak. Verification now runs on every candidate, costs microseconds, holds
+the false-answer rate at 0.0% for both encoders, and lifts answer reuse from 26.7% to 37.8%.
+
+In M1's context selector the same encoder recovers the answers a lexical score loses: **40/45 on the
+long-context test set, exactly matching full context**, at 25.5% of the tokens and 4.1 s of prefill against
+8.4 s (the lexical selector scores 36/45).
+
+**`localhost` was also costing two seconds per call.** A flat ~2,040 ms per Ollama request that `curl` did
+not pay: `localhost` resolves to `::1` first, Ollama listens on IPv4, and the attempt has to time out. At
+`127.0.0.1` the same call takes **31 ms**. It is invisible in every prefill and decode figure here — those
+counters start after the connection — but every wall-clock number measured before the fix carries it, on
+both sides of every comparison.
+
 ### Five findings that changed the design
 
 **The published cache thresholds are unsafe here (ADR-024, ADR-027).** The adversarial negation pair sits at
@@ -194,7 +222,7 @@ module — the same distinction as ADR-028.
 | [`docs/00-architecture.md`](docs/00-architecture.md) | Layering, core data model, orchestrator, stage ordering, repo layout, cross-cutting concerns |
 | [`docs/01-pipeline-stages.md`](docs/01-pipeline-stages.md) | The eight processing stages, each with objective / inputs / outputs / techniques / libraries / pros / cons / alternatives / recommendation / integration |
 | [`docs/02-module-specs.md`](docs/02-module-specs.md) | M1–M8 internals and ablation wiring |
-| [`docs/03-decision-log.md`](docs/03-decision-log.md) | 40 ADRs with justification and consequences. **The intellectual core** — several record where measurement contradicted the plan |
+| [`docs/03-decision-log.md`](docs/03-decision-log.md) | 41 ADRs with justification and consequences. **The intellectual core** — several record where measurement contradicted the plan |
 | [`docs/04-roadmap.md`](docs/04-roadmap.md) | Re-planned 12-week schedule, sprint plan, milestone gates, scope-cut order, risks |
 | [`docs/05-evaluation-harness.md`](docs/05-evaluation-harness.md) | The compute budget problem and its fix; sweep runner; four quality measures; statistics; validity threats |
 | [`docs/06-contracts.md`](docs/06-contracts.md) | Complete L0 type and protocol definitions + the ledger schema. **Review this first** |

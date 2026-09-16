@@ -111,13 +111,22 @@ near-duplicates.
 | 0 | Exact hash: `BLAKE2b(canon(q) ‖ chain_hash ‖ model_id ‖ schema_v)` | ~1 µs | Identical repeats |
 | 1 | Cosine over normalised MiniLM embeddings, exact search, top-5 | ~5 ms | Paraphrases |
 
-**Three-zone policy** (Stage 7 owns the thresholds):
+**Policy** (Stage 7 owns the thresholds). The three zones as designed, and what shipped after ADR-041:
 
 ```
-accept  sim ≥ τ_hi
-verify  τ_lo ≤ sim < τ_hi  →  entity_agree ∧ number_agree ∧ negation_agree ∧ jaccard ≥ j_min
-reject  sim < τ_lo
+designed   accept  sim ≥ τ_hi                    -> serve without verifying
+           verify  τ_lo ≤ sim < τ_hi             -> entity ∧ number ∧ negation ∧ modifier
+                                                    ∧ question-kind ∧ jaccard ≥ j_min
+           reject  sim < τ_lo
+
+shipped    verify  sim ≥ τ_lo                    -> the same checks, ALWAYS
+           reject  sim < τ_lo
 ```
+
+The accept zone was safe only while the encoder was too weak to score a lookalike pair above τ_hi. Under
+MiniLM the negation pair scores 0.996 and walks straight through it: 17.8% false answers at τ_hi = 0.97,
+2.2% at 0.99. Verification costs microseconds on memoised invariants, so it now runs on every candidate and
+τ_hi is no longer a safety parameter — `verify_always=False` restores the designed behaviour for comparison.
 
 `negation_agree` is the addition beyond the report's text and it is the one that will actually carry the
 adversarial subset: 50 pairs differing by one operative token, and operative tokens are disproportionately

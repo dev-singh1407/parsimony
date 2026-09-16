@@ -1,9 +1,17 @@
 """M2 — Two-Tier Semantic Cache.
 
 Tier 0 is an exact hash; tier 1 is cosine over an exact vector index. A single
-similarity threshold is replaced by a three-zone policy: accept, reject, or
-*verify*. Borderline matches are settled by cheap lexical and invariant
-agreement rather than by the embedding alone.
+similarity threshold is replaced by verification: a candidate above the floor
+is settled by cheap lexical and invariant agreement rather than by the
+embedding alone.
+
+It was a three-zone policy -- accept, verify, reject -- until a better encoder
+showed that the accept zone's safety came from the encoder's weakness rather
+than from the threshold. MiniLM scores "is X safe" against "is X NOT safe" at
+0.996, above any usable tau_hi, where the lexical encoder scored it 0.924 and
+the verifier caught it. Verification now runs on every candidate
+(`verify_always`), and the zone survives only as a switch so the design the
+literature uses stays measurable (ADR-041).
 
 The verifier is where the real work happens, and it is deliberately not a second
 neural forward pass. Two questions differing by one operative token — the
@@ -794,12 +802,19 @@ class CacheLookupStage:
         best, score = candidates[0]
         query_inv = self.cache.invariants_of(ctx.query)
 
-        if score >= cfg.cache.tau_hi:
-            # Even a perfect score does not survive a different KIND of
+        if score >= cfg.cache.tau_hi and not cfg.cache.verify_always:
+            # The accept zone: a score high enough to skip verification. Safe
+            # only while the encoder never scores an adversarial pair this
+            # high, which is a property of a WEAK encoder -- MiniLM puts "is X
+            # safe" against "is X NOT safe" at 0.996 and walks it straight
+            # through here (ADR-041). `verify_always` (the default) leaves this
+            # branch unreachable and is what lets a better encoder be used at
+            # all; the branch stays so the unsafe design remains measurable.
+            #
+            # Even then, a perfect score does not survive a different KIND of
             # question. "What is Java?" and "Where is Java?" both reduce to
-            # "java" and score 1.000, and the accept zone does not consult the
-            # verifier -- so without this the cache answers the wrong question
-            # with full confidence.
+            # "java" and score 1.000, so without this the cache answers the
+            # wrong question with full confidence.
             if not question_types_agree(ctx.query, best.query):
                 self.cache.stats.verify_rejections += 1
                 return NoOp(

@@ -115,7 +115,7 @@ def _lookup_hits(
         return False
     entry, score = found[0]
 
-    if score >= cfg.cache.tau_hi:
+    if score >= cfg.cache.tau_hi and not (verifier_on and cfg.cache.verify_always):
         return True if not verifier_on else question_types_agree(query, entry.query)
     if score < cfg.cache.tau_lo:
         return False

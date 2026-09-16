@@ -137,6 +137,18 @@ class CacheConfig:
     # is the finding, not a workaround — see ADR-024.
     tau_hi: float = 0.97
     tau_lo: float = 0.75
+    # Run the full verifier even on a score above tau_hi (ADR-041).
+    #
+    # The accept zone existed to skip verification when similarity was
+    # overwhelming. That was safe only because the LEXICAL encoder never scored
+    # an adversarial pair that high: "is X safe" against "is X NOT safe" sits
+    # at 0.924 under content-v1, below tau_hi, so the verifier saw it. Under
+    # MiniLM the same pair scores 0.996 -- straight into the accept zone -- and
+    # the false-answer rate goes from 0.0% to 2.2% at tau_hi = 0.99 and 17.8%
+    # at 0.97. The zone's safety was a property of the encoder's weakness, and
+    # it does not survive a better encoder. Verification costs microseconds on
+    # memoised invariants, so it now always runs.
+    verify_always: bool = True
     jaccard_min: float = 0.55
     chain_depth: int = 2
     top_k: int = 5
@@ -336,6 +348,29 @@ def _canonicalise(obj: Any) -> Any:
 def baseline() -> ParsimonyConfig:
     """Everything off. Every later claim is a difference against this."""
     return ParsimonyConfig(enabled_modules=frozenset(), label="baseline")
+
+
+#: The neural encoder, and the thresholds calibrated FOR it (ADR-041). Not the
+#: default: it needs Ollama running, and the frozen figures were produced with
+#: the lexical one. `parsimony ask` and `chat` select it when it is reachable
+#: and say which encoder they used.
+NEURAL_EMBEDDER = "ollama:all-minilm"
+
+
+def neural(cfg: ParsimonyConfig | None = None) -> ParsimonyConfig:
+    """MiniLM embeddings with their own calibration.
+
+    tau_lo moves 0.75 -> 0.70 because the encoder's whole distribution moves:
+    at 0.75 two genuine rephrasings in `corpus/interactive_pairs.jsonl` fall
+    below the candidate gate that the lexical encoder cleared. Measured: at
+    0.70 the false-answer rate on the 45 adversarial pairs stays 0.0%, true
+    hits rise 26.7% -> 37.8%, and all 37 free-typing pairs decide correctly.
+    This is Contribution 6 applied to our own stack -- a threshold is a
+    property of an encoder, not of a technique.
+    """
+    cfg = cfg or full_stack()
+    return replace(cfg, embedder_id=NEURAL_EMBEDDER,
+                   cache=replace(cfg.cache, tau_lo=0.70))
 
 
 def context_v1(cfg: ParsimonyConfig | None = None) -> ParsimonyConfig:

@@ -233,7 +233,25 @@ instead, or run them beforehand and show the scrollback.
 
 **"How do you know the cache is safe?"**
 > 45 adversarial pairs, false-answer rate from 26.7% to 0%. Then we fuzzed it and found a bypass our own
-> corpus couldn't reveal, and fixed that too.
+> corpus couldn't reveal, and fixed that too. And when we finally swapped in a neural encoder, it broke the
+> safety design — which is the most useful thing we found all month.
+
+**"You're still using a lexical encoder — why not a real embedding model?"**
+> We did, and it is installed: MiniLM, 45 MB, served by the same local runtime, no PyTorch. It fixes what a
+> lexical encoder cannot see, and it took our false-answer rate from **0% to 17.8%**. The reason is the part
+> worth hearing: our design skipped verification when similarity was overwhelming, and the lexical encoder
+> simply never scored a trick pair that high. MiniLM scores *"is it safe"* against *"is it NOT safe"* at
+> **0.996**. No threshold fixes that — a negation is a smaller edit than a rephrasing in any embedding space,
+> so a better space makes it worse. We now verify every hit, which costs microseconds: 0% false answers under
+> both encoders, and reuse rises from 26.7% to 37.8%. The thresholds are recalibrated per encoder, because a
+> threshold belongs to the encoder it was set against.
+
+**"How much of your speed comes from the layers rather than from tuning?"**
+> One honest deduction: while measuring the encoder we found that resolving `localhost` cost **two seconds
+> per call** on this machine — it tries IPv6 first, Ollama listens on IPv4, and the attempt has to time out.
+> At `127.0.0.1` the same call takes 31 ms. Every wall-clock figure we had measured carried that constant, on
+> both sides of every comparison, and none of the prefill numbers could see it because the runtime's counters
+> start after the connection. It is fixed, and it is written up rather than quietly removed.
 
 **"Why is prefill the number you keep quoting?"**
 > On CPU, reading the prompt is 92 to 99% of the time — about 8.5 milliseconds per input token, measured.

@@ -122,23 +122,43 @@ class Methods:
         from parsimony.pipeline.orchestrator import Pipeline
 
         self.cfg = cfg or full_stack()
+        self._tokenizer, self._embedder = tokenizer, embedder
         self.pipeline = Pipeline(self.cfg, provider=MockProvider(), tokenizer=tokenizer,
                                  embedder=embedder)
         self.count = self.pipeline.tokenizer.count
         self.stage = ContextCompressor()
+        # One pipeline per encoder. An arm that changes the embedder changes
+        # the DERIVED cache the stage reads its vectors from, so reusing a
+        # pipeline built for another encoder silently measures the wrong thing:
+        # the first neural run scored sentences lexically and produced output
+        # identical to the lexical arm, down to the token.
+        self._by_encoder = {self.cfg.embedder_id: self.pipeline}
+
+    def _pipeline_for(self, cfg: ParsimonyConfig):
+        from parsimony.infra.embedding import get_embedder
+        from parsimony.infra.providers import MockProvider
+        from parsimony.pipeline.orchestrator import Pipeline
+
+        if cfg.embedder_id not in self._by_encoder:
+            self._by_encoder[cfg.embedder_id] = Pipeline(
+                cfg, provider=MockProvider(), tokenizer=self._tokenizer,
+                embedder=self._embedder if self._embedder is not None
+                else get_embedder(cfg.embedder_id))
+        return self._by_encoder[cfg.embedder_id]
 
     # -- the system under test -------------------------------------------
 
     def parsimony(self, item: LongItem, cfg: ParsimonyConfig | None = None) -> Compressed:
         cfg = cfg or self.cfg
-        ctx = self.pipeline.build_context(item.question, conversation_id=item.item_id,
-                                          documents=item.documents)
+        pipeline = self._pipeline_for(cfg)
+        ctx = pipeline.build_context(item.question, conversation_id=item.item_id,
+                                     documents=item.documents)
         proposal = self.stage.propose(ctx, cfg)
         if not isinstance(proposal, ContextPatch):
             return Compressed(item.documents, {"applied": False,
                                                "reason": getattr(proposal, "detail", "")})
         candidate = replace(ctx, **dict(proposal.fields))
-        verdict = self.pipeline.gate.check(ctx, candidate, proposal.kind, "M1")
+        verdict = pipeline.gate.check(ctx, candidate, proposal.kind, "M1")
         if not verdict.passed:
             return Compressed(item.documents, {"applied": False, "gate": verdict.detail})
         return Compressed(candidate.documents, {"applied": True, **dict(proposal.evidence)})
@@ -220,12 +240,15 @@ def evidence_kept(item: LongItem, documents: tuple[Document, ...]) -> tuple[int,
 #: "v1", the selector exactly as it was frozen for the first real-model run, so
 #: a later change is measured against it rather than against a memory of it.
 def ablations(cfg: ParsimonyConfig) -> dict[str, ParsimonyConfig]:
-    from parsimony.core.config import context_v1, context_v2
+    from parsimony.core.config import context_v1, context_v2, neural
 
     c = cfg.compression
     return {
         "v1": context_v1(cfg),
         "v2": context_v2(cfg),
+        # The same selector, scoring sentences with MiniLM instead of a lexical
+        # encoder. Needs Ollama; costs ~9 ms per sentence (ADR-041).
+        "neural": neural(cfg),
         "no_anchors": replace(cfg, compression=replace(
             c, context_anchor_guarantee=False, context_anchor_bonus=0.0)),
         "no_closure": replace(cfg, compression=replace(c, context_closure_depth=0)),
@@ -278,15 +301,16 @@ def run_offline(methods: Methods, items, arms: tuple[str, ...] | None = None
 # ------------------------------------------------------------- real model --
 
 #: Every arm the real-model study runs, in the order it runs them.
-REAL_ARMS = ("closed_book", "full", "parsimony", "bm25_topk", "truncate", "random",
+REAL_ARMS = ("closed_book", "full", "parsimony", "parsimony_neural", "bm25_topk",
+             "truncate", "random",
              "stopwords", "parsimony_no_anchors", "parsimony_no_closure",
              "parsimony_no_doc_prior", "parsimony_no_floor")
 
 #: The confirmation run on the second held-out split: the two versions of the
 #: selector against each other and against the same baselines, without the
 #: component ablations (which the first split already measured).
-CONFIRM_ARMS = ("closed_book", "full", "parsimony", "parsimony_v2", "bm25_topk",
-                "truncate", "random", "stopwords")
+CONFIRM_ARMS = ("closed_book", "full", "parsimony", "parsimony_neural", "parsimony_v2",
+                "bm25_topk", "truncate", "random", "stopwords")
 
 
 def run_real(methods: Methods, items, provider, out_path: Path, *,
@@ -427,6 +451,7 @@ ARM_LABELS = {
     "parsimony": "Parsimony",
     "parsimony_v1": "Parsimony (as first frozen)",
     "parsimony_v2": "  with title weighting (measured, not adopted)",
+    "parsimony_neural": "Parsimony + MiniLM sentence scoring",
     "parsimony_no_anchors": "  without anchors",
     "parsimony_no_closure": "  without dependency closure",
     "parsimony_no_doc_prior": "  without document prior",

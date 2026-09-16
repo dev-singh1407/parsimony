@@ -1,9 +1,9 @@
 # Parsimony — Findings to date
 
-**Status:** all eight modules built · **942 tests passing** · every number below regenerates with
+**Status:** all eight modules built · **961 tests passing** · every number below regenerates with
 `python reproduce.py`
 
-This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (40 ADRs);
+This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (41 ADRs);
 this document is what those decisions *found*.
 
 **Which numbers came from where.** Sections 1–7 and 9 run against `MockProvider`, a deterministic stand-in:
@@ -132,6 +132,47 @@ Two revisions to this number are worth recording, because they moved it in oppos
 > as the encoder's blind spot.
 
 ---
+
+### The encoder that fixes the missed paraphrases breaks the safety design
+
+The cost above — seven in ten legitimate paraphrases missed — is an encoder property, and the roadmap's
+first item was to replace `content-v1` with MiniLM. Doing it produced the result this project exists to
+find (ADR-041):
+
+| encoder | design | false answers | true hits | free-typing pairs | ms per question |
+|---|---|---|---|---|---|
+| content-v1 (lexical) | accept zone above τ_hi | 0/45 — 0.0% | 13/45 — 28.9% | 37/37 | 1 |
+| content-v1 (lexical) | verify every hit | 0/45 — 0.0% | 12/45 — 26.7% | 37/37 | 1 |
+| all-minilm (neural) | accept zone above τ_hi | **8/45 — 17.8%** | 23/45 — 51.1% | 36/37 | 51 |
+| all-minilm (neural) | **verify every hit** | **0/45 — 0.0%** | **17/45 — 37.8%** | **37/37** | 51 |
+
+The adversarial negation pair scores **0.924** under the lexical encoder and **0.996** under MiniLM. Under
+the three-zone policy that is the difference between "below τ_hi, so the verifier sees it" and "above τ_hi,
+so nothing does" — 17.8% false answers at τ_hi = 0.97, and still 2.2% at 0.99. **No threshold rescues it**,
+because a negation is a smaller edit than a rephrasing in any embedding space, and a better space makes that
+worse rather than better.
+
+So part of the 0.0% reported since §2 was a property of the encoder's *weakness*, not of the policy.
+Verification now runs on every candidate whatever it scores (`verify_always`, microseconds on memoised
+invariants): 0.0% false answers at every threshold, for both encoders, and answer reuse rises **26.7% →
+37.8%** with the neural encoder. The threshold stops being a safety parameter and becomes a candidate gate —
+recalibrated to τ_lo = 0.70 for MiniLM, because two genuine rephrasings sit below the lexical encoder's 0.75.
+
+**And it recovers the long-context answers the lexical score lost.** M1's context selector uses the same
+encoder, so the swap applies there too. On the 45 held-out long-context questions the neural selector scores
+**40/45 - exactly what sending the whole document scores** - at 25.5% of the context and 4.1 s of prefill
+against 8.4 s, where the lexical selector scored 36/45. On the 30-question confirmation split both score
+27/30. Across both splits it wins five of the six questions the two encoders disagree on, including the
+"daily dose" against "once a day" miss that prompted the swap.
+
+**And `localhost` was costing two seconds a call.** The first embedding measurement showed a flat ~2,040 ms
+per request that scaled with nothing; `curl` to the same endpoint took 0.23 s. `localhost` resolves to `::1`
+first, Ollama listens on IPv4, and the connection has to time out before the client falls back. At
+`127.0.0.1` the same call takes **31 ms**. Every Ollama call in the project paid it, and none of the
+runtime-counter numbers — prefill, decode, tokens, accuracy — could see it, because those counters start
+after the connection. Wall-clock figures measured before the fix carry the constant on both sides of every
+comparison. It took an *absolute* expectation of what MiniLM should cost to notice a two-second tax that
+years of relative comparisons would have hidden.
 
 ## 3. Saving tokens can cost time, invisibly
 

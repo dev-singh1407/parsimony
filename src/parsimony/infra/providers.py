@@ -22,7 +22,22 @@ from typing import Iterator
 from parsimony.core.errors import ProviderError
 from parsimony.core.types import GenParams, TokenEvent
 
-DEFAULT_OLLAMA_HOST = "http://localhost:11434"
+#: 127.0.0.1, NOT localhost. Measured on this machine: an HTTP call to
+#: http://localhost:11434 takes ~2,040 ms and the identical call to
+#: http://127.0.0.1:11434 takes ~31 ms. "localhost" resolves to ::1 first,
+#: Ollama listens on IPv4 only, and the connection attempt has to time out
+#: before the client falls back -- a fixed two-second tax on every request,
+#: paid by generation, embedding and availability checks alike. It is invisible
+#: in the runtime's own prefill and decode counters, which is exactly why it
+#: survived: every timing this project reports from those counters is
+#: unaffected, and every wall-clock figure measured before this was 2 s too
+#: high (ADR-041).
+DEFAULT_OLLAMA_HOST = "http://127.0.0.1:11434"
+
+
+def fast_host(host: str) -> str:
+    """Swap a 'localhost' authority for 127.0.0.1 -- see DEFAULT_OLLAMA_HOST."""
+    return host.replace("//localhost", "//127.0.0.1")
 DEFAULT_OLLAMA_MODEL = "qwen2.5:1.5b-instruct"
 
 # Realistic for a 1B Q4_K_M model on an i5-class CPU. Used to synthesise
@@ -181,7 +196,7 @@ class OllamaProvider:
         num_ctx: int | None = None,
     ) -> None:
         self.model = model
-        self.host = host.rstrip("/")
+        self.host = fast_host(host.rstrip("/"))
         self.timeout = timeout
         self.num_ctx = num_ctx
         self._info: dict | None = None
@@ -264,7 +279,7 @@ class OllamaProvider:
         stays green on a machine that has never installed Ollama — including CI.
         """
         try:
-            with urllib.request.urlopen(f"{host.rstrip('/')}/api/tags", timeout=3.0) as r:
+            with urllib.request.urlopen(f"{fast_host(host.rstrip('/'))}/api/tags", timeout=3.0) as r:
                 tags = json.loads(r.read())
         except Exception:
             return False

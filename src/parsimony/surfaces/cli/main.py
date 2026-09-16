@@ -532,6 +532,28 @@ def calibrate_dedup(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
     )
 
 
+def pick_encoder(cfg, *, announce: bool = True):
+    """Use the neural encoder when it is reachable, and say which one ran.
+
+    A silent fallback between encoders would be the worst of both worlds: the
+    thresholds differ per encoder (ADR-041), so a run that quietly changed
+    encoder would quietly change the cache's behaviour.
+    """
+    from parsimony.core.config import NEURAL_EMBEDDER, neural
+    from parsimony.infra.embedding import OllamaEmbedder
+
+    if cfg.embedder_id != NEURAL_EMBEDDER and OllamaEmbedder.available():
+        cfg = neural(cfg)
+        if announce:
+            console.print(f"[dim]Encoder: {cfg.embedder_id} (neural, ~33 ms per question). "
+                          f"Similarity thresholds calibrated for it: tau_lo "
+                          f"{cfg.cache.tau_lo}.[/dim]")
+    elif announce:
+        console.print(f"[dim]Encoder: {cfg.embedder_id} (lexical). Pull all-minilm for the "
+                      f"neural one: ollama pull all-minilm[/dim]")
+    return cfg
+
+
 def load_documents(paths: list[Path] | None) -> tuple:
     """Files the user attached, as documents. Refuses what it cannot read."""
     from parsimony.core.types import split_into_documents
@@ -575,7 +597,7 @@ def ask(
     """
     from parsimony.surfaces.cli.live import LiveSession, compare_turn, show_turn
 
-    cfg = full_stack()
+    cfg = pick_encoder(full_stack())
     documents = load_documents(files)
     real_provider = make_provider(provider, model=model)
     pipeline = Pipeline(cfg, provider=real_provider, capture_text=True)

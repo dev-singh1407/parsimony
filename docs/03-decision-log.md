@@ -1583,3 +1583,117 @@ of that happened.
   present, so roughly 40% of an unrelated handbook survives. The budget bounds it and the answer is
   unaffected, but the tokens are wasted; an absolute floor on the raw BM25 score is the next thing to
   measure, on `test2` and on questions authored to be off-topic.
+
+---
+
+### ADR-041 — A better encoder breaks the safety design, and `localhost` costs two seconds
+
+**Status.** Accepted, 16 September 2026. Answers the roadmap's first open item (swap the lexical encoder) and
+amends ADR-024's three-zone policy.
+
+**Context.** Every threshold in the cache was calibrated against `content-v1`, a lexical encoder, and the
+roadmap's top item was to replace it with MiniLM — ADR-028 had quantified what the lexical encoder cannot do,
+and ADR-040 added a second instance: a question asking for a "daily dose" never matches an answer sentence
+saying "once a day". `OllamaEmbedder` serves `all-minilm` (22M parameters, 384 dimensions, 45 MB) through the
+runtime already installed, so this no longer needs PyTorch.
+
+Three things came out of actually doing it, in ascending order of importance.
+
+**1. `localhost` was costing two seconds per call.** The first latency measurement of the embedding model
+said 2,068 ms for a single sentence and 2,662 ms for sixty-four — a flat two-second floor that scaled with
+nothing. `curl` to the same endpoint took 0.23 s. The cause is name resolution: `localhost` resolves to `::1`
+first, Ollama listens on IPv4 only, and the connection attempt has to time out before the client falls back.
+
+| call | median |
+|---|---|
+| `urllib` → `http://localhost:11434` | 2,041 ms |
+| `urllib` → `http://127.0.0.1:11434` | **31 ms** |
+| one kept-alive connection | 25 ms |
+
+Every Ollama call in the project paid it: generation, embedding, availability checks. It is **invisible in
+every number this project reports from the runtime's own counters** — prefill, decode, tokens — which is
+exactly why it survived: those counters start after the connection. What it does affect is wall clock, so
+every wall-clock figure measured before this was about two seconds too high, on both sides of every
+comparison. `DEFAULT_OLLAMA_HOST` is now `127.0.0.1` and `fast_host()` rewrites any `localhost` authority a
+caller passes. The lesson is not about DNS: a measurement that only ever gets compared against itself can
+hide a constant of any size, and it took an *absolute* expectation ("MiniLM should embed a sentence in about
+ten milliseconds") to notice.
+
+**2. The accept zone was safe only because the encoder was weak.** ADR-024 established the three zones:
+above `tau_hi` accept, below `tau_lo` reject, in between verify. Swapping the encoder produced this:
+
+| encoder | design | false answers | true hits | free-typing pairs | ms per question |
+|---|---|---|---|---|---|
+| content-v1 (lexical) | accept zone above `tau_hi` | **0/45 — 0.0%** | 13/45 — 28.9% | 37/37 | 1 |
+| content-v1 (lexical) | verify every hit | 0/45 — 0.0% | 12/45 — 26.7% | 37/37 | 1 |
+| all-minilm (neural) | accept zone above `tau_hi` | **8/45 — 17.8%** | 23/45 — 51.1% | 36/37 | 51 |
+| all-minilm (neural) | verify every hit | **0/45 — 0.0%** | **17/45 — 37.8%** | 37/37 | 51 |
+
+The adversarial pair *"Is it safe to mix bleach and vinegar?"* / *"Is it **not** safe…"* scores **0.924**
+under the lexical encoder and **0.996** under MiniLM. Under the old policy that is the difference between
+"below `tau_hi`, so the verifier sees it" and "above `tau_hi`, so nothing does". The false-answer rate under
+the better encoder is 17.8% at `tau_hi = 0.97` and still 2.2% at 0.99: **no threshold rescues it**, because a
+negation is a smaller edit than a rephrasing in every embedding space, and a better space makes that worse,
+not better.
+
+So the 0.0% this project has reported since ADR-024 was, in part, a property of the encoder's weakness rather
+than of the policy. `verify_always` (new, default on) removes the bypass: every candidate is verified,
+whatever it scores. Verification is numbers, names, negations, operative modifiers and question kind over
+memoised invariants — microseconds — so the zone was never buying much. With it on, the false-answer rate is
+0.0% at **every** threshold for both encoders, and the threshold stops being a safety parameter at all. The
+old behaviour stays reachable (`verify_always=False`) because it is the design the literature uses and the
+one this table indicts.
+
+**3. The thresholds are a property of the encoder, not of the technique.** With verification unconditional,
+`tau_lo` becomes the candidate gate, and MiniLM's distribution is not the lexical one: at 0.75 two genuine
+rephrasings in `corpus/interactive_pairs.jsonl` fall below it. Calibrated for MiniLM, `tau_lo = 0.70` gives
+0.0% false answers, 37.8% true hits and 37/37 free-typing pairs. That is Contribution 6 demonstrated on our
+own stack rather than asserted about someone else's: `neural()` carries the encoder and its own thresholds
+together, because shipping one without the other is the mistake.
+
+**What it buys in the context tier, measured.** M1's context selector scores every sentence with the same
+encoder, so the swap applies there too -- and this is where it pays for the answer ADR-040 lost:
+
+| split | method | correct | context kept | prompt tokens | prefill |
+|---|---|---|---|---|---|
+| test (45) | full context | 40/45 - 88.9% | 100% | 727 | 8.39 s |
+| test (45) | Parsimony, lexical | 36/45 - 80.0% | 21.2% | 219 | 2.38 s |
+| test (45) | **Parsimony + MiniLM** | **40/45 - 88.9%** | 25.5% | 249 | 4.09 s |
+| test2 (30) | full context | 29/30 - 96.7% | 100% | 577 | 5.94 s |
+| test2 (30) | Parsimony, lexical | 27/30 - 90.0% | 21.0% | 181 | 1.70 s |
+| test2 (30) | **Parsimony + MiniLM** | 27/30 - 90.0% | 27.7% | 219 | 3.18 s |
+
+On the first split the neural selector answers **exactly as many questions as sending the whole document**,
+at a quarter of the tokens; on the second it ties the lexical one. Across both splits it wins five of the six
+questions the two encoders disagree on -- including `orrin_q1` ("daily dose" against "once a day"), which is
+the failure that prompted the swap. It keeps ~20% more context and spends ~450 ms embedding, so its prefill
+is 4.1 s against 2.4 s -- still half of full context, and the accuracy is four items better.
+
+**A harness bug worth recording.** The first neural long-context run produced results identical to the
+lexical arm, token for token. `Methods` passed the neural config to the stage while the derived cache it
+reads vectors from still belonged to a pipeline built with the lexical encoder: the arm measured the other
+arm. Identical output across a changed variable is a signal, not a coincidence, and the rule it earned is a
+test -- `test_encoders.py::TestTheBenchmarkHarnessHonoursTheEncoder` -- rather than a resolution to be
+careful.
+
+**What it costs.** 33 ms per question for the cache lookup — a third of the 120 ms overhead budget, paid
+once per request. In M1's context tier, which scores every sentence, it is ~9 ms per sentence: about 450 ms
+for a six-document request, against the ~5 s of prefill that request's compression removes. Worth it there,
+but not free, and it is the first component in this project whose *scorer* cost is a material fraction of
+what it saves — the critique the literature survey makes of the compression literature, now applying to us.
+
+**Decision.** `content-v1` stays the library default: the frozen figures were produced with it, and the test
+suite must not require a model server. `parsimony ask` and `parsimony chat` select the neural encoder when
+it is reachable and print which one they used, with its calibrated thresholds. `verify_always` is on for
+every configuration.
+
+**Consequences.**
+
+- The safety claim is stronger and narrower: it now rests on verification alone, and is no longer
+  conditional on the encoder failing to notice similarity.
+- Answer reuse rises 26.7% → 37.8% on the control pairs at the same 0.0% false-answer rate.
+- Every wall-clock number measured before the host fix carries a ~2 s client-side constant. Prefill, decode,
+  token counts and accuracy are unaffected; the long-context comparisons are unaffected in their differences
+  because both arms paid it.
+- `figures/encoders.csv` regenerates the table above whenever an embedding model is reachable, and is left
+  out with a note when it is not.

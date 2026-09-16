@@ -135,10 +135,12 @@ class OllamaEmbedder:
     network round trip per stage would spend the overhead budget three times.
     """
 
-    def __init__(self, model: str = "all-minilm", host: str = "http://localhost:11434",
+    def __init__(self, model: str = "all-minilm", host: str | None = None,
                  *, timeout: float = 60.0) -> None:
+        from parsimony.infra.providers import DEFAULT_OLLAMA_HOST, fast_host
+
         self.model = model
-        self.host = host.rstrip("/")
+        self.host = fast_host((host or DEFAULT_OLLAMA_HOST).rstrip("/"))
         self.timeout = timeout
         self._dim: int | None = None
         self._memo: dict[str, np.ndarray] = {}
@@ -193,7 +195,7 @@ class OllamaEmbedder:
         return out
 
     @classmethod
-    def available(cls, model: str = "all-minilm", host: str = "http://localhost:11434") -> bool:
+    def available(cls, model: str = "all-minilm", host: str | None = None) -> bool:
         try:
             cls(model, host, timeout=5.0).embed(["probe"])
             return True

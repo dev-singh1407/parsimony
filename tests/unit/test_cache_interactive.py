@@ -132,7 +132,14 @@ class TestTheFailuresThatStartedThis:
         last = outcomes[-1]
         assert not last.row.cache_hit
         trace = cache_trace(last)
-        assert trace.evidence.get("type_agree") is False
+        # Both questions reduce to "java" and score 1.000, so this is refused
+        # on the kind of question and nothing else. Which check reports it
+        # depends on `verify_always`: with it on (the default since ADR-041)
+        # the full verifier runs and answers, rather than the accept zone's
+        # single guard.
+        evidence = trace.evidence
+        refused_by = (evidence.get("verifier") or {}).get("question_agree")
+        assert evidence.get("type_agree") is False or refused_by == 0.0
         assert "kind of question" in trace.rationale
 
     def test_the_negation_pair_is_refused_by_the_verifier_not_by_accident(

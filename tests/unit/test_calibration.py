@@ -178,10 +178,29 @@ class TestCalibrationSweep:
         without = evaluate_point(pairs, full_stack(), embedder, verifier_on=False)
         assert without.false_hit_rate > with_verifier.false_hit_rate
 
-    def test_lower_thresholds_are_monotonically_less_safe(self, pairs, embedder):
-        points = sweep_thresholds(full_stack(), pairs=pairs, embedder=embedder)
-        rates = [p.false_hit_rate for p in points]
+    def test_lower_thresholds_are_monotonically_less_safe_when_a_zone_skips_verification(
+        self, pairs, embedder
+    ):
+        """The classic three-zone design, which `verify_always=False` restores.
+
+        It is the arm the threshold argument is about: with an accept zone, the
+        threshold is the only thing standing between a lookalike pair and a
+        wrong answer, so lowering it costs safety.
+        """
+        from dataclasses import replace
+
+        cfg = full_stack()
+        zoned = replace(cfg, cache=replace(cfg.cache, verify_always=False))
+        rates = [p.false_hit_rate for p in
+                 sweep_thresholds(zoned, pairs=pairs, embedder=embedder)]
         assert rates[0] > rates[-1]
+
+    def test_verifying_every_hit_makes_the_threshold_stop_mattering(self, pairs, embedder):
+        """The point of ADR-041: safety stops being a property of the encoder's
+        weakness, which is what allows a stronger encoder to be used at all."""
+        points = sweep_thresholds(full_stack(), pairs=pairs, embedder=embedder)
+        assert {p.false_hit_rate for p in points} == {0.0}
+        assert all(p.is_safe for p in points)
 
 
 class TestCorpusIntegrity:

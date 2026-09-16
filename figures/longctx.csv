@@ -3,6 +3,7 @@ full,45,100.0,45/45,100.0
 parsimony,45,21.2,41/45,91.1
 parsimony_v1,45,21.2,41/45,91.1
 parsimony_v2,45,22.9,42/45,93.3
+parsimony_neural,45,25.5,44/45,97.8
 parsimony_no_anchors,45,22.4,42/45,93.3
 parsimony_no_closure,45,20.5,40/45,88.9
 parsimony_no_doc_prior,45,23.6,41/45,91.1

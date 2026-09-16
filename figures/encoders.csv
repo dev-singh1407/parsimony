@@ -1,0 +1,5 @@
+encoder,design,false answers,false %,true hits,true %,free-typing pairs,ms per question
+content-v1 (lexical),accept zone above tau_hi,0/45,0.0,13/45,28.9,37/37,0
+content-v1 (lexical),verify every hit,0/45,0.0,12/45,26.7,37/37,0
+all-minilm (neural),accept zone above tau_hi,8/45,17.8,23/45,51.1,36/37,27
+all-minilm (neural),verify every hit,0/45,0.0,17/45,37.8,37/37,27
