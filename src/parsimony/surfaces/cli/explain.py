@@ -184,8 +184,15 @@ def _reason(trace, delta, cache, cfg) -> str:
         return trace.rationale or "nothing to do"
     if trace.outcome is StageOutcome.REVERTED:
         lost = _vanished(delta.query_before, delta.query_after) if delta else []
-        what = _quote(lost) if lost else "an edit"
-        return f"wanted to delete {what} - REFUSED, it would change the meaning"
+        if lost:
+            return f"wanted to delete {_quote(lost)} - REFUSED, it would change the meaning"
+        # Without a text delta -- the live view has none while the stage is
+        # still running -- the gate's own event says what the edit would have
+        # cost, which is more useful than "an edit" anyway.
+        values = sorted({v for event in trace.gate_events for v in event.lost_values})
+        if values:
+            return f"wanted a cut that would have lost {_quote(values)} - REFUSED"
+        return "wanted an edit that would change the meaning - REFUSED"
 
     if name == "m2_cache":
         return _memory_reason(trace, cache, cfg)

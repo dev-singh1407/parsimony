@@ -339,9 +339,23 @@ def render_longctx(ctx: Context) -> str:
     rr = [[str(r[h]) for h in rh] for r in real]
     _write_csv(ctx.out / "longctx_real.csv", rh, rr)
     model = recorded[0]["model"]
-    return (text + f"\n\n**Recorded on the real model** ({model}, "
-            f"{len(recorded)} calls, read from longctx_real_items.jsonl):\n\n"
-            + _table(rh, rr))
+    text += (f"\n\n**Recorded on the real model** ({model}, "
+             f"{len(recorded)} calls, read from longctx_real_items.jsonl):\n\n"
+             + _table(rh, rr))
+
+    # The confirmation split: authored after the run above, never tuned
+    # against, and the reason a post-hoc improvement could be rejected rather
+    # than believed (ADR-040).
+    confirm = [r for r in lc.load_rows(ctx.out / "longctx_real_items.jsonl")
+               if r["split"] == "test2"]
+    if confirm:
+        rows2 = lc.real_rows(lc.summarise_real(confirm, lc.CONFIRM_ARMS))
+        h2 = list(rows2[0])
+        r2 = [[str(r[h]) for h in h2] for r in rows2]
+        _write_csv(ctx.out / "longctx_confirm.csv", h2, r2)
+        text += ("\n\n**Confirmation on the held-out split** (30 questions authored after the "
+                 "run above and never tuned against):\n\n" + _table(h2, r2))
+    return text
 
 
 def render_calibration_table(ctx: Context) -> str:

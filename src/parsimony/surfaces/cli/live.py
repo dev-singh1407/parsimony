@@ -252,9 +252,9 @@ class LiveTurn(PipelineObserver):
         return table
 
     def _model_line(self) -> Text | Table:
-        who = "the simulated AI" if self.simulated else "the AI"
+        who = "The simulated AI" if self.simulated else "The AI"
         if self.phase == "answered":
-            return Text(f"  {who.capitalize()} was never called: 0 tokens read, 0 written.",
+            return Text(f"  {who} was never called: 0 tokens read, 0 written.",
                         style="bold cyan")
         if self.phase == "layers":
             return Text("")
@@ -264,7 +264,7 @@ class LiveTurn(PipelineObserver):
         read = self.reading_seconds or 0.0
         if self.phase == "reading":
             grid.add_row(Spinner("dots", style="yellow"),
-                         Text.from_markup(f"[yellow]{who.capitalize()} is reading the prompt "
+                         Text.from_markup(f"[yellow]{who} is reading the prompt "
                                           f"({self.prompt_tokens:,} tokens)... "
                                           f"[bold]{read:.1f} s[/bold][/yellow]  "
                                           f"[dim]this wait is what the layers shorten[/dim]"))
@@ -273,8 +273,10 @@ class LiveTurn(PipelineObserver):
         writing = self.writing_seconds or 0.0
         rate = (n - 1) / writing if writing > 0 and n > 1 else 0.0
         limit = f" of {self.budget} allowed" if self.budget else ""
-        reading = Text.from_markup(f"[green]{self.g['ok']}[/green] read the prompt in "
-                                   f"[bold]{_secs(read)}[/bold]")
+        reading = Text.from_markup(
+            f"[green]{self.g['ok']}[/green] read the prompt "
+            + ("[dim](simulated: no real reading time)[/dim]" if self.simulated
+               else f"in [bold]{_secs(read)}[/bold]"))
         if self.tokens_read is not None and self.prompt_tokens:
             reused = self.prompt_tokens - self.tokens_read
             if reused > 0:
@@ -286,8 +288,9 @@ class LiveTurn(PipelineObserver):
                          Text.from_markup(f"writing: [bold]{n}[/bold] tokens{limit}  "
                                           f"[dim]{rate:.0f} tokens/s[/dim]"))
         else:
-            line = Text.from_markup(f"[green]{self.g['ok']}[/green] wrote [bold]{n}[/bold] "
-                                    f"tokens{limit} in [bold]{_secs(writing)}[/bold]")
+            line = Text.from_markup(
+                f"[green]{self.g['ok']}[/green] wrote [bold]{n}[/bold] tokens{limit}"
+                + ("" if self.simulated else f" in [bold]{_secs(writing)}[/bold]"))
             if self.stop_reason:
                 line.append(f"   stopped early: {self.stop_reason}", style="bold yellow")
             grid.add_row("", line)
@@ -405,6 +408,7 @@ def received_panel(outcome) -> Panel:
 
     if ctx.query != ctx.original_query:
         body.add_row("Your question", _diff_text(ctx.original_query, ctx.query, show="before"))
+        body.add_row("sent as", Text(ctx.query, style="bold"))
     else:
         body.add_row("Your question", Text(ctx.query + "   (unchanged)"))
 
@@ -430,7 +434,11 @@ def measured_panel(outcome, view: LiveTurn) -> Panel:
                   "wall clock" if not view.simulated else "simulated")
         lines.append(f"Prompt: [bold]{before:,}[/bold] tokens as written -> [bold]{after:,}[/bold] "
                      f"sent ({before - after:,} removed).")
-        if view.reused_earlier_work:
+        if view.simulated:
+            lines.append(f"Reading time is not measured here - this is the simulated model. At the "
+                         f"{rate:.1f} ms per token measured on the real one, {after:,} tokens is "
+                         f"about {after * rate / 1000:.1f} s against {before * rate / 1000:.1f} s.")
+        elif view.reused_earlier_work:
             lines.append(f"Reading took only [bold]{_secs(read)}[/bold]: the runtime had already "
                          f"processed this exact prompt and reused that work. Rates below are the "
                          f"{rate:.1f} ms per token measured on this machine from cold "
@@ -443,7 +451,7 @@ def measured_panel(outcome, view: LiveTurn) -> Panel:
                          f"{after - view.tokens_read:,} were identical to last turn's prompt, so "
                          f"its earlier work was reused. The prompt arranger keeps that start "
                          f"unchanged.")
-        if before > after:
+        if before > after and not view.simulated:
             lines.append(f"The full {before:,}-token prompt would have taken about "
                          f"[bold]{before * rate / 1000:.1f} s[/bold] to read at that rate "
                          f"[dim](estimate - type 'compare' to measure it)[/dim].")
@@ -538,7 +546,7 @@ def show_turn(console: Console, pipeline, question: str, history=(), *, document
               conversation_id=None, turn_index: int = 0, session: LiveSession | None = None,
               attachments: str = ""):
     """One question, live, then what the AI received and what it measured."""
-    from parsimony.surfaces.cli.explain import memory_panel
+    from parsimony.surfaces.cli.explain import edit_panels, memory_panel
 
     outcome, view = run_live(console, pipeline, question, history, documents=documents,
                              conversation_id=conversation_id, turn_index=turn_index,
@@ -555,6 +563,9 @@ def show_turn(console: Console, pipeline, question: str, history=(), *, document
         panel = memory_panel(outcome, cache=pipeline.cache, cfg=pipeline.cfg)
         if panel is not None:
             console.print(panel)
+    # The edit the gate refused, and any edit to the question, shown as text.
+    # A layer row can say an edit was refused; only this shows what it was.
+    edit_panels(console, outcome)
     if outcome.generated:
         console.print(received_panel(outcome))
     console.print(measured_panel(outcome, view))

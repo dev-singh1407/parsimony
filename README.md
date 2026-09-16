@@ -21,7 +21,7 @@ VIT University · B.Tech BCSE497J Project I · Guide: Dr Sathya K
 python reproduce.py --out figures
 ```
 
-**854 tests passing.** Every table below regenerates from a live run in ~40 s. Setup and commands:
+**942 tests passing.** Every table below regenerates from a live run in ~40 s. Setup and commands:
 [`docs/08-setup.md`](docs/08-setup.md).
 
 | Module | State |
@@ -132,6 +132,11 @@ the rest meaningful: these documents are fictional, so nothing here can be answe
 The difference is sharpest where the answer sentence begins with a pronoun. Truncation answers **0 of 9**
 such questions and Parsimony **9 of 9**, because a sentence inherits the name from the sentence before it,
 and that sentence is then kept so "It" still refers to something.
+
+It replicates: on 30 further questions authored afterwards and never tuned against, Parsimony scores
+**27/30** where sending the whole document scores 29/30 (p = 0.50), BM25 top-k scores 20/30 and truncation
+4/30. Two changes made after reading the first run's failures were measured there and **not adopted** — they
+scored one item worse and sent 5% more tokens, which is what a held-out split is for.
 
 ### Watch it happen
 

@@ -5,6 +5,8 @@
 #
 #   .\demo.ps1                  list the acts
 #   .\demo.ps1 warmup           load the model (run this BEFORE the guide arrives)
+#   .\demo.ps1 doc              a document, live, with and without the layers
+#   .\demo.ps1 sentences        which sentences of the documents survived
 #   .\demo.ps1 1                Act 1 - what the system does
 #   .\demo.ps1 2                Act 2 - the gate blocking a bad edit
 #   .\demo.ps1 3                Act 3 - cache safety
@@ -52,6 +54,8 @@ switch ($act) {
         Write-Host "  .\demo.ps1 check     is everything ready?"
         Write-Host "  .\demo.ps1 warmup    load the model  <-- run this first, 15 min before"
         Write-Host ""
+        Write-Host "  .\demo.ps1 doc       a document, live, with and without   ~30 s" -ForegroundColor Cyan
+        Write-Host "  .\demo.ps1 sentences which sentences survived, and why    instant" -ForegroundColor Cyan
         Write-Host "  .\demo.ps1 tour      every module, one at a time, before/after" -ForegroundColor Cyan
         Write-Host "  .\demo.ps1 ask       type questions freely, no quotes" -ForegroundColor Cyan
         Write-Host ""
@@ -126,6 +130,26 @@ switch ($act) {
         # accumulates and M3/M4 actually have something to work on. A
         # PowerShell loop calling a one-shot command could not.
         Run-Cli ask @rest
+    }
+
+    "doc" {
+        Show-Banner "D" "A document, live" `
+            "Watch each layer run on an attached handbook, then the same question with every layer off. Both timings are the runtime's own."
+        Run-Cli chat "What is the annual travel budget for the Tallinn office?" `
+            --file examples/staff-handbook.md --provider ollama --compare
+    }
+
+    "sentences" {
+        Show-Banner "S" "Which sentences survived" `
+            "Six documents, every sentence marked kept or removed, the answer sentences in bold. No model needed."
+        Run-Cli longctx --show kestrel_q2
+    }
+
+    "longctx" {
+        # Without --provider ollama this is instant and needs no model: it
+        # reports which methods keep the answer sentences. With it, every arm
+        # is asked of the real model, which takes about an hour.
+        Run-Cli longctx @rest
     }
 
     "1" {

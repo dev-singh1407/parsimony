@@ -1,6 +1,6 @@
 # Parsimony — Findings to date
 
-**Status:** all eight modules built · **854 tests passing** · every number below regenerates with
+**Status:** all eight modules built · **942 tests passing** · every number below regenerates with
 `python reproduce.py`
 
 This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (40 ADRs);
@@ -606,9 +606,42 @@ that the method as a whole beats the baselines while its individual components a
 questions. The floor does have a measured price: without it the prompt keeps 34.6% of the context instead of
 21.2% for no accuracy difference we can see.
 
+### It replicates on questions nothing was tuned against
+
+Two failures above suggested obvious fixes — count a document's title toward its relevance, and judge the
+relevance floor before the anchor bonus. Both are *post-hoc*: proposed after seeing these results, which is
+the point at which a result stops being evidence. So they were measured on **test2**: 30 questions over six
+collections authored beforehand and never looked at during tuning.
+
+| method | correct | context kept | prefill | vs full |
+|---|---|---|---|---|
+| full context | 29/30 — 96.7% | 100% | 5.94 s | — |
+| **Parsimony, as first frozen** | **27/30 — 90.0%** | **21.0%** | **1.70 s** | p = 0.500 |
+| Parsimony + the two "fixes" | 26/30 — 86.7% | 22.6% | 1.81 s | p = 0.250 |
+| stopword removal | 22/30 — 73.3% | 64.9% | 4.18 s | p = 0.016 |
+| BM25 top sentences | 20/30 — 66.7% | 22.3% | 1.82 s | p = 0.004 |
+| random sentences | 9/30 — 30.0% | 22.0% | 1.82 s | p < 0.001 |
+| truncate to budget | 4/30 — 13.3% | 20.6% | 1.62 s | p < 0.001 |
+| no context | 1/30 — 3.3% | 0% | 0.41 s | p < 0.001 |
+
+**The method replicates. The improvement does not** — it scores one item worse and sends 5% more tokens, so
+it was not adopted. One item is noise in both directions; that is precisely why a change that cannot be
+shown to help does not ship. It stays available as `context_v2()` for re-measurement against a neural
+encoder, where a title carries meaning word overlap cannot see.
+
+The first table would have been the published one. The improvements were designed against its failures, and
+re-measuring them there would have shown a gain by construction.
+
 **Where it still fails.** Of the four questions Parsimony got wrong and full context got right, one asked for
 a "daily dose" where the document says "once a day" — no lexical relevance score connects those, and that is
 the ceiling this tier shares with the lexical encoder of ADR-028.
+
+A second limitation is visible without any benchmark: ask an attached handbook something it says nothing
+about ("what is the capital of Peru?") and the selector still keeps about 40% of it. Relevance is scored
+relative to the best sentence in the request, so when nothing is relevant the least irrelevant sentences
+still win places. The budget bounds the damage and the answer is unaffected — the model has no evidence
+either way — but the tokens are wasted, and an absolute floor on the raw relevance score is the obvious
+next measurement.
 
 ## Reproducing all of it
 

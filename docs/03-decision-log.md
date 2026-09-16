@@ -1532,6 +1532,40 @@ was not kept — the answer became unresolvable rather than wrong. One is `orrin
 "daily dose" and the answer sentence says "once a day", which no lexical measure connects. That is the
 ceiling of a lexical relevance score, and precisely the case a neural encoder exists to fix (ADR-028).
 
+**The confirmation run, and a change that did not survive it.** Two failures in the table above suggested
+obvious fixes: count a document's *title* toward its relevance (the OB-114 dosage sentence sits under a
+heading that names the trial, and never repeats the code), and judge the relevance floor *before* the anchor
+bonus (an anchored sentence's bonus was setting the scale everything else was measured against). Both were
+implemented, and both are post-hoc — proposed after seeing the test results, which is exactly the point at
+which a result stops being evidence.
+
+So they were measured on **test2**: 30 questions over six new collections, authored before either change was
+written and never looked at while tuning. Same protocol, same model, one call per question per arm:
+
+| method | correct | 95% CI | context kept | prompt tokens | prefill | vs full context |
+|---|---|---|---|---|---|---|
+| full context | 29/30 — 96.7% | 83.3–99.4 | 100% | 577 | 5.94 s | — |
+| **Parsimony, as first frozen** | **27/30 — 90.0%** | 74.4–96.5 | **21.0%** | **181** | **1.70 s** | −2, p = 0.500 |
+| Parsimony + titles + earlier floor | 26/30 — 86.7% | 70.3–94.7 | 22.6% | 190 | 1.81 s | −3, p = 0.250 |
+| stopword removal | 22/30 — 73.3% | 55.6–85.8 | 64.9% | 415 | 4.18 s | −7, p = 0.016 |
+| BM25 top sentences | 20/30 — 66.7% | 48.8–80.8 | 22.3% | 189 | 1.82 s | −9, p = 0.004 |
+| random sentences | 9/30 — 30.0% | 16.7–47.9 | 22.0% | 191 | 1.82 s | −20, p < 0.001 |
+| truncate to budget | 4/30 — 13.3% | 5.3–29.7 | 20.6% | 169 | 1.62 s | −25, p < 0.001 |
+| no context | 1/30 — 3.3% | 0.6–16.7 | 0% | 59 | 0.41 s | −28, p < 0.001 |
+
+**The method replicates; the improvement does not.** On questions nothing was tuned against, the frozen
+selector holds 90.0% against 96.7% for sending everything (p = 0.500) at a fifth of the context, and every
+baseline again loses significantly. The two post-hoc options score one item *worse* and send 5% more tokens.
+One item is noise — that is the honest reading in both directions, which is why they are not adopted: a
+change that cannot be shown to help does not ship, however good the reasoning behind it looked. Both remain
+one preset away (`context_v2()`), because the reasoning may well start to pay against a neural encoder,
+where document titles carry meaning that a word overlap cannot see.
+
+**Why this matters more than the percentages.** The first table is the one that would have been published:
+the improvements were designed against its failures, and re-measuring them there would have shown a gain by
+construction. The second table exists only because the split was authored, frozen and left alone before any
+of that happened.
+
 **Consequences.**
 
 - M1's contribution is no longer a rounding error on inputs where compression matters, and its old figure on
@@ -1541,6 +1575,11 @@ ceiling of a lexical relevance score, and precisely the case a neural encoder ex
   rather than "no compression".
 - Every `ask`/`chat` turn can show which sentences of an attached file were sent and which were removed, with
   the runtime's own prefill timings beside them.
-- A change made after seeing these results is a post-hoc change and is reported as one: `context_v1()` freezes
-  the configuration measured above, and the **test2** split exists to confirm any later version on questions
-  nothing was tuned against.
+- The pre-registration paid for itself immediately: the first change made after seeing the results looked
+  obviously right, and did not replicate. `context_v1()` names the shipped configuration explicitly and
+  `context_v2()` keeps the rejected one measurable.
+- A limitation the benchmark cannot show, because every question in it is answerable from its documents: when
+  a question bears on none of the attached text, relevance is still scored relative to the best sentence
+  present, so roughly 40% of an unrelated handbook survives. The budget bounds it and the answer is
+  unaffected, but the tokens are wasted; an absolute floor on the raw BM25 score is the next thing to
+  measure, on `test2` and on questions authored to be off-topic.

@@ -221,19 +221,34 @@ and effect sizes; the three-zone cache verifier at a 0.0% false-hit rate; the co
 | Answer quality | 5% gold — a mock artefact | 90% baseline, 95% full stack, **zero regressions** |
 | True-hit denominator | 21 controls | 45 controls, balanced against 45 adversarial; false-hit rate unchanged at 0.0% |
 
+**Closed since, and the largest change to the system so far.** M1 was the weakest module at 0.23% because
+the corpus asks six-word questions. Requests now carry documents, M1 has a question-aware context tier, the
+gate has an EXTRACT check for it, and there is a long-context benchmark with the obvious methods as
+baselines. On 45 held-out questions: 21% of the context, 3.5x less prefill, 36/45 correct against 40/45 for
+sending everything (not significant), where truncation scores 14/45 and BM25 top-k 32/45 at the same budget
+(ADR-040).
+
 **Open, in priority order.**
 
 1. **Swap the lexical encoder for MiniLM.** ADR-028 quantifies the case: tier 2's near-zero contribution is
-   an encoder property, and no threshold recovers the pairs it should be merging. This is the single largest
-   available improvement to a module that currently does nothing.
-2. **Run the full sweep against the real model.** The token results will not move — the tokenizer was
+   an encoder property, and no threshold recovers the pairs it should be merging. ADR-040 adds a second
+   reason from a different module: the context tier misses an answer sentence that says "once a day" when
+   the question says "daily", which is the same failure. `OllamaEmbedder` serves MiniLM through the runtime
+   already installed, so this no longer needs PyTorch -- it needs the model pulled and every threshold
+   recalibrated.
+
+2. **An absolute relevance floor.** Ask an attached handbook something it says nothing about and the
+   selector still keeps ~40% of it: relevance is scored relative to the best sentence present, so "least
+   irrelevant" still wins places. Needs off-topic questions authored for the benchmark, which it currently
+   has none of.
+3. **Run the full sweep against the real model.** The token results will not move — the tokenizer was
    already Qwen2.5's — but the timing and energy columns become real throughout rather than only in §8 of
    the findings. Budget it: generation memoisation avoids 78.2% of calls, but the unmemoised timing pass is
    the expensive one.
-3. **A real judge.** The current model-as-judge is a deliberate length-biased stand-in, built so the
+4. **A real judge.** The current model-as-judge is a deliberate length-biased stand-in, built so the
    swap-disagreement machinery could be shown to detect bias. With a real model available it can be
    replaced, and the disagreement rate becomes a quality signal instead of a demonstration.
-4. **Escalation with a second model.** M6's `MODEL_LARGE` tier has nowhere to escalate to while only one
+5. **Escalation with a second model.** M6's `MODEL_LARGE` tier has nowhere to escalate to while only one
    model is installed; `_provider_for` records the tier honestly rather than pretending, so this is a
    measurement waiting on a download.
 

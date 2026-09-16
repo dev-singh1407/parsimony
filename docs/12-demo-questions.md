@@ -17,65 +17,77 @@ saved. Add `--detail` if you also want the engineering trace underneath.
 
 ## What you will see
 
-For the first question below, the whole screen is (captured from a live run, not drawn by hand):
+Each turn is drawn **as it runs**: every layer fills in with its own duration and what it did, the
+prompt bar shrinks as cuts are committed, a clock runs while the model reads the prompt, and the answer
+streams in against the budget the answer limiter chose. This is a live capture, not a drawing:
 
 ```
-┌─ Your question ──────────────────────────────────────────────────────────┐
-│ Hello, I was wondering if you could please explain what recursion is?    │
-│ Thanks!                                                                  │
-│                                                                          │
-│ What you typed                    16 tokens                              │
-│ Fixed instructions                12 tokens                              │
-│ -------------------------------      ------                              │
-│ Full prompt, before any trimming  28 tokens                              │
-└──────────────────────────────────────────────────────────────────────────┘
+Parsimony  Hello, I was wondering if you could please explain what recursion
+is? Thanks!
 
- #  Layer                  Tokens  What it did
- 1  Calculator                  -  not a sum or a date question
- 2  Memory                      -  nothing stored yet to compare against
- 3  History trimmer             -  no earlier turns to work with yet
- 4  History arranger            -  no earlier turns to work with yet
- 5  Politeness remover        -10  removed "Hello, I was wondering if you
-                                   could please" · "Thanks!"
- 6  Repeat remover              -  no repeated sentence
- 7  Wordiness trimmer           -  no wordy phrase worth shortening
- 8  Prompt arranger             -  pinned 8 unchanging tokens to the front
- 9  Answer limiter              -  factual question, so up to 128 tokens
-10  Model chooser               -  simple enough (0.19) for the small model
+Prompt  ██████████████████████░░░░░░░░░░░░░░  17 tokens   11 removed (39%)
 
-┌─ Memory - reuses an earlier answer when the question matches ────────────┐
-│ Compared against            nothing yet - no earlier question is stored  │
-│ Verdict                     Did not reuse - nothing stored yet to        │
-│                             compare against                              │
-└──────────────────────────────────────────────────────────────────────────┘
-┌──────────────────────────────────────────────────────────────────────────┐
-│ Politeness remover changed your question                                 │
-│                                                                          │
-│ before   Hello, I was wondering if you could please explain what         │
-│          recursion is? Thanks!                                           │
-│ after    Explain what recursion is?                                      │
-└──────────────────────────────────────────────────────────────────────────┘
-┌─ Result ─────────────────────────────────────────────────────────────────┐
-│ Prompt: 28 -> 17 tokens                                                  │
-│ 11 fewer (39%) - about 0.09 s less reading, at the 8.5 ms per token      │
-│ measured on this machine                                                 │
-│ Answer allowed up to 128 tokens; it used 61.                             │
-│ Every deletion passed the safety check, so the meaning is unchanged.     │
-└──────────────────────────────────────────────────────────────────────────┘
-This conversation: 1 question(s) - 11 prompt tokens avoided (39%), about 0.1
-s of the AI's reading time
+    Layer                   Time   Tokens  What happened                    
+✓   Calculator            0.3 ms        -  not a sum or a date question     
+✓   Memory                1.2 ms        -  nothing stored yet to compare    
+                                           against                          
+✓   History trimmer      <0.1 ms        -  no earlier turns to work with yet
+✓   History arranger     <0.1 ms        -  no earlier turns to work with yet
+✓   Context selector     <0.1 ms        -  no documents attached and no long
+                                           earlier answers                  
+✓   Politeness remover    1.2 ms      -10  removed 10 tokens of greeting or 
+                                           formatting                       
+✓   Repeat remover        0.2 ms        -  no repeated sentence             
+✓   Wordiness trimmer     3.1 ms        -  no wordy phrase worth shortening 
+✓   Prompt arranger       0.5 ms        -  pinned 8 unchanging tokens to the
+                                           front                            
+✓   Answer limiter        0.2 ms        -  factual question, so up to 128   
+                                           tokens                           
+✓   Model chooser         0.1 ms        -  simple enough (0.19) for the     
+                                           small model                      
+
+   ✓ read the prompt (simulated: no real reading time)                  
+   ✓ wrote 53 tokens of 128 allowed   stopped early: restated a sentence
+╭─ Answer ─────────────────────────────────────────────────────────────────╮
+│ It is worth considering the trade-offs before deciding. This behaviour   │
+│ is consistent across the common implementations. The answer depends on   │
+│ the specific context you are working in. There are several factors that  │
+│ influence the outcome here. In most practical cases the standard         │
+│ approach is sufficient. It is worth considering the trade-offs before    │
+│ deciding.                                                                │
+╰──────────────────────────────────────────────────────────────────────────╯╭─ What the AI actually received  struck-through text was removed before s─╮
+│ Instructions        You are a concise, accurate assistant.   (always     │
+│                     first, never changes)                                │
+│ Your question       Hello, I was wondering if you could please explain   │
+│                     what recursion is? Thanks!                           │
+│ sent as             Explain what recursion is?                           │
+╰──────────────────────────────────────────────────────────────────────────╯
+╭─ Measured ───────────────────────────────────────────────────────────────╮
+│ Prompt: 28 tokens as written -> 17 sent (11 removed).                    │
+│ Reading time is not measured here - this is the simulated model. At the  │
+│ 8.5 ms per token measured on the real one, 17 tokens is about 0.1 s      │
+│ against 0.2 s.                                                           │
+│ The answer was cut short because it restated a sentence.                 │
+│ Simulated AI: the layers are real, the timings are not. Start Ollama for │
+│ real ones.                                                               │
+╰──────────────────────────────────────────────────────────────────────────╯
+This conversation: 1 question(s)  |  17 of 28 prompt tokens sent (39% 
+removed)  |  the AI spent 0.0 s reading (simulated) instead of about 0.2 s
 ```
 
 Read it top to bottom and it explains itself:
 
-- **Your question** separates what you typed from the conversation and the fixed instructions. Those three
-  add up to the full prompt. (An earlier version printed the whole prompt as "tokens as typed", so the
-  number grew every turn while your question stayed the same size.)
-- **Every layer is listed, every turn**, including the ones that did nothing — each says *why* it did
-  nothing. A layer that declines is still accounted for.
-- **Memory always explains itself**, hit or miss: what it compared against, how similar, and why it did
-  or did not reuse.
-- **Result** gives the arithmetic and what it is worth in seconds on this laptop.
+- **The bar** is the prompt: solid for what is being sent, hollow for what was removed.
+- **Every layer is listed, every turn**, including the ones that did nothing - each says *why*, and how
+  long it took. A layer that declines is still accounted for.
+- **The model's own time** is separated into reading the prompt and writing the answer, because on this
+  CPU reading is 92-99% of it. Against a real model both come from the runtime's counters.
+- **What the AI actually received** shows the text that went, with everything removed struck through -
+  so the claim in the bar can be checked by eye.
+- **Measured** converts the tokens into seconds, and says plainly when a figure is an estimate.
+
+Type `compare` at any point and the same question is asked again with every layer switched off, from
+cold, on the same model - two measurements side by side rather than an estimate.
 
 Inside `ask`, type `help` to list the layers and `memory` to see what has been remembered.
 
@@ -333,6 +345,41 @@ text and its pattern does not match. Strip the politeness first and it would.
 This is the same class of effect as research gap 3 (what the cache sees depends on where it sits), and it is
 an honest thing to show rather than hide: **the order of the stages changes the result, which is exactly why
 this project makes stage order configuration rather than code.**
+
+---
+
+## Part 3 — A document, where compression is worth seconds
+
+Everything above is a question of a few dozen tokens, so the most any compressor can save is a few dozen
+tokens. Attach a file and the same layers have something to work with:
+
+```powershell
+.\demo.ps1 ask --file examples/staff-handbook.md
+```
+
+The handbook is 817 tokens in seven sections. Every question below is answered from it, and the context
+selector decides which sentences the model reads. Typical: **888 tokens as written, about 320 sent.**
+
+| Ask this | What happens, checked against a live run |
+|---|---|
+| How many people does the Tallinn office employ? | 888 → 327 tokens. The answer sentence is "It employs 58 people." and it never says Tallinn: it is found because it inherits the name from the sentence before it, and that sentence is kept so "It" still refers to something. The Onboarding section goes entirely. |
+| For how many days can an oscilloscope be borrowed? | 890 → 161 tokens, the largest cut of the five. Every office section disappears; both loan periods (14 days and 7) stay, because both sentences are about loans and only the model can pick between them. |
+| Which office has more employees, Porto or Tallinn? | 889 → 337 tokens, and **both** counts survive — "It employs 58 people" and "The office employs 41 people" — from two different sections. A two-part question needs both, and dropping either would make it unanswerable. |
+| What is the annual travel budget for the Tallinn office? | 890 → 318 tokens. All three offices' travel budgets survive here, not just Tallinn's: each is a sentence about travel budgets, and the selector ranks rather than decides. What it does guarantee is that the Tallinn section is represented — the budget sentence there says only "The office", so a name match alone would have missed it. |
+| What is the capital of Peru? | **The honest one to show.** Nothing in the handbook bears on the question, and the selector still keeps about 40% of it: scores are relative, so "least irrelevant" still wins a place. Say so — it is a named limitation, not a surprise, and the fix (an absolute relevance floor) is measurable rather than a matter of taste. |
+
+Then type `compare`. The same question is asked again with every layer switched off, from cold, on the
+same model — on this laptop that is **8.9 s of reading against 3.0 s**, for the same answer.
+
+To see the decision itself rather than its effect, without needing the model at all:
+
+```powershell
+.\demo.ps1 sentences
+```
+
+Every sentence of six documents marked kept or removed, the answer sentences in bold, and a line saying
+what stopped the selection, which names were guaranteed a sentence, and how many sentences were kept only
+so a following "It" makes sense.
 
 ---
 

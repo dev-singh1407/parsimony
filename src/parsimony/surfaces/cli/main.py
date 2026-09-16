@@ -1316,7 +1316,7 @@ def _show_compression(methods, item) -> None:
         body = []
         for s in split_sentences(doc.content):
             if s in kept_text:
-                mark = "[green]kept[/green]   "
+                mark = "[green]kept   [/green]  "
                 style = "bold" if any(e in s for e in item.evidence) else ""
                 body.append(f"{mark}[{style}]{s}[/{style}]" if style else f"{mark}{s}")
             else:

@@ -93,16 +93,16 @@ class CompressionConfig:
     context_dense_weight: float = 0.3
     # How much a sentence's score depends on its document's relevance.
     context_doc_weight: float = 0.3
-    # A document's title counts toward its relevance at this weight. The title
-    # is often the only place a document says what it is about: "Trial OB-114:
-    # velastrin" heads a document whose dosage sentence never repeats the code.
-    # 0.0 reproduces the first frozen version (context_v1).
-    context_title_weight: float = 0.5
-    # Judge the relevance floor BEFORE the anchor bonus. A sentence naming what
-    # the question names is already guaranteed a place; letting its bonus also
-    # set the scale the floor is measured against pushed every other sentence
-    # under the floor. False reproduces context_v1.
-    context_floor_before_bonus: bool = True
+    # Two options added after reading the first run's failures, and switched
+    # OFF after measuring them (ADR-040). Counting a document's title toward
+    # its relevance, and judging the relevance floor before the anchor bonus,
+    # both looked like clear fixes for real failures. On the 30 questions
+    # authored afterwards and never tuned against, they scored 26/30 where the
+    # original scored 27/30, for 5% more prompt tokens. A change that cannot be
+    # shown to help does not ship, however good its reasoning: `context_v2()`
+    # turns both on for anyone who wants to re-measure them.
+    context_title_weight: float = 0.0
+    context_floor_before_bonus: bool = False
     context_anchor_bonus: float = 0.5
     # Keep the best sentence for every name the question mentions. A switch
     # only so the ablation can measure what the guarantee is worth.
@@ -341,11 +341,22 @@ def baseline() -> ParsimonyConfig:
 def context_v1(cfg: ParsimonyConfig | None = None) -> ParsimonyConfig:
     """The context selector as frozen for its first real-model run (ADR-040).
 
-    Kept so the recorded results stay reproducible after later changes.
+    Now identical to the defaults -- the changes made after that run did not
+    survive their confirmation -- but stated explicitly so the recorded results
+    stay reproducible if a default moves again.
     """
     cfg = cfg or full_stack()
     return replace(cfg, compression=replace(cfg.compression, context_title_weight=0.0,
                                             context_floor_before_bonus=False))
+
+
+def context_v2(cfg: ParsimonyConfig | None = None) -> ParsimonyConfig:
+    """Title-weighted document relevance, and the floor judged before the anchor
+    bonus. Measured and not adopted (ADR-040); kept so it can be re-measured
+    against a neural encoder, where the reasoning behind it may start to pay."""
+    cfg = cfg or full_stack()
+    return replace(cfg, compression=replace(cfg.compression, context_title_weight=0.5,
+                                            context_floor_before_bonus=True))
 
 
 def full_stack() -> ParsimonyConfig:

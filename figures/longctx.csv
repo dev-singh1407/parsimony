@@ -1,13 +1,15 @@
 method,items,context kept %,evidence kept,evidence kept %
 full,45,100.0,45/45,100.0
-parsimony,45,22.9,42/45,93.3
+parsimony,45,21.2,41/45,91.1
+parsimony_v1,45,21.2,41/45,91.1
+parsimony_v2,45,22.9,42/45,93.3
 parsimony_no_anchors,45,22.4,42/45,93.3
-parsimony_no_closure,45,22.3,41/45,91.1
-parsimony_no_doc_prior,45,25.2,41/45,91.1
-parsimony_no_mmr,45,23.3,42/45,93.3
+parsimony_no_closure,45,20.5,40/45,88.9
+parsimony_no_doc_prior,45,23.6,41/45,91.1
+parsimony_no_mmr,45,21.4,41/45,91.1
 parsimony_no_floor,45,34.6,43/45,95.6
-bm25_topk,45,22.7,40/45,88.9
-truncate,45,21.3,12/45,26.7
-random,45,22.5,6/45,13.3
+bm25_topk,45,21.0,39/45,86.7
+truncate,45,19.7,11/45,24.4
+random,45,20.7,6/45,13.3
 stopwords,45,63.7,n/a,n/a
 closed_book,45,0.0,0/45,0.0

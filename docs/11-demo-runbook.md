@@ -39,7 +39,50 @@ about.
 
 ---
 
-## 1. The demo — five acts, twelve minutes
+## 1. The demo — six acts, fifteen minutes
+
+### Act 0 — A document, live · 3 minutes
+
+**Run this first. It is the strongest thing you have, and the only act where the guide watches the system
+work rather than reads about it afterwards.**
+
+```powershell
+.\demo.ps1 doc
+```
+
+An 817-token staff handbook is attached, and one question is asked about it. The screen fills in as the
+request moves:
+
+1. **Each layer appears as it runs**, with its real duration and what it did — the calculator declining, the
+   memory with nothing stored yet, the context selector removing 546 tokens in about 50 ms.
+2. **The prompt bar shrinks** from 888 tokens to about 320.
+3. **A clock runs while the model reads the prompt.** That wait is the cost the layers exist to remove.
+4. **The answer streams in**, counted against the budget the answer limiter chose.
+5. **The prompt the model actually received** is printed with every removed sentence struck through — six
+   document sections, mostly deleted, the answer sentence kept.
+6. Then the same question is asked again **from cold with every layer switched off**, and the two runs are
+   put side by side.
+
+> "Same question, same model, same laptop, one after the other. Without the layers it reads 907 tokens and
+> takes 8.9 seconds before it can start answering. With them it reads 326 and takes 3.0. The answer is the
+> same sentence. Neither number is mine — both come from the runtime's own counters."
+
+**If asked why the comparison is run twice rather than reusing the first answer:** *"Because the runtime
+caches the prompt it just processed. Re-sending it would have been measured as 64 milliseconds, which would
+have flattered us by a factor of fifty. Each side is run from cold, with its own nonce, so neither can reuse
+the other's work."*
+
+**Then show which sentences survived and why:**
+
+```powershell
+.\demo.ps1 sentences
+```
+
+Every sentence of six documents, marked kept or removed, with the answer sentences in bold — and the line
+underneath saying what stopped the selection, which names were guaranteed a sentence, and how many sentences
+were kept only so a following "It" still refers to something.
+
+---
 
 ### Act 1 — What the system does · 2 minutes
 
@@ -166,6 +209,8 @@ Counter-intuitive, and it is what separates a project from a report. Pick **one*
 
 | Command | Time | Shows |
 |---|---|---|
+| `.\demo.ps1 longctx` | 2 s | Parsimony against truncation, retrieval, stopwords and random at the same budget |
+| `.\demo.ps1 ask --file examples/staff-handbook.md` | live | Attach a file and ask freely; type `compare` at any point |
 | `.\demo.ps1 learning` | 4 s | "Self-improving" measured: +0.00 pp at 0% traffic repetition, +17.83 pp at 57% |
 | `.\demo.ps1 generalise` | 42 s | Does a calibration transfer to another vocabulary? Ratios yes, mechanisms no |
 | `.\demo.ps1 gap3` | 9 s | Research gap 3: what compression does to the cache |
@@ -194,6 +239,19 @@ instead, or run them beforehand and show the scrollback.
 > On CPU, reading the prompt is 92 to 99% of the time — about 8.5 milliseconds per input token, measured.
 > Writing the answer is almost free by comparison. That is why input tokens are the thing worth cutting, and
 > it is the opposite of the GPU-datacentre assumption most of the literature is written under.
+
+**"These layers are basic. Anyone could build this."**
+> Anyone can build the obvious version of each one, and we did — `parsimony.eval.naive` holds them as running
+> code, not as a description. Then we ran them against ours on 45 held-out questions over six documents each,
+> at the same token budget, on the real model. Keeping the last sentences until the budget runs out scores
+> **14/45**. Ranking sentences by BM25 and sending the top ones — textbook retrieval — scores **32/45**.
+> Deleting stopwords everywhere scores **29/45** while still sending three times as many tokens. Ours scores
+> **36/45**, against **40/45** for sending the whole document, and the difference from sending everything is
+> not statistically significant. The gap is not in the idea; it is in what the idea needs to survive contact
+> with a real question: a sentence beginning "It employs 58 people" has to be found by a question about
+> Tallinn, and the sentence that says what "It" is has to come with it. Truncation answers **none** of the
+> nine questions like that. We answer all nine. `.\demo.ps1 longctx` prints that table in a second, from the
+> recorded run.
 
 **"What's novel here? These techniques all exist."**
 > Individually, yes — and our survey covers 52 papers on them. What doesn't exist is a measurement of what

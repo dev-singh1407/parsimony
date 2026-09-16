@@ -364,7 +364,7 @@ stage is an unauditable one, and the whole evaluation depends on the trace being
 
 # 6. Results and Discussion
 
-All figures regenerate from raw logs with a single command in about 100 seconds. **854 automated tests pass.**
+All figures regenerate from raw logs with a single command in about 100 seconds. **942 automated tests pass.**
 
 ## 6.1 The headline: savings do not compound
 

@@ -220,11 +220,12 @@ def evidence_kept(item: LongItem, documents: tuple[Document, ...]) -> tuple[int,
 #: "v1", the selector exactly as it was frozen for the first real-model run, so
 #: a later change is measured against it rather than against a memory of it.
 def ablations(cfg: ParsimonyConfig) -> dict[str, ParsimonyConfig]:
-    from parsimony.core.config import context_v1
+    from parsimony.core.config import context_v1, context_v2
 
     c = cfg.compression
     return {
         "v1": context_v1(cfg),
+        "v2": context_v2(cfg),
         "no_anchors": replace(cfg, compression=replace(
             c, context_anchor_guarantee=False, context_anchor_bonus=0.0)),
         "no_closure": replace(cfg, compression=replace(c, context_closure_depth=0)),
@@ -284,7 +285,7 @@ REAL_ARMS = ("closed_book", "full", "parsimony", "bm25_topk", "truncate", "rando
 #: The confirmation run on the second held-out split: the two versions of the
 #: selector against each other and against the same baselines, without the
 #: component ablations (which the first split already measured).
-CONFIRM_ARMS = ("closed_book", "full", "parsimony", "parsimony_v1", "bm25_topk",
+CONFIRM_ARMS = ("closed_book", "full", "parsimony", "parsimony_v2", "bm25_topk",
                 "truncate", "random", "stopwords")
 
 
@@ -424,7 +425,8 @@ ARM_LABELS = {
     "closed_book": "no context (closed book)",
     "full": "full context",
     "parsimony": "Parsimony",
-    "parsimony_v1": "Parsimony (first version)",
+    "parsimony_v1": "Parsimony (as first frozen)",
+    "parsimony_v2": "  with title weighting (measured, not adopted)",
     "parsimony_no_anchors": "  without anchors",
     "parsimony_no_closure": "  without dependency closure",
     "parsimony_no_doc_prior": "  without document prior",
