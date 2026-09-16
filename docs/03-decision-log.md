@@ -1697,3 +1697,72 @@ every configuration.
   because both arms paid it.
 - `figures/encoders.csv` regenerates the table above whenever an embedding model is reachable, and is left
   out with a note when it is not.
+
+---
+
+### ADR-042 — Relative relevance cannot tell "best of six" from "least irrelevant of sixty"
+
+**Status.** Accepted, 16 September 2026. Closes the limitation named in ADR-040.
+
+**Context.** Found by using the system rather than by running the benchmark: attach a staff handbook and ask
+*"What is the capital of Peru?"*. Nothing in it bears on the question, and the selector kept **~30% of it
+anyway**. Every score in the tier is relative — BM25 normalised by the best sentence present, cosine
+likewise — so with nothing relevant, the least irrelevant sentences still win places. The benchmark could not
+see this, because every question in it is answerable from its own documents. A corpus built to test whether
+the right sentences survive cannot test whether the wrong ones are dropped.
+
+**Decision.** An absolute check, before anything relative. Two signals, both bounded in [0, 1]:
+
+```
+coverage = |question terms ∩ terms present in the context| / |question terms|
+cosine   = best sentence similarity, when an encoder is in use
+off-topic if coverage < 0.5 and (no encoder or cosine < 0.35)
+```
+
+Measured on the tuning split, the two populations do not overlap and are not close:
+
+| | term coverage | best cosine |
+|---|---|---|
+| on-topic questions (dev, 10) | 0.70 – 1.00 | 0.55 – 0.85 |
+| off-topic questions (offtopic_dev, 8) | 0.00 – 0.25 | 0.07 – 0.21 |
+
+Both thresholds sit in the gap with room either side, which is the only reason two thresholds chosen on
+eight questions are defensible at all.
+
+When the check fires, **one sentence is kept** — not none. An empty context reads to a small model as an
+instruction with a missing attachment, and the fidelity gate refuses a context annihilated outright; one
+sentence costs ~20 tokens and says plainly that the documents were consulted and had nothing to offer.
+
+**Twenty off-topic questions were authored** across the existing collections (8 for tuning, 12 reported),
+each answerable by the model alone and absent from its documents — so the split scores two things: how much
+context survives, and whether removing it costs an answer the model already knew.
+
+**Results.** 12 reported off-topic questions, `qwen2.5:1.5b-instruct`:
+
+| method | correct | context kept | prompt tokens | prefill |
+|---|---|---|---|---|
+| no context at all | **12/12** | 0% | 57 | 0.49 s |
+| full context | **11/12** | 100% | 656 | 8.68 s |
+| relative relevance only (before this) | — | 31.8% | — | — |
+| **Parsimony** | **12/12** | **4.1%** | **90** | **0.92 s** |
+
+Two things here, and the second is the interesting one.
+
+**Sending everything is not free, and not neutral.** It costs 8.7 s of prefill to answer a question the model
+could answer in 0.5 s — and it *cost an answer*: asked how many strings a violin has, with six irrelevant
+documents attached, the model said **six**. Irrelevant context is not inert; it is a distractor the model
+will reach for. The closed-book arm getting 12/12 is what makes that legible.
+
+**And the on-topic splits are untouched.** Evidence recall stays 41/45 on test and 29/30 on test2 with the
+lexical encoder (44/45 and 30/30 with the neural one) — the check fires on 0 of 75 answerable questions, as
+the separation above predicts.
+
+**Consequences.**
+
+- The prompt for an unanswerable question falls from ~30% of the documents to one sentence: 8.68 s → 0.92 s.
+- The benchmark now has a split that measures *restraint* rather than recall, and the report says which
+  questions the corpus cannot answer at all.
+- Two thresholds are set on eight tuning questions. The populations are far apart, but the honest statement
+  is that this is calibrated on a small sample and the 12 reported questions confirm rather than establish
+  it.
+- `context_topic_floor=0.0` restores the old behaviour, which is what the table's middle row measures.

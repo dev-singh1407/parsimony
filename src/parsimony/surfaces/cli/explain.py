@@ -454,7 +454,11 @@ def context_panel(outcome) -> Panel | None:
                      f"starts with a word like 'It' or 'This' and would not make sense alone.")
     stop = {"relevance floor": "stopped when the next sentence was no longer relevant",
             "budget": "stopped at the size limit",
-            "exhausted": "every relevant sentence fit"}.get(ev.get("stopped_by"), "")
+            "exhausted": "every relevant sentence fit",
+            "nothing in the context bears on the question":
+                "kept one sentence only: none of the attached text bears on this question "
+                f"(it shares {100 * (ev.get('topical_coverage') or 0):.0f}% of its words "
+                f"with them)"}.get(ev.get("stopped_by"), "")
     before_t, after_t = ev.get("context_tokens_before", 0), ev.get("context_tokens_after", 0)
     if before_t:
         notes.append(f"{before_t} -> {after_t} tokens of context "

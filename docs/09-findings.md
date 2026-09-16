@@ -1,9 +1,9 @@
 # Parsimony — Findings to date
 
-**Status:** all eight modules built · **961 tests passing** · every number below regenerates with
+**Status:** all eight modules built · **968 tests passing** · every number below regenerates with
 `python reproduce.py`
 
-This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (41 ADRs);
+This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (42 ADRs);
 this document is what those decisions *found*.
 
 **Which numbers came from where.** Sections 1–7 and 9 run against `MockProvider`, a deterministic stand-in:
@@ -683,6 +683,35 @@ relative to the best sentence in the request, so when nothing is relevant the le
 still win places. The budget bounds the damage and the answer is unaffected — the model has no evidence
 either way — but the tokens are wasted, and an absolute floor on the raw relevance score is the obvious
 next measurement.
+
+### Irrelevant context is not inert — and relative scoring cannot drop it
+
+Found by using the system, not by running the benchmark: attach a staff handbook, ask *"what is the capital
+of Peru?"*, and ~30% of it was sent anyway. Every score in the tier is relative to the best sentence present,
+so with nothing relevant the *least irrelevant* sentences still win places. The benchmark could not see this
+— every question in it is answerable from its own documents (ADR-042).
+
+An absolute check now runs first: how much of the question's vocabulary appears in the context at all, and
+the best sentence's cosine. On the tuning split the populations do not overlap — on-topic 0.70–1.00 coverage
+and 0.55–0.85 cosine, off-topic 0.00–0.25 and 0.07–0.21. When it fires, one sentence is kept, because an
+empty context reads as an instruction with a missing attachment.
+
+Twenty off-topic questions were authored (8 for tuning, 12 reported), each answerable by the model alone and
+absent from its documents:
+
+| method | correct | context kept | prompt tokens | prefill |
+|---|---|---|---|---|
+| no context at all | **12/12** | 0% | 57 | 0.49 s |
+| full context | **11/12** | 100% | 656 | 8.68 s |
+| relative relevance only | — | 31.8% | — | — |
+| **Parsimony** | **12/12** | **4.1%** | **90** | **0.92 s** |
+
+**Sending everything cost 8.7 s and one answer.** Asked how many strings a violin has, with six irrelevant
+documents attached, the model answered **six**. The closed-book arm scoring 12/12 is what makes that legible:
+the model knew, and the context talked it out of knowing. Compression here is not a tax on quality — it is
+what protects the answer.
+
+The check fires on **0 of 75** answerable questions, and evidence recall on the on-topic splits is unchanged.
 
 ## Reproducing all of it
 

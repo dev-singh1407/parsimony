@@ -21,7 +21,7 @@ VIT University · B.Tech BCSE497J Project I · Guide: Dr Sathya K
 python reproduce.py --out figures
 ```
 
-**961 tests passing.** Every table below regenerates from a live run in ~40 s. Setup and commands:
+**968 tests passing.** Every table below regenerates from a live run in ~40 s. Setup and commands:
 [`docs/08-setup.md`](docs/08-setup.md).
 
 | Module | State |
@@ -138,6 +138,12 @@ It replicates: on 30 further questions authored afterwards and never tuned again
 4/30. Two changes made after reading the first run's failures were measured there and **not adopted** — they
 scored one item worse and sent 5% more tokens, which is what a held-out split is for.
 
+**Irrelevant context is not inert.** Ask an attached handbook something it says nothing about and the
+right amount to send is almost none. Sending it all costs 8.7 s of prefill — and an answer: asked how many
+strings a violin has with six irrelevant documents attached, the model said *six*. With no context at all it
+is right every time (12/12). Parsimony keeps 4.1% of the documents, takes 0.92 s, and is also right every
+time (ADR-042).
+
 ### Watch it happen
 
 ```bash
@@ -222,7 +228,7 @@ module — the same distinction as ADR-028.
 | [`docs/00-architecture.md`](docs/00-architecture.md) | Layering, core data model, orchestrator, stage ordering, repo layout, cross-cutting concerns |
 | [`docs/01-pipeline-stages.md`](docs/01-pipeline-stages.md) | The eight processing stages, each with objective / inputs / outputs / techniques / libraries / pros / cons / alternatives / recommendation / integration |
 | [`docs/02-module-specs.md`](docs/02-module-specs.md) | M1–M8 internals and ablation wiring |
-| [`docs/03-decision-log.md`](docs/03-decision-log.md) | 41 ADRs with justification and consequences. **The intellectual core** — several record where measurement contradicted the plan |
+| [`docs/03-decision-log.md`](docs/03-decision-log.md) | 42 ADRs with justification and consequences. **The intellectual core** — several record where measurement contradicted the plan |
 | [`docs/04-roadmap.md`](docs/04-roadmap.md) | Re-planned 12-week schedule, sprint plan, milestone gates, scope-cut order, risks |
 | [`docs/05-evaluation-harness.md`](docs/05-evaluation-harness.md) | The compute budget problem and its fix; sweep runner; four quality measures; statistics; validity threats |
 | [`docs/06-contracts.md`](docs/06-contracts.md) | Complete L0 type and protocol definitions + the ledger schema. **Review this first** |

@@ -103,6 +103,17 @@ class CompressionConfig:
     # turns both on for anyone who wants to re-measure them.
     context_title_weight: float = 0.0
     context_floor_before_bonus: bool = False
+    # Nothing here bears on the question: keep one sentence and stop (ADR-042).
+    #
+    # Relevance is scored RELATIVE to the best sentence present, so with nothing
+    # relevant the least irrelevant sentences still win places -- ~30% of an
+    # attached handbook survived "what is the capital of Peru?". These two are
+    # absolute. Measured on the tuning split: on-topic questions share 70-100%
+    # of their content words with the context and score 0.55-0.85 cosine;
+    # off-topic ones share 0-25% and score 0.07-0.21. Both thresholds sit in
+    # the gap with room on either side.
+    context_topic_floor: float = 0.5        # fraction of the question's terms present
+    context_topic_cosine: float = 0.35      # best sentence cosine, when an encoder is used
     context_anchor_bonus: float = 0.5
     # Keep the best sentence for every name the question mentions. A switch
     # only so the ablation can measure what the guarantee is worth.

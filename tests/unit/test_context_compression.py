@@ -243,24 +243,52 @@ class TestDocumentsThroughThePipeline:
 class TestLongContextBenchmark:
     def test_corpus_shape(self):
         items = list(ITEMS.values())
-        assert len(items) == 85
+        assert len(items) == 105
         assert sum(i.split == "test" for i in items) == 45
         # A second held-out split, authored before any change made in response
         # to the first real-model run, so a later improvement can be confirmed
         # on questions nothing was tuned against.
         assert sum(i.split == "test2" for i in items) == 30
-        assert {i.kind for i in items} == {"lookup", "distractor", "anaphora", "negation", "two_hop"}
+        # And questions the documents cannot answer at all (ADR-042).
+        assert sum(i.split == "offtopic" for i in items) == 12
+        assert sum(i.split == "offtopic_dev" for i in items) == 8
+        assert {i.kind for i in items} == {"lookup", "distractor", "anaphora", "negation",
+                                           "two_hop", "off_topic"}
         for i in items:
             assert len(i.documents) == 6
             assert evidence_kept(i, i.documents) == (len(i.evidence), len(i.evidence))
 
-    def test_the_splits_share_no_collection(self):
+    def test_no_off_topic_answer_is_hiding_in_its_own_documents(self):
+        """Word answers only: a numeric answer like 0 or 12 appears somewhere in
+        any six documents, and that says nothing about whether they answer the
+        question."""
+        import re
+
+        for item in ITEMS.values():
+            if not item.split.startswith("offtopic"):
+                continue
+            answer = item.gold.gold_answer
+            if not answer.isalpha() or len(answer) < 3:
+                continue
+            body = " ".join(d.content for d in item.documents)
+            assert not re.search(rf"{re.escape(answer)}", body, re.I), item.item_id
+
+    def test_the_answerable_splits_share_no_collection(self):
+        """dev/test/test2 are disjoint so tuning cannot leak into a result. The
+        off-topic splits deliberately reuse those collections: the point is a
+        question those very documents cannot answer."""
         by_split: dict[str, set[str]] = {}
         for item in ITEMS.values():
             by_split.setdefault(item.split, set()).add(item.collection)
-        assert set(by_split) == {"dev", "test", "test2"}
-        collections = [c for group in by_split.values() for c in group]
-        assert len(collections) == len(set(collections))
+        assert set(by_split) == {"dev", "test", "test2", "offtopic", "offtopic_dev"}
+        answerable = [c for split in ("dev", "test", "test2") for c in by_split[split]]
+        assert len(answerable) == len(set(answerable))
+        # The two off-topic splits do share collections -- what is tuned there
+        # is a property of the QUESTION (how much of it the context contains),
+        # so the documents carry no signal to leak. The questions themselves
+        # are all distinct.
+        questions = [i.question for i in ITEMS.values() if i.split.startswith("offtopic")]
+        assert len(questions) == len(set(questions))
 
     def test_baselines_respect_the_matched_budget(self, tok):
         m = Methods(tokenizer=tok)
@@ -352,3 +380,51 @@ class TestAttachingFiles:
         assert result.exit_code == 0, result.output
         assert "kept" in result.output and "removed" in result.output
         assert "context tokens" in result.output
+
+
+class TestNothingRelevantIsNotKeptAnyway:
+    """Relative relevance cannot tell "the best of six relevant sentences" from
+    "the least irrelevant of sixty", so ~30% of an attached handbook survived a
+    question it says nothing about. An absolute check now runs first (ADR-042).
+    """
+
+    OFF_TOPIC = "What is the capital of Peru?"
+
+    def test_an_off_topic_question_keeps_one_sentence(self, pipeline):
+        item = ITEMS["harlow_q1"]
+        ctx, proposal = propose(pipeline, self.OFF_TOPIC, item.documents)
+        after, verdict = commit(pipeline, ctx, proposal)
+        assert verdict.passed
+        kept = [s for d in after.documents for s in d.content.split(". ")]
+        assert len(after.documents) == 1 and len(kept) == 1
+        assert pipeline.tokenizer.count(context_text(after)) < 0.1 * pipeline.tokenizer.count(
+            context_text(ctx))
+
+    def test_it_says_so_in_its_evidence(self, pipeline):
+        item = ITEMS["harlow_q1"]
+        _, proposal = propose(pipeline, self.OFF_TOPIC, item.documents)
+        assert proposal.evidence["off_topic"] is True
+        assert proposal.evidence["topical_coverage"] < 0.5
+        assert "bears on the question" in proposal.evidence["stopped_by"]
+
+    def test_an_on_topic_question_is_untouched_by_the_check(self, pipeline):
+        item = ITEMS["harlow_q3"]
+        _, proposal = propose(pipeline, item.question, item.documents)
+        assert proposal.evidence["off_topic"] is False
+        assert proposal.evidence["topical_coverage"] >= 0.5
+        assert proposal.evidence["sentences_kept"] > 1
+
+    def test_the_whole_off_topic_split_collapses(self, tok):
+        methods = Methods(tokenizer=tok)
+        items = [i for i in ITEMS.values() if i.split == "offtopic"]
+        kept = sum(methods.context_tokens(methods.parsimony(i).documents) for i in items)
+        full = sum(methods.context_tokens(i.documents) for i in items)
+        assert kept / full < 0.10, "an unanswerable question should not cost a fifth of the prompt"
+
+    def test_and_the_answerable_splits_do_not(self, tok):
+        methods = Methods(tokenizer=tok)
+        for split in ("test", "test2"):
+            items = [i for i in ITEMS.values() if i.split == split]
+            complete = sum(evidence_kept(i, methods.parsimony(i).documents)[0]
+                           == len(i.evidence) for i in items)
+            assert complete / len(items) > 0.85

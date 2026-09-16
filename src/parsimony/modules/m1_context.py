@@ -102,6 +102,8 @@ class Selection:
     closure_added: int
     budget: int
     stopped_by: str
+    coverage: float = 1.0                # question terms present in the context
+    off_topic: bool = False
 
 
 def _split_with_lines(content: str) -> list[tuple[int, str]]:
@@ -247,6 +249,27 @@ def select(query: str, units: list[Unit], cfg: ParsimonyConfig,
     gauge = (_normalise([b * f for b, f in zip(base, factor)])
              if c.context_floor_before_bonus else rel)
 
+    # Absolute check, before anything relative: does the context bear on the
+    # question at all? Everything below this point ranks sentences against each
+    # other, which cannot tell "the best of six relevant sentences" from "the
+    # least irrelevant of sixty". Measured separation on the tuning split is
+    # wide -- 0.70-1.00 term coverage on-topic against 0.00-0.25 off-topic.
+    wanted_terms = set(ranking_terms(query, c.context_term_prefix))
+    present = set().union(*(set(u.terms) for u in units)) if units else set()
+    coverage = len(wanted_terms & present) / len(wanted_terms) if wanted_terms else 1.0
+    best_cosine = max(dense) if dense else None
+    off_topic = coverage < c.context_topic_floor and (
+        best_cosine is None or best_cosine < c.context_topic_cosine)
+    if off_topic:
+        # One sentence, not none: an empty context reads to the model as an
+        # instruction with a missing attachment, and the gate refuses a context
+        # annihilated outright. One sentence costs ~20 tokens and says plainly
+        # that the documents were consulted.
+        top = max(range(len(units)), key=lambda i: rel[i]) if units else None
+        return Selection(frozenset() if top is None else frozenset({top}), tuple(rel), {}, 0,
+                         budget, "nothing in the context bears on the question",
+                         coverage, True)
+
     kept: set[int] = set()
     used = 0
 
@@ -306,7 +329,7 @@ def select(query: str, units: list[Unit], cfg: ParsimonyConfig,
 
     return Selection(frozenset(kept), tuple(rel),
                      {a: units[i].text for a, i in guaranteed.items()},
-                     closure_added, budget, stopped_by)
+                     closure_added, budget, stopped_by, coverage, False)
 
 
 def render_source(units: list[Unit], kept: frozenset[int]) -> str:
@@ -420,6 +443,8 @@ class ContextCompressor:
                 "closure_added": sel.closure_added,
                 "budget_tokens": sel.budget,
                 "stopped_by": sel.stopped_by,
+                "topical_coverage": round(sel.coverage, 3),
+                "off_topic": sel.off_topic,
                 "scorer": "bm25+dense" if dense is not None else "bm25",
             },
         )

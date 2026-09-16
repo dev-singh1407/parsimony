@@ -418,7 +418,7 @@ Requests flow top to bottom. Each stage may short-circuit, propose an edit, or d
 | Hardware | AMD Ryzen 7 5800HS, 16 GB RAM, no GPU used |
 | Statistics | Bootstrap 95% confidence intervals, partial η² effect sizes, two-way ANOVA on interactions, exact McNemar for paired accuracy |
 | Reproduction | `python reproduce.py --out figures` — every table regenerates in ~100 s |
-| Verification | 961 automated tests, including architecture-layering and golden-output tests |
+| Verification | 968 automated tests, including architecture-layering and golden-output tests |
 
 <div class="pagebreak"></div>
 
@@ -581,7 +581,7 @@ entities, negations, operative modifiers and payload emptiness on every proposal
 | **Generation memoisation** | Bit-exact at temperature 0, so repeated sweep cells do not re-pay for identical generations. |
 | **Stage-order validator** | Checks the configured order against a reads/writes dependency graph before the pipeline runs. |
 | **Corpus** | 151 conversations, 45 adversarial pairs, 45 controls, 40 gold items, CC BY 4.0. |
-| **Test suite** | 961 tests, including `test_architecture.py`, which fails the build if a layer imports upward. |
+| **Test suite** | 968 tests, including `test_architecture.py`, which fails the build if a layer imports upward. |
 
 ## 6.5 Technology stack
 
@@ -592,14 +592,14 @@ entities, negations, operative modifiers and payload emptiness on every proposal
 | Tokenisation | `tokenizers` (Qwen2.5 vocabulary) | The counts must come from the model's own vocabulary |
 | Numerics | `numpy` | Embeddings and statistics |
 | CLI | `typer` + `rich` | The demo surface |
-| Testing | `pytest` | 961 tests |
+| Testing | `pytest` | 968 tests |
 | Deliberately absent | PyTorch, any GPU dependency, any paid API | The target machine is a CPU-only laptop |
 
 <div class="pagebreak"></div>
 
 # 7. Results and Discussion
 
-All figures regenerate from raw logs with a single command in about 100 seconds. **961 automated tests pass.**
+All figures regenerate from raw logs with a single command in about 100 seconds. **968 automated tests pass.**
 
 ## 7.1 The headline: savings do not compound
 

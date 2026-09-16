@@ -329,6 +329,34 @@ def render_longctx(ctx: Context) -> str:
             f"receive the token budget Parsimony used on each question.\n\n"
             + _table(headers, rows))
 
+    # Questions the documents cannot answer: the only right amount of context
+    # to send is almost none (ADR-042). Scored by what survives, not by
+    # evidence -- there is none to keep.
+    off_items = [i for i in lc.load_longctx() if i.split == "offtopic"]
+    if off_items:
+        # The other baselines are given Parsimony's budget on each question, so
+        # on this split they would only restate it. The comparison that carries
+        # information is against the same selector with the absolute check off,
+        # which is what every relative-scoring method does.
+        from dataclasses import replace as _replace
+
+        methods = lc.Methods()
+        blind = _replace(methods.cfg, compression=_replace(
+            methods.cfg.compression, context_topic_floor=0.0, context_topic_cosine=0.0))
+        off_rows = []
+        for arm, cfg in (("full context", None), ("relative relevance only", blind),
+                         ("Parsimony", methods.cfg)):
+            kept = full_ctx = 0
+            for item in off_items:
+                got = item.documents if cfg is None else methods.parsimony(item, cfg).documents
+                kept += methods.context_tokens(got)
+                full_ctx += methods.context_tokens(item.documents)
+            off_rows.append([arm, str(len(off_items)), f"{100 * kept / (full_ctx or 1):.1f}"])
+        oh = ["method", "questions", "context kept %"]
+        _write_csv(ctx.out / "longctx_offtopic.csv", oh, off_rows)
+        text += ("\n\n**Questions the documents cannot answer** (12 held out; the right answer "
+                 "is to send almost nothing):\n\n" + _table(oh, off_rows))
+
     recorded = lc.load_rows(ctx.out / "longctx_real_items.jsonl")
     recorded = [r for r in recorded if r["split"] == "test"]
     if not recorded:

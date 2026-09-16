@@ -237,18 +237,19 @@ work found a two-second-per-call cost in resolving `localhost` (ADR-041).
 
 **Open, in priority order.**
 
-1. **An absolute relevance floor.** Ask an attached handbook something it says nothing about and the
-   selector still keeps ~40% of it: relevance is scored relative to the best sentence present, so "least
-   irrelevant" still wins places. Needs off-topic questions authored for the benchmark, which it currently
-   has none of.
-2. **Run the full sweep against the real model.** The token results will not move — the tokenizer was
+**Also closed: the absolute relevance floor.** Twenty off-topic questions were authored, and the check that
+fires on them takes an unanswerable question's prompt from ~30% of the documents to one sentence -- 8.68 s of
+prefill to 0.92 s -- while firing on 0 of 75 answerable ones. Sending everything on those questions cost an
+answer as well as the time (ADR-042).
+
+1. **Run the full sweep against the real model.** The token results will not move — the tokenizer was
    already Qwen2.5's — but the timing and energy columns become real throughout rather than only in §8 of
    the findings. Budget it: generation memoisation avoids 78.2% of calls, but the unmemoised timing pass is
    the expensive one.
-3. **A real judge.** The current model-as-judge is a deliberate length-biased stand-in, built so the
+2. **A real judge.** The current model-as-judge is a deliberate length-biased stand-in, built so the
    swap-disagreement machinery could be shown to detect bias. With a real model available it can be
    replaced, and the disagreement rate becomes a quality signal instead of a demonstration.
-4. **Escalation with a second model.** M6's `MODEL_LARGE` tier has nowhere to escalate to while only one
+3. **Escalation with a second model.** M6's `MODEL_LARGE` tier has nowhere to escalate to while only one
    model is installed; `_provider_for` records the tier honestly rather than pretending, so this is a
    measurement waiting on a download.
 
