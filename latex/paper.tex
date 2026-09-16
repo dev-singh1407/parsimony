@@ -138,7 +138,7 @@ full stack removes \textbf{33.9\%} of tokens at a measured middleware cost of
 \textbf{4.06\,ms} per request. Three results are reported. Savings are
 \textbf{not additive}: four modules whose individual reductions sum to 29.0
 percentage points deliver 27.4 when combined, a shortfall of 1.66\,pp
-concentrated in a single negative interaction ($M3\times M5 = -0.70$\,pp).
+concentrated in a single negative interaction ($M3\times M5 = -0.75$\,pp).
 Prefill accounts for \textbf{91.7--98.8\%} of CPU inference time at
 $\approx$8.5\,ms per input token, so a prompt rearrangement that changes token
 count by 0.5\% changes steady-state cost by $\approx$80$\times$. And no
@@ -793,7 +793,7 @@ M2+M3+M5           & 22{,}511 & 13{,}278 & 35{,}789 & +27.2 & 11 & 0 & 228 \\
 \midrule
 M1+M2+M3+M5        & 22{,}438 & 13{,}239 & 35{,}677 & +27.4 & 11 & 0 & 228 \\
 \textbf{Full stack ($+$M4, M6)} & \textbf{19{,}955} & \textbf{12{,}520} &
-\textbf{32{,}475} & \hl{\textbf{+33.9}} & 11 & 15 & 224 \\
+\textbf{32{,}475} & \hl{\textbf{+33.3}} & 11 & 15 & 224 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -829,7 +829,7 @@ Sum of the four   & \textbf{+32.73} & --- & +29.07 \\
 M1+M2+M3+M5       & \textbf{+29.77} & +23.03 & +27.41 \\
 \textbf{Shortfall} & \textbf{2.96\,pp} & --- & 1.66\,pp \\
 \midrule
-\textbf{Full stack ($+$M4, M6)} & \textbf{+37.53} & +27.16 & +33.9 \\
+\textbf{Full stack ($+$M4, M6)} & \textbf{+37.53} & +27.16 & +33.3 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -891,13 +891,13 @@ above are $|{\cdot}| < 0.01$\,pp and are omitted.}
 \toprule
 \textbf{Term} & \textbf{Order} & \textbf{Estimate (pp)} & \textbf{Partial $\eta^2$} \\
 \midrule
-M5 (output budgeter)  & 1 & $+13.43$ & 0.5560 \\
-M3 (history manager)  & 1 & $+11.82$ & 0.4308 \\
-M2 (semantic cache)   & 1 & $+1.93$  & 0.0115 \\
-M1 (compressor)       & 1 & $+0.23$  & 0.0002 \\
+M5 (output budgeter)  & 1 & $+12.53$ & 0.5240 \\
+M3 (history manager)  & 1 & $+11.77$ & 0.4628 \\
+M2 (semantic cache)   & 1 & $+1.96$  & 0.0115 \\
+M1 (compressor)       & 1 & $+0.24$  & 0.0002 \\
 \midrule
-M3 $\times$ M5        & 2 & \hl{$\mathbf{-0.70}$} & 0.0015 \\
-M2 $\times$ M5        & 2 & $-0.11$  & 0.0000 \\
+M3 $\times$ M5        & 2 & \hl{$\mathbf{-0.75}$} & 0.0015 \\
+M2 $\times$ M5        & 2 & $-0.09$  & 0.0000 \\
 M1 $\times$ M5        & 2 & $-0.02$  & 0.0000 \\
 M1 $\times$ M2        & 2 & $+0.02$  & 0.0000 \\
 M1 $\times$ M3, M2 $\times$ M3 & 2 & $\pm 0.00$ & 0.0000 \\
@@ -907,16 +907,16 @@ M1 $\times$ M3, M2 $\times$ M3 & 2 & $\pm 0.00$ & 0.0000 \\
 
 \obs{Savings do not compound, and the shortfall is not diffuse --- it is one
 term. Of the eleven interaction terms estimated, ten are within $\pm0.11$\,pp of
-zero; the entire departure from additivity is carried by $M3\times M5 = -0.70$\,pp,
-with $M2\times M5$ contributing a further $-0.11$. Both involve M5, and the
+zero; the entire departure from additivity is carried by $M3\times M5 = -0.75$\,pp,
+with $M2\times M5$ contributing a further $-0.09$. Both involve M5, and the
 mechanism is visible in the token columns of Table~\ref{tab:ablation}: M3 removes
 history from the input while M5 shortens the answer, and in a multi-turn corpus a
 shortened answer becomes the next turn's history, so the two modules compete for
-the same tokens. The two largest contributors, M5 ($\eta^2=0.556$) and M3
-($\eta^2=0.430$), together explain almost all the explained variance, whereas M1
-is indistinguishable from zero at $+0.23$\,pp --- a compressor is the technique
+the same tokens. The two largest contributors, M5 ($\eta^2=0.524$) and M3
+($\eta^2=0.462$), together explain almost all the explained variance, whereas M1
+is indistinguishable from zero at $+0.24$\,pp --- a compressor is the technique
 with the largest literature and the smallest measured effect here. Finally, the
-gap between M1+M2+M3+M5 ($+27.4\%$) and the full stack ($+33.9\%$) is produced
+gap between M1+M2+M3+M5 ($+27.4\%$) and the full stack ($+33.3\%$) is produced
 almost entirely by M6a's deterministic routing of 15 requests to zero model
 tokens, a component with no compression literature at all.}
 
@@ -1451,7 +1451,7 @@ you repeat, the more it helps, up to about 18\% extra saving.}
 & \textbf{RQ} & \textbf{Exp.} & \textbf{Evidence} & \textbf{Finding} \\
 \midrule
 C1 & RQ1 & E1 & Tables~\ref{tab:ablation}, \ref{tab:effects}; Fig.~\ref{fig:additivity} &
-  Savings are not additive: 29.0\,pp predicted, 27.4\,pp measured. The 1.66\,pp shortfall is carried almost entirely by one negative interaction, $M3\times M5 = -0.70$\,pp. \\
+  Savings are not additive: 29.0\,pp predicted, 27.4\,pp measured. The 1.66\,pp shortfall is carried almost entirely by one negative interaction, $M3\times M5 = -0.75$\,pp. \\
 \addlinespace
 C2 & RQ2 & E2 & Tables~\ref{tab:prefill}, \ref{tab:prefix} &
   Prefill is 91.7--98.8\% of inference time at $\approx$8.5\,ms/token. Two prompts 0.5\% apart in tokens differ $\approx$89$\times$ in cost, so token count is not a reliable proxy for cost on CPU. \\

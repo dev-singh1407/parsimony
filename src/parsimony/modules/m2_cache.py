@@ -696,10 +696,26 @@ class SemanticCache:
         self.stats = CacheStats()
 
 
+def documents_scope(chain: str, documents: tuple) -> str:
+    """Fold the supplied documents into the chain.
+
+    "What is the notice period?" has a different answer for every contract it
+    is asked about, and the question text alone cannot tell them apart. A
+    request that carries documents is therefore only ever matched against
+    requests that carried the same documents. Keyed on the documents as
+    supplied, so compressing them later in the pipeline cannot change the key.
+    """
+    if not documents:
+        return chain
+    material = "\u241e".join(f"{d.doc_id}\u241f{d.title}\u241f{d.content}" for d in documents)
+    digest = hashlib.blake2b(material.encode(), digest_size=8).hexdigest()
+    return f"{chain}:docs:{digest}"
+
+
 class CacheLookupStage:
     module_id = "M2"
     name = "m2_cache"
-    reads = frozenset({"query", "history"})
+    reads = frozenset({"query", "history", "original_documents"})
     writes = frozenset()
 
     def __init__(self, cache: SemanticCache, *, probe_only: bool = False,
@@ -718,7 +734,8 @@ class CacheLookupStage:
         return cfg.enables("M2") and (cfg.cache.exact_tier or cfg.cache.semantic_tier)
 
     def chain_for(self, ctx: RequestContext, cfg: ParsimonyConfig) -> str:
-        return chain_hash(ctx.history, cfg.cache.chain_depth, ctx.query)
+        return documents_scope(chain_hash(ctx.history, cfg.cache.chain_depth, ctx.query),
+                               ctx.original_documents)
 
     def key_for(self, ctx: RequestContext, cfg: ParsimonyConfig) -> str:
         return SemanticCache.make_key(ctx.query, self.chain_for(ctx, cfg), cfg.model.name)

@@ -50,7 +50,7 @@ ABSTRACT = [
     "We survey 40 papers, derive six research gaps, and build all of these techniques into one",
     "instrumented pipeline so their INTERACTION can be measured.",
     "",
-    "Result: 33.9% fewer tokens with zero loss of answer accuracy (92.5% → 97.5% on 40 gold",
+    "Result: 33.3% fewer tokens with zero loss of answer accuracy (92.5% → 97.5% on 40 gold",
     "items, no regressions). Savings do NOT compound — an additivity shortfall of 1.63 pp.",
     "Prefill is 92–99% of CPU time at ~8.5 ms per input token. And the cache thresholds",
     "published as safe would serve the opposite answer on our adversarial set.",
@@ -137,11 +137,11 @@ FUNCTIONAL = [
 
 RESULTS = [
     ("Headline — savings do not compound", [
-        "M5 output budgeter  +13.44 pp   (eta^2 0.556)",
-        "M3 history manager  +11.82 pp   (eta^2 0.430)",
-        "M2 semantic cache    +1.93 pp",
-        "M1 compressor        +0.23 pp",
-        "Full stack: +33.9% total token reduction",
+        "M5 output budgeter  +12.53 pp   (eta^2 0.524)",
+        "M3 history manager  +11.77 pp   (eta^2 0.462)",
+        "M2 semantic cache    +1.96 pp",
+        "M1 compressor        +0.24 pp",
+        "Full stack: +33.3% total token reduction",
         "Additivity shortfall: 1.63 pp, 95% CI [-0.02, +3.23]",
     ]),
     ("Prefill dominates on CPU", [

@@ -65,6 +65,65 @@ class Turn:
         return Turn(self.turn_id, self.role, self.content, self.created_at, n)
 
 
+@dataclass(frozen=True, slots=True)
+class Document:
+    """A passage the application supplies alongside the question.
+
+    Retrieved chunks, a pasted report, a file the user attached. Kept apart
+    from the query rather than concatenated into it, because the two are
+    handled differently: the question must never be edited, while a
+    thousand-token document is mostly irrelevant to any one question about it
+    and is where long-context cost actually lives (ADR-040).
+    """
+
+    doc_id: str
+    content: str
+    title: str = ""
+
+
+def split_into_documents(text: str, name: str, max_words: int = 160) -> tuple[Document, ...]:
+    """Break one attached file into sections the context selector can rank.
+
+    A whole file as a single document defeats the document prior: there is
+    nothing to rank it against. Sections follow the file's own headings when it
+    has them; otherwise blank-line paragraphs are grouped to roughly
+    `max_words`, the chunking a retrieval system would apply.
+    """
+    lines = text.strip().splitlines()
+    sections: list[tuple[str, list[str]]] = []
+    if any(re.match(r"^#{1,6}\s+\S", ln) for ln in lines):
+        title, body = "", []
+        for ln in lines:
+            m = re.match(r"^#{1,6}\s+(.*\S)", ln)
+            if m:
+                if any(b.strip() for b in body):
+                    sections.append((title, body))
+                title, body = m.group(1), []
+            else:
+                body.append(ln)
+        if any(b.strip() for b in body):
+            sections.append((title, body))
+    else:
+        chunk: list[str] = []
+        words = 0
+        for para in re.split(r"\n\s*\n", text.strip()):
+            n = len(para.split())
+            if chunk and words + n > max_words:
+                sections.append(("", chunk))
+                chunk, words = [], 0
+            chunk.append(para.strip())
+            words += n
+        if chunk:
+            sections.append(("", chunk))
+
+    docs = []
+    for i, (title, body) in enumerate(sections, start=1):
+        content = "\n".join(b for b in (x.rstrip() for x in body) if b.strip())
+        label = title or (name if len(sections) == 1 else f"{name} ({i})")
+        docs.append(Document(doc_id=f"{name}#{i}", content=content, title=label))
+    return tuple(docs)
+
+
 def _escape_boundary(value: str) -> str:
     """Word-boundary pattern that also works for values starting/ending in punctuation.
 
@@ -170,6 +229,10 @@ class RequestContext:
     # Working state. Only the orchestrator writes, and only via committed patches.
     query: str
     history: tuple[Turn, ...]
+    # Supplied context. `original_documents` is the gate's reference, as
+    # `original_history` is for turns; empty for a plain chat request.
+    documents: tuple[Document, ...] = ()
+    original_documents: tuple[Document, ...] = ()
     system_prompt: str = ""
     context_digest: str = ""
 
@@ -193,11 +256,13 @@ class RequestContext:
         zone and no module may rewrite them, so including them would only dilute
         the check.
         """
-        parts = [t.content for t in self.history]
+        parts = [d.content for d in self.documents]
+        parts.extend(t.content for t in self.history)
         parts.append(self.query)
         return "\n".join(parts)
 
     def original_payload(self) -> str:
-        parts = [t.content for t in self.original_history]
+        parts = [d.content for d in self.original_documents]
+        parts.extend(t.content for t in self.original_history)
         parts.append(self.original_query)
         return "\n".join(parts)

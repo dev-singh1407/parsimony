@@ -192,6 +192,10 @@ _PROPER_RE = re.compile(r"\b[A-Z][a-z]{1,}(?:\s+[A-Z][a-z]{1,}){0,3}\b")
 # digit -- so "pandas" against "Panda3D" produced a false cache hit with both
 # queries reporting zero entities.
 _ALNUM_ID_RE = re.compile(r"\b[A-Za-z]{2,}\d[A-Za-z0-9]*\b")
+# Hyphenated codes: OB-114, KC-5530, EQ-7, ISO-9001. Without this the extractor
+# saw "OB-114" as the acronym "OB" and the number "114", so a question about
+# trial OB-114 matched every sentence mentioning any trial coded OB.
+_HYPHEN_ID_RE = re.compile(r"\b[A-Z]{1,6}-\d[\dA-Z]*\b")
 _SENT_START_RE = re.compile(r"(?:^|[.!?]\s+|\n\s*)")
 
 # Words that begin sentences constantly and are never entities.
@@ -242,7 +246,8 @@ class RegexInvariantExtractor:
         quoted = frozenset(quoted_vals)
 
         starts = _sentence_start_offsets(text)
-        ents: set[str] = set(_ACRONYM_RE.findall(text)) | set(_ALNUM_ID_RE.findall(text))
+        ents: set[str] = (set(_ACRONYM_RE.findall(text)) | set(_ALNUM_ID_RE.findall(text))
+                          | set(_HYPHEN_ID_RE.findall(text)))
         for m in _PROPER_RE.finditer(text):
             val = m.group(0)
             first = val.split()[0]

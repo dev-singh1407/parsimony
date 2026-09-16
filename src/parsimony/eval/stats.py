@@ -179,6 +179,42 @@ def factorial_effects(
 
 
 # --------------------------------------------------------------------------
+# Paired accuracy
+# --------------------------------------------------------------------------
+
+
+def wilson_interval(successes: int, n: int, z: float = 1.96) -> Interval:
+    """Score interval for a proportion, in percent.
+
+    Not the normal approximation: at 45 items and accuracies near 90%, p +/- z*se
+    runs past 100%, and the Wilson interval is what stays inside [0, 100].
+    """
+    if n == 0:
+        return Interval(0.0, 0.0, 0.0)
+    p = successes / n
+    denom = 1 + z * z / n
+    centre = (p + z * z / (2 * n)) / denom
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom
+    return Interval(100 * p, 100 * max(0.0, centre - half), 100 * min(1.0, centre + half))
+
+
+def mcnemar_exact(b: int, c: int) -> float:
+    """Two-sided exact McNemar p-value from the discordant counts.
+
+    b: items the first arm got right and the second wrong; c: the reverse. The
+    concordant items carry no information about a difference, which is why a
+    paired design on 45 items can detect what two independent samples of 45
+    could not.
+    """
+    n = b + c
+    if n == 0:
+        return 1.0
+    k = min(b, c)
+    tail = sum(math.comb(n, i) for i in range(k + 1)) / 2 ** n
+    return min(1.0, 2 * tail)
+
+
+# --------------------------------------------------------------------------
 # Pareto frontier
 # --------------------------------------------------------------------------
 

@@ -20,6 +20,10 @@ class TransformKind(Enum):
 
     REWRITE = "rewrite"  # same information, new surface form -> full invariant check
     SELECT = "select"  # deliberate removal of whole units  -> retained units byte-identical
+    # Removal of whole SENTENCES inside a document or turn (ADR-040). Retained
+    # sentences must be verbatim and in their original order, the question must
+    # be untouched, and anything the question names must still be findable.
+    EXTRACT = "extract"
     AUGMENT = "augment"  # adds content, removes nothing      -> no check
     DECIDE = "decide"  # sets a decision field, no text edit -> no check
 

@@ -159,6 +159,26 @@ class PrefixArm:
         return (self.saved_ms / self.first_ms * 100) if self.first_ms else 0.0
 
 
+def arm_prompts(body: str, turn: int) -> tuple[str, str]:
+    """The two prompt arrangements the prefix study compares, for one turn.
+
+    Stable: the shared body first, only the question varies at the tail -- what
+    M4's prefix-stable assembly produces. Volatile: a per-turn preamble at the
+    head, the "turn N of M" line that looks free in a token count.
+
+    Exposed so anything that DISPLAYS this effect builds its prompts the same
+    way the measurement did; a demo with its own construction would be showing
+    a different experiment under the same name.
+    """
+    stable = f"{body}\nQuestion {turn}: what is this?"
+    volatile = f"Session {turn} started at turn {turn}. {body}\nQuestion: what is this?"
+    return stable, volatile
+
+
+def shared_body(nonce: str, words: int = 120) -> str:
+    return f"Context {nonce}. " + (_FILLER * words).strip()
+
+
 def prefix_reuse(
     provider, *, words: int = 120, repeats: int = 3,
     nonce: str | None = None, progress=None,
@@ -176,14 +196,14 @@ def prefix_reuse(
     # The nonce sits INSIDE the shared body, so both arms carry it and the
     # comparison stays fair — it makes each run cold without making the two
     # arrangements differ.
-    body = f"Context {run}. " + (_FILLER * words).strip()
+    body = shared_body(run, words)
     arms = []
 
     note("stable prefix")
     first = None
     repeat_ms = []
     for i in range(repeats + 1):
-        prefill_ms, _, in_tok, _ = _measure(provider, f"{body}\nQuestion {i}: what is this?")
+        prefill_ms, _, in_tok, _ = _measure(provider, arm_prompts(body, i)[0])
         if i == 0:
             first, tokens = prefill_ms, in_tok
         else:
@@ -194,8 +214,7 @@ def prefix_reuse(
     first = None
     repeat_ms = []
     for i in range(repeats + 1):
-        prompt = f"Session {i} started at turn {i}. {body}\nQuestion: what is this?"
-        prefill_ms, _, in_tok, _ = _measure(provider, prompt)
+        prefill_ms, _, in_tok, _ = _measure(provider, arm_prompts(body, i)[1])
         if i == 0:
             first, tokens = prefill_ms, in_tok
         else:

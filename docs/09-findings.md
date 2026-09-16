@@ -3,7 +3,7 @@
 **Status:** all eight modules built · **854 tests passing** · every number below regenerates with
 `python reproduce.py`
 
-This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (39 ADRs);
+This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (40 ADRs);
 this document is what those decisions *found*.
 
 **Which numbers came from where.** Sections 1–7 and 9 run against `MockProvider`, a deterministic stand-in:
@@ -24,19 +24,19 @@ Full 2⁴ factorial over M1/M2/M3/M5, 151 conversations, 263 requests, 17 cells.
 
 | effect | estimate | partial η² |
 |---|---|---|
-| **M5** output budgeter | +13.43 pp | 0.556 |
-| **M3** history manager | +11.82 pp | 0.430 |
-| **M2** semantic cache | +1.93 pp | 0.012 |
-| **M1** compressor | +0.23 pp | 0.000 |
-| M3×M5 interaction | **−0.70 pp** | 0.002 |
+| **M5** output budgeter | +12.53 pp | 0.524 |
+| **M3** history manager | +11.77 pp | 0.462 |
+| **M2** semantic cache | +1.96 pp | 0.013 |
+| **M1** compressor | +0.24 pp | 0.000 |
+| M3×M5 interaction | **−0.75 pp** | 0.002 |
 
-Full stack reaches **+33.9%** total token reduction. The two material interaction terms are both negative —
-**M3×M5 −0.70** and **M2×M5 −0.11** — and both involve M5, which is the tell: M5 shortens output, so only
+Full stack reaches **+33.3%** total token reduction. The two material interaction terms are both negative —
+**M3×M5 −0.75** and **M2×M5 −0.09** — and both involve M5, which is the tell: M5 shortens output, so only
 modules that change what there is to shorten can overlap with it. Every other term sits within ±0.02 and is
 indistinguishable from zero here, so the honest statement is not "the modules always interfere" but "where
 they interact at all, they interfere."
 
-> **Additivity shortfall: 1.66 percentage points, 95% CI [+0.02, +3.25].**
+> **Additivity shortfall: 1.69 percentage points, 95% CI [+0.04, +3.21].**
 
 This is Contribution 1, and the honest version of it is more interesting than the original. No published
 study runs these modules in one pipeline, so the field has no evidence about whether their savings compound.
@@ -45,7 +45,7 @@ They do not. But **how much they fail to compound is a property of the configura
 | encoder | M2 effect | M3×M5 | additivity shortfall |
 |---|---|---|---|
 | `hashing-v1` | +1.61 pp | −1.14 | 2.53 pp, **[+0.93, +3.99]** — excludes zero |
-| `content-v1` (default) | +1.93 pp | −0.70 | 1.66 pp, **[+0.02, +3.25]** — clears zero by 0.02 |
+| `content-v1` (default) | +1.96 pp | −0.75 | 1.69 pp, **[+0.04, +3.21]** — clears zero by 0.04 |
 
 Improving the encoder (ADR-035) made the cache hit more often, so it overlapped its neighbours less and the
 shortfall shrank until its interval reached zero. **The weaker encoder was not reinstated to protect the
@@ -493,7 +493,7 @@ The gate now refuses any transform that removes **all** word characters, checked
 comparison and independent of it — the only kind of check that can hold for languages the extractors cannot
 read. Widening the regex would have fixed the instance and left the class (ADR-038).
 
-**Every headline number is unchanged** by these fixes: +33.9% full stack, 0.0% false hits, 1.66 pp shortfall.
+**Every headline number is unchanged** by these fixes: +33.3% full stack, 0.0% false hits, 1.69 pp shortfall.
 They close holes without moving a result, which is what a security fix should look like when the original
 measurements were sound. What changed is the *scope* of the safety claim: 0.0% is now a statement about a
 corpus **and a sanitiser**, rather than about a corpus that happened to contain no adversarial Unicode.
@@ -557,6 +557,58 @@ examine, because the exact tier looks unambiguously safe.
 - **True-hit rate at scale.** Now 45 controls against 45 adversarial. The false-hit rate held at 0.0%
   and the true-hit rate fell to 22.2%, so the remaining question is not the denominator but the encoder:
   the missed paraphrases are the same lexical-similarity failure ADR-028 quantifies.
+
+## 13. Compression has nothing to compress until the request carries context
+
+The compressor was the weakest module in every table: **0.23%** of tokens on the conversation corpus. The
+explanation is in the corpus, not the module — the median question there is **six words** long. Prefill is
+92–99% of wall clock (§8), and the input tokens of a real request are mostly *context*: retrieved passages,
+a pasted report, an earlier long answer. A request had nowhere to put any of that, so the module was
+measured on the one input where its ceiling is a rounding error (ADR-040).
+
+Requests now carry documents, and M1 has a context tier that removes whole sentences from them — the ones
+this question does not need — while the fidelity gate checks, independently, that every kept sentence is
+verbatim, in order, and that anything the question names is still present.
+
+### A benchmark where compression is worth seconds
+
+`corpus/longctx_*.jsonl`: 102 documents in 17 fictional collections, 85 questions, six documents (~1,000
+tokens) per question, with deliberate distractors. Fictional, so the model cannot answer from memory:
+**the closed-book arm scores 1/45**, which is what makes every other row mean something. Splits are by
+collection — dev (10) for tuning, test (45) reported, test2 (30) authored later and left untouched. Every
+baseline gets the same token budget Parsimony used on that question.
+
+| method | correct | 95% CI | context kept | prompt tokens | prefill | vs full |
+|---|---|---|---|---|---|---|
+| full context | 40/45 — 88.9% | 76.5–95.2 | 100% | 727 | 8.39 s | — |
+| **Parsimony** | **36/45 — 80.0%** | 66.2–89.1 | **21.2%** | **219** | **2.38 s** | p = 0.125 |
+| BM25 top sentences | 32/45 — 71.1% | 56.6–82.3 | 21.0% | 216 | 2.34 s | p = 0.039 |
+| stopword removal | 29/45 — 64.4% | 49.8–76.8 | 63.7% | 509 | 5.62 s | p = 0.003 |
+| truncate to budget | 14/45 — 31.1% | 19.5–45.7 | 19.7% | 197 | 2.07 s | p < 0.001 |
+| random sentences | 6/45 — 13.3% | 6.3–26.2 | 20.8% | 227 | 2.38 s | p < 0.001 |
+| no context | 1/45 — 2.2% | 0.4–11.6 | 0% | 61 | 0.46 s | p < 0.001 |
+
+**A fifth of the context, 3.5× less prefill, and no significant difference from sending everything** (exact
+McNemar on 4 discordant pairs). Every obvious method at the same budget *does* lose significantly. The claim
+stops there: "not significantly worse" is not "as good", and 45 items cannot detect a difference below
+roughly ten points.
+
+**The failure modes separate cleanly by question kind.** Truncation answers **0 of 9** questions whose answer
+sentence opens with a pronoun — that sentence is in the back half of a document truncation never reaches —
+against **9 of 9** for Parsimony, which finds it by letting the sentence inherit the name from the sentence
+before it and then keeps that sentence so "It" still refers to something. Plain BM25 retrieval fails hardest
+on negation (4/9 against 7/9): a question and its negation share their content words, so ranking alone cannot
+separate them. This is the same finding as §2, in a different module.
+
+**What did not pay.** Removing the anchor guarantee, or the relevance floor, scored 37/45 — nominally above
+the full method. Those are one-item differences and mean nothing at this sample size, so the honest reading is
+that the method as a whole beats the baselines while its individual components are not separable on 45
+questions. The floor does have a measured price: without it the prompt keeps 34.6% of the context instead of
+21.2% for no accuracy difference we can see.
+
+**Where it still fails.** Of the four questions Parsimony got wrong and full context got right, one asked for
+a "daily dose" where the document says "once a day" — no lexical relevance score connects those, and that is
+the ceiling this tier shares with the lexical encoder of ADR-028.
 
 ## Reproducing all of it
 

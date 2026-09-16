@@ -32,7 +32,7 @@ middleware layer of seven optimisation modules plus an always-on fidelity gate, 
 independently switchable, the whole system is a 2⁴ factorial experiment rather than a fixed pipeline.
 
 Measured over 151 conversations and 263 requests against `qwen2.5:1.5b-instruct` running locally on CPU, the
-full stack removes **33.9%** of tokens with **no loss of answer accuracy** (92.5% → 97.5% on 40 gold items,
+full stack removes **33.3%** of tokens with **no loss of answer accuracy** (92.5% → 97.5% on 40 gold items,
 zero regressions). Three findings are new. **Savings do not compound**: an additivity shortfall of 1.66
 percentage points whose size is a property of the configuration rather than a constant. **Prefill dominates
 CPU inference** at 92–99% of total time, ~8.5 ms per input token, making input reduction worth far more than
@@ -180,7 +180,7 @@ on the interaction terms &mdash; the first stacked-interaction table for this co
 </div>
 </div>
 
-**Status: answered.** The additivity shortfall is **1.66 pp, 95% CI [+0.02, +3.25]**, and both material
+**Status: answered.** The additivity shortfall is **1.69 pp, 95% CI [+0.04, +3.21]**, and both material
 interaction terms are negative (§7.1).
 
 ## 2.2 Gap 2: The Output Side of the Bill Is Ignored
@@ -207,7 +207,7 @@ independently ablated module.</p>
 
 **Status: answered, and the expected direction was wrong.** Read from the server's own counters rather than
 wall-clock TTFT, **prefill is 92–99% of the time**, not the minority share the framing above anticipated
-(§7.2). The output budgeter remains the single largest token effect (+13.44 pp) because it is the only module
+(§7.2). The output budgeter remains the single largest token effect (+12.53 pp) because it is the only module
 that touches the output side at all.
 
 ## 2.3 Gap 3: Compression and Caching Have Never Met
@@ -350,8 +350,8 @@ safety property is the constraint under which every optimisation must operate.
 
 **Contribution 1 — The additivity shortfall, measured.** A full 2⁴ factorial over compressor × cache × history
 manager × output budgeter with bootstrap confidence intervals and partial η² effect sizes. Savings do not
-compound: the shortfall is **1.66 pp, 95% CI [+0.02, +3.25]**. Further, its magnitude is a property of the
-*configuration* — improving the encoder moved it from 2.53 pp to 1.66 pp, because a cache that hits more often
+compound: the shortfall is **1.69 pp, 95% CI [+0.04, +3.21]**. Further, its magnitude is a property of the
+*configuration* — improving the encoder moved it from 2.53 pp to 1.69 pp, because a cache that hits more often
 overlaps its neighbours less. *(Answers RQ1, closes Gap 1.)*
 
 **Contribution 2 — The CPU cost structure, and the price of prompt order.** Prefill is **92–99%** of total
@@ -607,23 +607,23 @@ Full 2⁴ factorial, 151 conversations, 263 requests, 17 cells.
 
 | Effect | Estimate | Partial η² |
 |---|---|---|
-| M5 output budgeter | +13.44 pp | 0.556 |
-| M3 history manager | +11.82 pp | 0.430 |
-| M2 semantic cache | +1.93 pp | 0.012 |
-| M1 compressor | +0.23 pp | 0.000 |
-| M3 × M5 interaction | **−0.70 pp** | 0.002 |
+| M5 output budgeter | +12.53 pp | 0.524 |
+| M3 history manager | +11.77 pp | 0.462 |
+| M2 semantic cache | +1.96 pp | 0.013 |
+| M1 compressor | +0.24 pp | 0.000 |
+| M3 × M5 interaction | **−0.75 pp** | 0.002 |
 
-Full stack: **+33.9%** total token reduction. Both material interaction terms are negative and both involve
+Full stack: **+33.3%** total token reduction. Both material interaction terms are negative and both involve
 M5 — trimming history and shortening output reduce the same conversation.
 
-> **Additivity shortfall: 1.66 pp, 95% CI [+0.02, +3.25].**
+> **Additivity shortfall: 1.69 pp, 95% CI [+0.04, +3.21].**
 
 And the sharper result: the shortfall is **configuration-dependent**.
 
 | Encoder | M2 effect | M3 × M5 | Additivity shortfall |
 |---|---|---|---|
 | `hashing-v1` | +1.61 pp | −1.14 | 2.53 pp, [+0.93, +3.99] |
-| `content-v1` (default) | +1.93 pp | −0.70 | 1.66 pp, [+0.02, +3.25] |
+| `content-v1` (default) | +1.96 pp | −0.75 | 1.69 pp, [+0.04, +3.21] |
 
 Improving the encoder made the cache hit more often, so it overlapped its neighbours less. The weaker encoder
 was **not** reinstated to protect the interval: choosing a component known to be worse because it yields a more
@@ -704,7 +704,7 @@ The exact zero at 0% recurrence is what makes the rest credible.
 
 | Metric | Baseline | With Parsimony |
 |---|---|---|
-| Total token reduction | — | **33.9%** |
+| Total token reduction | — | **33.3%** |
 | Gold accuracy (40 items) | 92.5% | **97.5%**, zero regressions |
 | False-answer rate on adversarial pairs | 26.7% | **0.0%** |
 | Prefill share of wall clock | 91.7 – 98.8% | unchanged (measured, not optimised away) |

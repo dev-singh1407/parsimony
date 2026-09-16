@@ -65,7 +65,7 @@ SLIDES: list[tuple[str, list[tuple[str, int]]]] = [
          "independently switchable, so the system is also an experiment.", 0),
         ("Evaluation: 151 conversations, 263 requests, 17 configurations, "
          "45 adversarial pairs, 40 gold items, real model on CPU.", 0),
-        ("Result: 33.9% fewer tokens, 4.06 ms overhead, zero quality "
+        ("Result: 33.3% fewer tokens, 4.06 ms overhead, zero quality "
          "regressions - and three findings the literature had not reported.", 0),
     ]),
 
@@ -148,10 +148,10 @@ SLIDES: list[tuple[str, list[tuple[str, int]]]] = [
 
     # 11 -- experiments and results
     ("Experiments and Results", [
-        ("E1  Factorial ablation, 17 configurations, 263 requests:  33.9% total "
+        ("E1  Factorial ablation, 17 configurations, 263 requests:  33.3% total "
          "token reduction (full stack)", 0),
         ("Savings are NOT additive - 29.0 pp predicted, 27.4 pp measured. The "
-         "whole shortfall is one interaction, M3xM5 = -0.70 pp", 1),
+         "whole shortfall is one interaction, M3xM5 = -0.75 pp", 1),
         ("E2  Latency structure on the real model:  prefill is 91.7-98.8% of "
          "inference time, ~8.5 ms per input token", 0),
         ("Two prompts 0.5% apart in tokens cost 212 ms vs 18,914 ms - about "
@@ -232,7 +232,7 @@ LIT_TABLE_ROWS = [
      "Cut prompt tokens",
      "Budget controller plus token-level iterative compression, scored by perplexity",
      "+ Up to 20x compression\n- GPU only; tested alone, never with a cache",
-     "Weakest module in our stack: +0.23 pp of 33.9%"],
+     "Weakest module in our stack: +0.24 pp of 33.3%"],
     ["GPTCache\n(NLP-OSS 2023)",
      "Reuse a past answer",
      "Embed the query, compare, serve above a similarity threshold",

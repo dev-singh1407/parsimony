@@ -26,11 +26,30 @@ from parsimony.core.proposals import ContextPatch, NoOp, Proposal, TransformKind
 from parsimony.core.types import AssembledPrompt, RequestContext
 
 
+def render_documents(documents) -> str:
+    blocks = []
+    for i, doc in enumerate(documents, start=1):
+        head = f"[{i}] {doc.title}" if doc.title else f"[{i}]"
+        blocks.append(f"{head}\n{doc.content}")
+    return "Context:\n" + "\n\n".join(blocks)
+
+
 def _render_turns(ctx: RequestContext) -> str:
+    """History, then supplied documents, then the question.
+
+    Documents go AFTER the history, next to the question, for two reasons.
+    Question-aware compression (M1 m1_context) makes the document text differ
+    on every turn, and anything placed after a changing span loses its KV
+    reuse -- so a document block ahead of the history would cost the whole
+    conversation its reusable prefix. And a small model uses context nearest
+    the question most reliably, so the evidence belongs there anyway.
+    """
     parts = []
     for turn in ctx.history:
         speaker = "User" if turn.role == "user" else "Assistant"
         parts.append(f"{speaker}: {turn.content}")
+    if ctx.documents:
+        parts.append(render_documents(ctx.documents))
     parts.append(f"User: {ctx.query}")
     parts.append("Assistant:")
     return "\n".join(parts)
@@ -73,7 +92,7 @@ def assemble_volatile_head(ctx: RequestContext, token_count) -> AssembledPrompt:
 class PrefixStableAssembler:
     module_id = "M4"
     name = "m4_assembler"
-    reads = frozenset({"query", "history", "system_prompt", "context_digest"})
+    reads = frozenset({"query", "history", "documents", "system_prompt", "context_digest"})
     writes = frozenset({"assembled"})
 
     def applies_to(self, ctx: RequestContext, cfg: ParsimonyConfig) -> bool:

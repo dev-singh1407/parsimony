@@ -1035,7 +1035,8 @@ ADR-028 pairs improve from 0.729/0.412/0.321 to 0.738/0.561/**0.847**.
 (4.4% false), so 0.92 sits one adversarial pair from the cliff. A threshold step of margin is worth more than
 2.2 points of true-hit rate in a component whose failure mode is serving the opposite answer.
 
-**Consequence for the pipeline.** Cache hits 9 → 11, full-stack reduction 33.5% → **33.9%**, on a corpus
+**Consequence for the pipeline.** Cache hits 9 → 11, full-stack reduction 33.5% → **33.9%** (the
+figures of the day; the headline is 33.3% since ADR-040 reclassified counting questions), on a corpus
 whose recurrence is only 1.9% (ADR-033) — the cache has very little to work with here, so this understates
 the gain on repetitive traffic.
 
@@ -1044,7 +1045,7 @@ the gain on repetitive traffic.
 | | hashing-v1 | content-v1 |
 |---|---|---|
 | M2 main effect | +1.61 pp | +1.94 pp |
-| M3×M5 interaction | −1.14 | −0.70 |
+| M3×M5 interaction | −1.14 | −0.75 |
 | **additivity shortfall** | **2.53 pp, 95% CI [+0.93, +3.99]** | **1.63 pp, 95% CI [−0.02, +3.23]** |
 
 Improving the encoder **weakened the headline claim**. A better cache contributes more independently and
@@ -1324,7 +1325,8 @@ understanding the text is the only kind that can hold for input the extractors c
 
 **Consequences.**
 
-- **Every headline number is unchanged**: full stack +33.9%, false-hit rate 0.0% at τ ≥ 0.92, additivity
+- **Every headline number is unchanged** by this fix: full stack +33.9% as it stood then, false-hit rate
+  0.0% at τ ≥ 0.92, additivity
   shortfall 1.63 pp. These fixes are strictly protective — they close holes without moving a result, which is
   what a security fix should look like when the original measurements were sound.
 - The 0.0% false-hit rate is now a claim about a corpus **plus** a sanitiser, rather than a claim about a
@@ -1415,3 +1417,130 @@ have found this.** It took someone typing the same question twice.
 - A limitation worth stating: the detector is lexical. A question like *"Which one is faster?"* is caught by
   "one", but a context-dependent question phrased without any deictic marker would not be. The failure mode
   is a wrong answer, so this is the part of the change most deserving of a stronger test than a word list.
+
+---
+
+### ADR-040 — The compressor was measured on six-word questions, so it measured nothing
+
+**Status.** Accepted, 16 September 2026. Extends M1 (ADR-026, ADR-028).
+
+**Context.** M1 removes politeness, repeated sentences and wordy phrasing from the *question*. On the
+conversation corpus it saved **0.23%** of tokens — the smallest contribution of any module, and the figure a
+reviewer reaches for when asking whether these layers do anything.
+
+The number is not wrong, and it is not the module's fault. The corpus question is six words long at the
+median and 44 words at the longest. There is nothing in it to compress. Meanwhile ADR-034 established where
+the cost actually is: prefill, ~8.5 ms per input token, 92–99% of wall clock on this CPU. And the input
+tokens of a real request are mostly *context* — retrieved passages, a pasted report, an earlier long answer
+— none of which the corpus contains and none of which M1 could see, because a request had nowhere to put
+them: the pipeline knew only `query` and `history`.
+
+So the module was being judged on the one input where its ceiling is a fraction of a percent, and the input
+where compression is worth seconds per request was not representable.
+
+**Decision, in four parts.**
+
+**1. Documents are part of a request.** `RequestContext` gains `documents` (and `original_documents`, the
+gate's reference), `Pipeline.run(..., documents=...)` accepts them, and `parsimony ask --file X.md` splits a
+file into sections and attaches it. M4 renders them *after* the history and immediately before the question:
+question-aware compression changes the document text every turn, and anything placed after a changing span
+loses its key–value cache reuse, so documents ahead of the history would cost the whole conversation its
+reusable prefix (ADR-025). The cache scopes every entry by a digest of the documents supplied with it —
+"what is the notice period?" has a different answer for each contract, and the question text cannot tell
+them apart.
+
+**2. A context tier for M1 (`m1_context`).** It removes whole sentences from documents and from older long
+turns, keeping the ones the current question needs:
+
+| step | what it does | what fails without it |
+|---|---|---|
+| BM25 over this request's sentences | relevance, with rarity judged against the context at hand | "office" is noise in a document about six offices |
+| terms cut to six characters | "employees" meets "employs" | the crude shared stemmer left them apart, and the answer sentence scored zero |
+| anchors | a sentence naming what the question names is boosted, and the best one per name is guaranteed | a generic sentence about travel budgets outranks the one for *this* office |
+| pronoun inheritance | "It employs 58 people." inherits "Tallinn" from the sentence before it | the answer sentence shares no word with the question |
+| document prior (best sentence, or the title) | coarse-to-fine, as LongLLMLingua found necessary | a stray sentence elsewhere outranks the right document's |
+| MMR | the kept budget covers different facts | three phrasings of the best sentence |
+| relevance floor | stop when sentences stop being relevant, even under budget | a fixed ratio pads a narrow question with noise |
+| dependency closure | keep the sentence before a kept "It/This/However" | "It was cancelled in 2024." with nothing to say what *it* was |
+| original order | a shortened document, not a shuffled one | |
+
+No second model and no network: pure Python over the request's own text, tens of milliseconds against
+seconds of prefill.
+
+**3. A transform kind the gate can check: `EXTRACT`.** A REWRITE check would veto every extraction (deleting
+sentences loses numbers by design) and a SELECT check does not apply (SELECT removes whole units). EXTRACT
+asserts, independently of anything the module reports: the question is untouched; every kept unit is its
+source with whole sentences deleted, verbatim and in order; no document or turn is invented, dropped or
+reordered; the context is not annihilated; and **anything the question names that the context contained is
+still there**. That last clause is what makes aggressive deletion safe to ship.
+
+**4. A benchmark that can see it.** `corpus/longctx_*.jsonl`: 102 documents in 17 collections, 85 questions,
+six documents (~1,000 tokens) per question. Fictional organisations, so a model cannot answer from memory —
+the closed-book arm scores **1/45**, which is what makes the rest of the table meaningful. Distractors are
+deliberate (three offices, three travel budgets). Five question kinds: lookup, distractor, anaphora,
+negation, two-hop. Document order is shuffled per item, so the answer is not always near the front, which
+would flatter truncation. Splits by collection: **dev** (10 questions) for tuning, **test** (45) reported,
+**test2** (30) authored later and untouched. Every baseline receives the token budget Parsimony used on that
+question.
+
+**Results.** 45 held-out questions, `qwen2.5:1.5b-instruct` on this laptop, one call per question per arm:
+
+| method | correct | 95% CI | context kept | prompt tokens | prefill | vs full context |
+|---|---|---|---|---|---|---|
+| full context | 40/45 — 88.9% | 76.5–95.2 | 100% | 727 | 8.39 s | — |
+| **Parsimony** | **36/45 — 80.0%** | 66.2–89.1 | **21.2%** | **219** | **2.38 s** | −4 items, p = 0.125 |
+| BM25 top sentences | 32/45 — 71.1% | 56.6–82.3 | 21.0% | 216 | 2.34 s | −10 +2, p = 0.039 |
+| stopword removal | 29/45 — 64.4% | 49.8–76.8 | 63.7% | 509 | 5.62 s | −12 +1, p = 0.003 |
+| truncate to budget | 14/45 — 31.1% | 19.5–45.7 | 19.7% | 197 | 2.07 s | −27 +1, p < 0.001 |
+| random sentences | 6/45 — 13.3% | 6.3–26.2 | 20.8% | 227 | 2.38 s | −34, p < 0.001 |
+| no context | 1/45 — 2.2% | 0.4–11.6 | 0% | 61 | 0.46 s | −39, p < 0.001 |
+
+**One fifth of the context, 3.5× less prefill, and the difference from sending everything is not
+statistically significant** (exact McNemar, 4 discordant pairs, p = 0.125) — while the obvious methods at the
+same budget lose significantly. The claim stops there: *not significantly worse* is not *as good*, and with
+45 items this design cannot detect a difference smaller than roughly ten points.
+
+**By question kind, which is where the design shows:**
+
+| kind | full | Parsimony | BM25 top-k | truncation |
+|---|---|---|---|---|
+| anaphora | 9/9 | **9/9** | 8/9 | **0/9** |
+| distractor | 12/12 | 11/12 | 10/12 | 4/12 |
+| negation | 8/9 | 7/9 | 4/9 | 6/9 |
+| two-hop | 7/9 | 5/9 | 6/9 | 2/9 |
+| lookup | 4/6 | 4/6 | 4/6 | 2/6 |
+
+Truncation answers **none** of the nine questions whose answer sentence begins with a pronoun, because that
+sentence sits in the back half of a document it never reaches. Parsimony answers all nine: pronoun
+inheritance finds the sentence and dependency closure keeps the one that says what "It" is. The negation
+column is where plain retrieval fails hardest (4/9 against 7/9): a question and its negation share their
+content words, so ranking alone cannot tell "which crafting materials **cannot** be traded" from the rest of
+the patch notes.
+
+**What the component ablations say — including the parts that did not pay.** Removing anchors scored 37/45
+and removing the relevance floor 37/45, both nominally *above* the full method's 36/45; removing the document
+prior or the dependency closure scored 36/45. Every one of these differences is one or two items, well inside
+the noise of this sample, so the honest statement is that **on this set only the method as a whole is
+distinguishable from the baselines; its individual components are not.** The floor is not free: removing it
+keeps 34.6% of the context instead of 21.2%, so it buys a third of the prompt for no measurable accuracy —
+which is the trade it was designed to make, now with a number attached.
+
+**The four questions Parsimony got wrong and full context got right** were read rather than counted. Two are
+two-hop items where one of the two needed sentences was dropped. One is `tessaract_q5`, where the kept
+sentence says "Crafting materials from the new dungeon cannot be traded" and the sentence naming the dungeon
+was not kept — the answer became unresolvable rather than wrong. One is `orrin_q1`: the question asks for a
+"daily dose" and the answer sentence says "once a day", which no lexical measure connects. That is the
+ceiling of a lexical relevance score, and precisely the case a neural encoder exists to fix (ADR-028).
+
+**Consequences.**
+
+- M1's contribution is no longer a rounding error on inputs where compression matters, and its old figure on
+  short questions is unchanged — the tier does not apply below 300 tokens of context, so no earlier result
+  moves.
+- The project now has a second corpus whose baselines are the techniques a practitioner would actually use,
+  rather than "no compression".
+- Every `ask`/`chat` turn can show which sentences of an attached file were sent and which were removed, with
+  the runtime's own prefill timings beside them.
+- A change made after seeing these results is a post-hoc change and is reported as one: `context_v1()` freezes
+  the configuration measured above, and the **test2** split exists to confirm any later version on questions
+  nothing was tuned against.

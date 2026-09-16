@@ -20,7 +20,13 @@ _CODE_RE = re.compile(r"```|\bfunction\b|\bcode\b|\bpython\b|\bjavascript\b|\bsq
 _WRITE_CODE_RE = re.compile(r"\bwrite (?:a |an )?(?:function|script|program|class|query)\b", re.I)
 _SUMM_RE = re.compile(r"\bsummaris|\bsummariz|\bcondense\b|\btl;?dr\b|\bin (?:one|two|three) (?:line|sentence)", re.I)
 _REASON_RE = re.compile(r"\bwhy\b|\bexplain why\b|\bcompare\b|\bdifference between\b|\bprove\b|\bderive\b", re.I)
-_ARITH_RE = re.compile(r"\d\s*[-+*/^%]\s*\d|\bhow many\b|\bconvert\b|\bcalculate\b|\bpercent\b", re.I)
+_ARITH_RE = re.compile(r"\d\s*[-+*/^%]\s*\d|\bconvert\b|\bcalculate\b|\bcompute\b"
+                       r"|\bpercent of\b|\bhow much is\b", re.I)
+# "How many" is arithmetic only when there is something to count with. Without
+# this, "How many people does the Tallinn office employ?" -- a lookup in an
+# attached document -- was classified arithmetic and given the 48-token budget
+# meant for a number, which truncates any answer that has to name things.
+_COUNT_RE = re.compile(r"\bhow many\b|\bhow much\b", re.I)
 # A follow-up is signalled either by an anaphoric reference OR by a bare
 # conjunction opener with no pronoun at all ("And at 3000 metres?"). Requiring a
 # pronoun misses the second form entirely, which is the more common one in real
@@ -61,7 +67,7 @@ def classify(query: str, has_history: bool) -> ResponseClass:
         and (_FOLLOWUP_LEAD_RE.match(query) or _ANAPHORA_RE.search(query))
     ):
         return ResponseClass.FOLLOW_UP
-    if _ARITH_RE.search(query):
+    if _ARITH_RE.search(query) or (_COUNT_RE.search(query) and any(c.isdigit() for c in query)):
         return ResponseClass.ARITHMETIC
     if _CODE_RE.search(query):
         return ResponseClass.CODE
@@ -88,9 +94,29 @@ class TrigramNoveltyStopper:
         self._seen_sentences: set[str] = set()
         self.stopped_at: int | None = None
         self.reason: str | None = None
+        # Code fences seen so far, and the last two characters, so a fence split
+        # across two streamed pieces ("``" then "`") is still counted.
+        self._fences = 0
+        self._tail = ""
+
+    @property
+    def in_code(self) -> bool:
+        return self._fences % 2 == 1
 
     def observe(self, piece: str) -> bool:
         """Feed one token. Returns True when generation should stop."""
+        # Nothing inside a code block is judged. Code repeats itself by design --
+        # `while i < len(a)`, `merged.append(...)` -- and the novelty rule read a
+        # correct merge function from the real model as rambling and cut it off
+        # mid-statement. A truncated function is not a shorter answer, it is a
+        # broken one.
+        window = self._tail + piece
+        self._fences += window.count("```")
+        self._tail = window[-2:]
+        if self.in_code or "```" in piece:
+            self._buffer.clear()
+            return False
+
         self._tokens.append(piece.strip().lower())
         self._buffer.append(piece)
 
@@ -155,8 +181,20 @@ class OutputBudgeter:
         )
 
     @staticmethod
-    def stopper(cfg: ParsimonyConfig) -> TrigramNoveltyStopper | None:
+    def stopper(cfg: ParsimonyConfig,
+                response_class: ResponseClass | None = None) -> TrigramNoveltyStopper | None:
+        """The early-stop rule for one answer, or None when it must not apply.
+
+        Never for a code question. Measured against the real model: asked to
+        write a function merging two sorted lists, it produced a correct one in
+        232 tokens, and the novelty rule stopped it at `merged_list.append(list`
+        -- because correct code is repetitive. The budget still caps the answer
+        at 512 tokens; what goes is only the premature stop. The fence guard in
+        the stopper covers code that appears inside a prose answer.
+        """
         if not (cfg.enables("M5") and cfg.budget.early_stop):
+            return None
+        if response_class is ResponseClass.CODE:
             return None
         return TrigramNoveltyStopper(
             window=cfg.budget.novelty_window,

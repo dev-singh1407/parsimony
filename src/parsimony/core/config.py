@@ -27,6 +27,7 @@ DEFAULT_STAGE_ORDER: tuple[str, ...] = (
     "m2_cache",
     "m3_history",
     "m3_arrange",
+    "m1_context",
     "m1_tier1",
     "m1_tier2",
     "m1_tier3",
@@ -72,6 +73,50 @@ class CompressionConfig:
     min_sentence_tokens: int = 4
     retokenise_window: int = 32
     max_ratio: float = 3.0
+
+    # -- context tier: question-aware sentence extraction (ADR-040) ----------
+    context_enabled: bool = True
+    # Below this much context, ranking sentences costs more attention than the
+    # prefill it could remove, and there is too little text to rank reliably.
+    context_min_tokens: int = 300
+    # Upper bound on what is kept, as a fraction of the context. The relevance
+    # floor usually stops selection first.
+    context_target_ratio: float = 0.35
+    context_min_keep_tokens: int = 48
+    # A sentence scoring below this fraction of the best sentence is not added
+    # even when the budget has room: padding a narrow answer with noise costs
+    # prefill and gives a small model more to be distracted by.
+    context_relevance_floor: float = 0.15
+    context_mmr_lambda: float = 0.75
+    # Blend of embedder cosine into the BM25 score. Lexical encoders mostly
+    # restate BM25, so the weight is small until a neural encoder is attached.
+    context_dense_weight: float = 0.3
+    # How much a sentence's score depends on its document's relevance.
+    context_doc_weight: float = 0.3
+    # A document's title counts toward its relevance at this weight. The title
+    # is often the only place a document says what it is about: "Trial OB-114:
+    # velastrin" heads a document whose dosage sentence never repeats the code.
+    # 0.0 reproduces the first frozen version (context_v1).
+    context_title_weight: float = 0.5
+    # Judge the relevance floor BEFORE the anchor bonus. A sentence naming what
+    # the question names is already guaranteed a place; letting its bonus also
+    # set the scale the floor is measured against pushed every other sentence
+    # under the floor. False reproduces context_v1.
+    context_floor_before_bonus: bool = True
+    context_anchor_bonus: float = 0.5
+    # Keep the best sentence for every name the question mentions. A switch
+    # only so the ablation can measure what the guarantee is worth.
+    context_anchor_guarantee: bool = True
+    context_closure_depth: int = 2
+    context_min_saving_tokens: int = 32
+    # History: only turns before the most recent exchange, and only long ones.
+    context_keep_recent_turns: int = 2
+    context_turn_min_tokens: int = 120
+    bm25_k1: float = 1.2
+    bm25_b: float = 0.75
+    # Ranking terms are compared on this many leading characters after
+    # stemming, so "employees" meets "employs" (see m1_context.ranking_terms).
+    context_term_prefix: int = 6
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,6 +336,16 @@ def _canonicalise(obj: Any) -> Any:
 def baseline() -> ParsimonyConfig:
     """Everything off. Every later claim is a difference against this."""
     return ParsimonyConfig(enabled_modules=frozenset(), label="baseline")
+
+
+def context_v1(cfg: ParsimonyConfig | None = None) -> ParsimonyConfig:
+    """The context selector as frozen for its first real-model run (ADR-040).
+
+    Kept so the recorded results stay reproducible after later changes.
+    """
+    cfg = cfg or full_stack()
+    return replace(cfg, compression=replace(cfg.compression, context_title_weight=0.0,
+                                            context_floor_before_bonus=False))
 
 
 def full_stack() -> ParsimonyConfig:

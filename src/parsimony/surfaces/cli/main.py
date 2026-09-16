@@ -92,9 +92,16 @@ def chat(
     provider: str = typer.Option("mock", "--provider",
                                  help="'mock' (simulated timings) or 'ollama' (a real model)."),
     model: str = typer.Option(None, "--model", help="Ollama model tag."),
+    files: list[Path] = typer.Option(None, "--file", "-f",
+                                     help="A text file the question is about. Repeat for more."),
+    compare: bool = typer.Option(False, "--compare",
+                                 help="Then ask again with every layer off, and measure both."),
+    report: bool = typer.Option(False, "--report",
+                                help="The after-the-fact report instead of the live view."),
 ) -> None:
-    """Run one query through the pipeline."""
+    """Run one query through the pipeline, shown live."""
     query = require_query(query)
+    documents = load_documents(files)
     cfg = baseline() if plain else full_stack()
     # Text capture is always on here. It is display-only and provably does not
     # change the result (tests/unit/test_text_capture.py), and without it the
@@ -125,11 +132,30 @@ def chat(
         else:
             console.print(o.response)
 
-    show(pipeline.run(query))
+    live = not (modules or raw or report or not trace)
+    if live:
+        from parsimony.surfaces.cli.live import LiveSession, compare_turn, show_turn
+
+        live_session = LiveSession()
+        attachments = ""
+        if documents:
+            size = sum(counter(d.content) for d in documents)
+            attachments = f"{', '.join(sorted({p.name for p in files}))} ({size:,} tokens)"
+        outcome, view = show_turn(console, pipeline, query, documents=documents,
+                                  session=live_session, attachments=attachments)
+        if repeat:
+            console.print(Rule("the same question again"))
+            outcome, view = show_turn(console, pipeline, query, documents=documents,
+                                      session=live_session, attachments=attachments)
+        if compare:
+            compare_turn(console, pipeline.provider, cfg, query, documents=documents)
+        return
+
+    show(pipeline.run(query, documents=documents))
 
     if repeat:
         console.print(Rule("the same question again"))
-        show(pipeline.run(query))
+        show(pipeline.run(query, documents=documents))
 
 
 @app.command()
@@ -506,14 +532,39 @@ def calibrate_dedup(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
     )
 
 
+def load_documents(paths: list[Path] | None) -> tuple:
+    """Files the user attached, as documents. Refuses what it cannot read."""
+    from parsimony.core.types import split_into_documents
+
+    docs = []
+    for path in paths or ():
+        if not path.is_file():
+            fail(f"cannot find the file {str(path)!r}")
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            fail(f"{path.name} is not a text file", hint="attach .txt or .md files")
+        if not text.strip():
+            fail(f"{path.name} is empty")
+        docs.extend(split_into_documents(text, path.name))
+    return tuple(docs)
+
+
 @app.command()
 def ask(
     provider: str = typer.Option("ollama", "--provider"),
     model: str = typer.Option(None, "--model"),
     detail: bool = typer.Option(False, "--detail",
                                 help="Also print the engineering trace under the walkthrough."),
+    files: list[Path] = typer.Option(None, "--file", "-f",
+                                     help="A text file to ask questions about. Repeat for more."),
+    compare: bool = typer.Option(False, "--compare",
+                                 help="After every answer, ask again with every layer off and "
+                                      "measure both."),
+    report: bool = typer.Option(False, "--report",
+                                help="The after-the-fact report instead of the live view."),
 ) -> None:
-    """An interactive conversation, reporting every module on every turn.
+    """An interactive conversation, shown live as every layer and the AI work.
 
     Keeps the conversation, which the one-shot `chat` cannot: with no prior
     turns M3 has nothing to select from and M4 has no history to hold stable,
@@ -522,21 +573,37 @@ def ask(
     later turns exercise the whole pipeline — and asking something twice in
     different words lands a real cache hit rather than a staged one.
     """
+    from parsimony.surfaces.cli.live import LiveSession, compare_turn, show_turn
+
     cfg = full_stack()
-    pipeline = Pipeline(cfg, provider=make_provider(provider, model=model), capture_text=True)
+    documents = load_documents(files)
+    real_provider = make_provider(provider, model=model)
+    pipeline = Pipeline(cfg, provider=real_provider, capture_text=True)
     counter = get_tokenizer(cfg.tokenizer_id).count
     conversation_id = ulid()
     history: list[Turn] = []
     session = Session()
+    live_session = LiveSession()
+    last = None             # (question, history before it, outcome, view) for `compare`
+    attachments = ""
+    if documents:
+        names = sorted({str(p.name) for p in files})
+        size = sum(counter(d.content) for d in documents)
+        console.print(f"[bold]Attached:[/bold] {', '.join(names)} - {size} tokens in "
+                      f"{len(documents)} sections. Every question is asked about "
+                      f"{'it' if len(names) == 1 else 'them'}; the context selector decides "
+                      f"which sentences the AI reads.")
+        attachments = f"{', '.join(names)} ({size:,} tokens)"
 
     console.print(
         Panel(
-            "[bold]Ask anything.[/bold] Every layer reports what it did, every turn.\n\n"
-            "[dim]The conversation is kept, so history builds up as you go: by the third or\n"
-            "fourth question there is something to trim. Ask the same thing again in\n"
-            "different words to see the memory reuse an answer.\n\n"
-            "  help     what the layers are      memory   what has been remembered\n"
-            "  reset    start a new conversation  quit     leave[/dim]",
+            "[bold]Ask anything.[/bold] You will watch each layer run, the prompt shrink, "
+            "and the AI\nread and write in real time - with the runtime's own timings.\n\n"
+            "[dim]The conversation is kept, so history builds up as you go. Ask the same thing\n"
+            "again in different words to see the memory reuse an answer.\n\n"
+            "  compare  ask the last question again with every layer off, and measure both\n"
+            "  help     what the layers are        memory   what has been remembered\n"
+            "  reset    start a new conversation   quit     leave[/dim]",
             border_style="bold blue",
         )
     )
@@ -562,15 +629,31 @@ def ask(
         if query.lower() in {"memory", "cache"}:
             _memory_contents(pipeline)
             continue
+        if query.lower() == "compare":
+            if last is None:
+                console.print("[dim]ask a question first[/dim]")
+            else:
+                compare_turn(console, real_provider, cfg, last[0], last[1],
+                             documents=documents)
+            continue
 
         console.print()
-        outcome = pipeline.run(query, tuple(history), conversation_id=conversation_id,
-                              turn_index=len(history))
-        turn_report(console, outcome, query, counter,
-                    cache=pipeline.cache, cfg=cfg, session=session)
-        console.print(Panel(outcome.response or "[dim](empty)[/dim]",
-                            title="[bold]The answer[/bold]", border_style="green",
-                            title_align="left"))
+        before = tuple(history)
+        if report:
+            outcome = pipeline.run(query, before, conversation_id=conversation_id,
+                                   turn_index=len(history), documents=documents)
+            turn_report(console, outcome, query, counter,
+                        cache=pipeline.cache, cfg=cfg, session=session)
+            console.print(Panel(outcome.response or "[dim](empty)[/dim]",
+                                title="[bold]The answer[/bold]", border_style="green",
+                                title_align="left"))
+        else:
+            outcome, view = show_turn(console, pipeline, query, before, documents=documents,
+                                      conversation_id=conversation_id, turn_index=len(history),
+                                      session=live_session, attachments=attachments)
+            last = (query, before, outcome, view)
+            if compare:
+                compare_turn(console, real_provider, cfg, query, before, documents=documents)
         if detail:
             console.print()
             explain_report(console, outcome, counter)
@@ -1133,6 +1216,124 @@ def generalise(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
         "This covers the TOKENIZER dimension of report 4.6. Decode speed, answer quality and\n"
         "quantisation are properties of the model and still need Ollama.[/dim]"
     )
+
+
+@app.command()
+def longctx(
+    provider: str = typer.Option("mock", "--provider",
+                                 help="mock: which answers survive compression, no model needed. "
+                                      "ollama: also ask the real model and time it."),
+    split: str = typer.Option("test", "--split", help="test (reported), dev (tuning) or all."),
+    model: str = typer.Option(None, "--model", help="Ollama model tag."),
+    show: str = typer.Option(None, "--show",
+                             help="Show one question's context before and after, e.g. kestrel_q2."),
+    out: Path = typer.Option(Path("figures"), "--out", help="Where CSV results are written."),
+) -> None:
+    """Long documents: does question-aware compression keep the answer? (ADR-040)"""
+    import csv
+
+    from parsimony.eval import longctx as lc
+
+    items = [i for i in lc.load_longctx() if split == "all" or i.split == split]
+    if not items:
+        fail(f"no items in split {split!r}", hint="use --split test, dev or all")
+    methods = lc.Methods()
+
+    if show:
+        item = next((i for i in lc.load_longctx() if i.item_id == show), None)
+        if item is None:
+            fail(f"no item {show!r}", hint="item ids look like kestrel_q2")
+        _show_compression(methods, item)
+        return
+
+    with console.status("[bold green]compressing every item under every method"):
+        offline = lc.run_offline(methods, items)
+    rows = lc.summarise_offline(offline)
+    t = Table(title=f"Does the answer survive? {len(items)} questions, {split} split",
+              header_style="bold")
+    for col in ("method", "context kept", "answer sentences kept"):
+        t.add_column(col, justify="left" if col == "method" else "right")
+    for r in rows:
+        t.add_row(lc.ARM_LABELS.get(r["method"], r["method"]), f"{r['context kept %']}%",
+                  r["evidence kept"])
+    console.print(t)
+    console.print("[dim]Baselines get the same token budget Parsimony used on each question. "
+                  "Stopword removal rewords, so only the model can score it.[/dim]\n")
+    out.mkdir(parents=True, exist_ok=True)
+    with (out / "longctx.csv").open("w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=list(rows[0]))
+        w.writeheader()
+        w.writerows(rows)
+
+    if provider == "mock":
+        console.print("[dim]Add --provider ollama to measure answers and prefill time on the "
+                      "real model.[/dim]")
+        return
+
+    real = make_provider("ollama", model=model)
+    real.num_ctx = 4096
+    items_path = out / "longctx_real_items.jsonl"
+    with console.status("[bold green]asking the model") as status:
+        got = lc.run_real(methods, items, real, items_path,
+                          progress=lambda m: status.update(f"[bold green]{m}"))
+    ids = {i.item_id for i in items}
+    summaries = lc.summarise_real([g for g in got if g["item_id"] in ids])
+    _print_longctx_real(summaries, real.model_name)
+    table_rows = lc.real_rows(summaries)
+    with (out / "longctx_real.csv").open("w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=list(table_rows[0]))
+        w.writeheader()
+        w.writerows(table_rows)
+
+
+def _print_longctx_real(summaries, model_name: str) -> None:
+    from parsimony.eval.longctx import ARM_LABELS
+
+    t = Table(title=f"Answers from {model_name}", header_style="bold")
+    for col in ("method", "correct", "95% CI", "prompt tokens", "prefill", "lost / gained vs full",
+                "p"):
+        t.add_column(col, justify="left" if col == "method" else "right")
+    for s in summaries:
+        t.add_row(ARM_LABELS.get(s.arm, s.arm), f"{s.correct}/{s.n}  {s.accuracy.point:.1f}%",
+                  f"{s.accuracy.low:.0f}-{s.accuracy.high:.0f}%", f"{s.mean_prompt_tokens:.0f}",
+                  f"{s.mean_prefill_ms / 1000:.1f} s",
+                  "" if s.arm == "full" else f"{s.vs_full_lost} / {s.vs_full_gained}",
+                  "" if s.arm == "full" else f"{s.vs_full_p:.2f}")
+    console.print(t)
+
+
+def _show_compression(methods, item) -> None:
+    """One question, its six documents, and exactly which sentences survived and why."""
+    from parsimony.infra.nlp import split_sentences
+
+    got = methods.parsimony(item)
+    kept_text = "\n".join(d.content for d in got.documents)
+    before = methods.context_tokens(item.documents)
+    after = methods.context_tokens(got.documents)
+    console.print(Panel(f"[bold]{item.question}[/bold]\n[dim]{item.item_id} - {item.kind} - "
+                        f"answer: {item.gold.gold_answer}[/dim]", border_style="bright_blue"))
+    for doc in item.documents:
+        body = []
+        for s in split_sentences(doc.content):
+            if s in kept_text:
+                mark = "[green]kept[/green]   "
+                style = "bold" if any(e in s for e in item.evidence) else ""
+                body.append(f"{mark}[{style}]{s}[/{style}]" if style else f"{mark}{s}")
+            else:
+                body.append(f"[dim]removed  {s}[/dim]")
+        console.print(Panel("\n".join(body), title=doc.title, title_align="left",
+                            border_style="grey50"))
+    d = got.detail
+    console.print(
+        f"[bold]{before} -> {after} context tokens[/bold] "
+        f"({100 * (1 - after / before):.0f}% removed). "
+        f"Kept {d.get('sentences_kept', '?')} of {d.get('sentences', '?')} sentences; "
+        f"stopped by {d.get('stopped_by', '?')}; "
+        f"{d.get('closure_added', 0)} kept only so a following 'It'/'This' makes sense.")
+    if d.get("anchors"):
+        names = ", ".join(d["anchors"])
+        console.print(f"[dim]Named in the question and guaranteed a sentence: {names}.[/dim]")
+    console.print("[dim]Answer sentences are in bold.[/dim]")
 
 
 @app.command()

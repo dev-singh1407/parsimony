@@ -13,8 +13,34 @@ nothing about any other module. Ablation flags map 1:1 onto module IDs.
 **Objective.** Reduce input tokens under the *target model's own vocabulary*, never reducing information the
 fidelity gate protects.
 
-**reads** `query, history, invariants, derived.doc` · **writes** `query, history`
-**Emits** three separate `ContextPatch(kind=REWRITE)` proposals, one per tier.
+**reads** `query, history, documents, invariants, derived.doc` · **writes** `query, history, documents`
+**Emits** one `ContextPatch(kind=EXTRACT)` from the context tier, then three `ContextPatch(kind=REWRITE)`
+proposals, one per rewriting tier.
+
+### Context tier — question-aware sentence extraction (ADR-040)
+The tiers below edit the *question*, and a question is a dozen tokens: on the conversation corpus the whole
+module saved 0.2%. The input tokens of a real request are mostly **context** — supplied documents, a pasted
+report, an earlier long answer — and on CPU each costs ~8.5 ms of prefill. `m1_context` removes whole
+sentences from documents and from older long turns, keeping the ones the current question needs.
+
+```
+units      = sentences of every document and every eligible older turn
+relevance  = BM25 over these units (IDF from this request)  ⊕  embedder cosine
+anchors    = numbers, names, codes, quoted strings the question names;
+             a sentence opening "It/This/They…" inherits its predecessor's
+doc prior  = scale by the source's best sentence or its title
+select     = anchor guarantee, then MMR under budget, stop at a relevance floor
+closure    = keep the sentence before any kept sentence that opens dependently
+emit       = kept sentences in original order; empty documents dropped
+```
+
+The fidelity gate checks an EXTRACT independently of the module: the question is untouched, every kept
+unit is its source with whole sentences deleted, nothing is added or reordered, and anything the question
+names that the context contained is still in it.
+
+*Measured:* on the long-context benchmark (`corpus/longctx_*.jsonl`, `parsimony longctx`) against
+truncation, BM25 top-k, random sentences and stopword removal at a matched token budget — see
+docs/09-findings.md §13.
 
 ### Tier 1 — Lossless normalisation
 Collapse runs of whitespace; strip markdown scaffolding (`###`, `**`, table pipes) where it carries no

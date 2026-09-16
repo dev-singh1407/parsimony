@@ -48,6 +48,7 @@ LAYERS: tuple[tuple[str, str, str], ...] = (
     ("m2_cache", "Memory", "reuses an earlier answer when the question matches"),
     ("m3_history", "History trimmer", "drops earlier turns that no longer matter"),
     ("m3_arrange", "History arranger", "puts the most relevant turn nearest your question"),
+    ("m1_context", "Context selector", "keeps only the sentences of long documents your question needs"),
     ("m1_tier1", "Politeness remover", "removes greetings, please, thanks, formatting"),
     ("m1_tier2", "Repeat remover", "drops a sentence repeating a fact already given"),
     ("m1_tier3", "Wordiness trimmer", "shortens long-winded phrasing"),
@@ -178,6 +179,8 @@ def _reason(trace, delta, cache, cfg) -> str:
             return "switched off for this run"
         if name in ("m3_history", "m3_arrange"):
             return "no earlier turns to work with yet"
+        if name == "m1_context":
+            return "no documents attached and no long earlier answers"
         return trace.rationale or "nothing to do"
     if trace.outcome is StageOutcome.REVERTED:
         lost = _vanished(delta.query_before, delta.query_after) if delta else []
@@ -199,6 +202,14 @@ def _reason(trace, delta, cache, cfg) -> str:
             return (f"moved turn {ev['moved_from'] + 1} next to your question "
                     f"({_pct(ev.get('relevance', 0))} related)")
         return trace.rationale
+    if name == "m1_context":
+        if trace.outcome is StageOutcome.APPLIED:
+            return (f"kept {ev.get('sentences_kept')} of {ev.get('sentences')} sentences "
+                    f"({ev.get('context_tokens_before')} -> {ev.get('context_tokens_after')} "
+                    f"tokens of context)")
+        if ev.get("context_tokens") is not None:
+            return f"context is only {ev['context_tokens']} tokens - too short to be worth trimming"
+        return trace.rationale or "no documents attached"
     if name == "m1_tier1":
         if delta is not None and delta.history_changed:
             return "cleaned an earlier message; your question was already clean"
@@ -243,13 +254,17 @@ def question_panel(outcome, question: str, counter) -> Panel:
     row = outcome.row
     typed = _tokens(counter, question)
     payload = _payload_before(outcome)
-    history = max(payload - typed, 0)
+    documents = getattr(outcome.ctx, "original_documents", ()) or ()
+    attached = sum(_tokens(counter, d.content) for d in documents)
+    history = max(payload - typed - attached, 0)
     fixed = max(row.tokens_in_original - payload, 0)
 
     table = Table.grid(padding=(0, 2))
     table.add_column(justify="left")
     table.add_column(justify="right")
     table.add_row("[bold]What you typed[/bold]", f"[bold]{typed}[/bold] tokens")
+    if attached:
+        table.add_row(f"Attached documents ({len(documents)})", f"{attached} tokens")
     if history:
         table.add_row("The conversation so far", f"{history} tokens")
     if fixed:
@@ -381,6 +396,69 @@ def memory_panel(outcome, cache=None, cfg=None) -> Panel | None:
                  border_style="green" if hit else "grey50", title_align="left")
 
 
+def context_panel(outcome) -> Panel | None:
+    """Which sentences of the attached documents went to the AI, and why.
+
+    The context selector makes the largest cut of any layer -- often most of
+    the prompt -- so it is the one a viewer most needs to be able to check.
+    Every document is listed, including those dropped entirely, with the
+    sentences that survived.
+    """
+    from parsimony.infra.nlp import split_sentences
+
+    trace = next((t for t in outcome.traces if t.name == "m1_context"), None)
+    if trace is None or trace.outcome is not StageOutcome.APPLIED:
+        return None
+    ev = trace.evidence or {}
+    ctx = outcome.ctx
+    kept_docs = {d.doc_id: d for d in ctx.documents}
+
+    body = Table.grid(padding=(0, 2))
+    body.add_column(style="bold", width=24, overflow="fold")
+    body.add_column(overflow="fold")
+    for doc in ctx.original_documents:
+        total = len(split_sentences(doc.content))
+        label = doc.title or doc.doc_id
+        now = kept_docs.get(doc.doc_id)
+        if now is None:
+            body.add_row(label, f"[dim]all {total} sentences removed - nothing in it "
+                                f"bears on the question[/dim]")
+            continue
+        kept = split_sentences(now.content)
+        shown = " ".join(kept)
+        if len(shown) > 220:
+            shown = shown[:217] + "..."
+        body.add_row(label, f"[green]kept {len(kept)} of {total}[/green]  {shown}")
+
+    originals = {t.turn_id: t for t in ctx.original_history}
+    for turn in ctx.history:
+        before = originals.get(turn.turn_id)
+        if before is not None and before.content != turn.content:
+            body.add_row("an earlier answer",
+                         f"[green]kept {len(split_sentences(turn.content))} of "
+                         f"{len(split_sentences(before.content))} sentences[/green]")
+
+    notes = []
+    if ev.get("anchors"):
+        notes.append("Named in your question, so guaranteed a sentence: "
+                     + ", ".join(ev["anchors"]) + ".")
+    if ev.get("closure_added"):
+        notes.append(f"{ev['closure_added']} sentence(s) kept only because the next one "
+                     f"starts with a word like 'It' or 'This' and would not make sense alone.")
+    stop = {"relevance floor": "stopped when the next sentence was no longer relevant",
+            "budget": "stopped at the size limit",
+            "exhausted": "every relevant sentence fit"}.get(ev.get("stopped_by"), "")
+    before_t, after_t = ev.get("context_tokens_before", 0), ev.get("context_tokens_after", 0)
+    if before_t:
+        notes.append(f"{before_t} -> {after_t} tokens of context "
+                     f"({100 * (before_t - after_t) / before_t:.0f}% removed); {stop}.")
+    notes.append("No sentence was reworded, and the safety check confirmed it.")
+
+    return Panel(Group(body, Text(""), Text("\n".join(notes), style="dim")),
+                 title="[bold]Context selector[/bold] [dim]- sentences sent to the AI[/dim]",
+                 border_style="green", title_align="left")
+
+
 def edit_panels(console: Console, outcome) -> None:
     """Before/after for the stages that rewrote the user's own question."""
     for delta in getattr(outcome, "text_deltas", ()):
@@ -450,6 +528,9 @@ def turn_report(console: Console, outcome, question: str, counter,
     panel = memory_panel(outcome, cache=cache, cfg=cfg)
     if panel is not None:
         console.print(panel)
+    selected = context_panel(outcome)
+    if selected is not None:
+        console.print(selected)
     edit_panels(console, outcome)
 
     console.print(result_panel(outcome, counter))

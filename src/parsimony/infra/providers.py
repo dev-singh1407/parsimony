@@ -309,6 +309,30 @@ class OllamaProvider:
         }
         return self.last_stats
 
+    def complete(self, prompt: str, params: GenParams) -> tuple[str, dict]:
+        """One non-streaming generation: the full text AND the server's timings.
+
+        For evaluation runs, which need both. `generate` can stop reading before
+        the frame that carries the timings arrives, and `probe` discards the
+        text; a benchmark scoring answers against their prefill cost needs the
+        two from the same call.
+        """
+        options = {"num_predict": params.num_predict, "temperature": params.temperature,
+                   "seed": params.seed}
+        if params.stop:
+            options["stop"] = list(params.stop)
+        if self.num_ctx is not None:
+            options["num_ctx"] = self.num_ctx
+        out = self._post("/api/generate", {"model": self.model, "prompt": prompt,
+                                           "stream": False, "options": options})
+        if out.get("error"):
+            raise ProviderError(f"ollama: {out['error']}")
+        stats = {k: out[k] for k in ("prompt_eval_count", "prompt_eval_duration", "eval_count",
+                                     "eval_duration", "load_duration", "total_duration",
+                                     "done_reason") if k in out}
+        self.last_stats = stats
+        return out.get("response", ""), stats
+
     # -- generation --------------------------------------------------------
 
     def generate(self, prompt: str, params: GenParams) -> Iterator[TokenEvent]:
@@ -342,17 +366,17 @@ class OllamaProvider:
                     raise ProviderError(f"ollama: {chunk['error']}")
 
                 piece = chunk.get("response", "")
-                if piece:
+                # Ollama honours num_predict, but a provider that overran it
+                # would silently break the budgeter's accounting, so the
+                # contract is enforced here too -- by not yielding past it,
+                # while still reading on to the final frame, which is the one
+                # that carries the runtime's prefill and decode timings.
+                if piece and index < params.num_predict:
                     # perf_counter_ns AT RECEIPT. This is the whole point of
                     # streaming rather than taking the response in one blob:
                     # TTFT and TPOT are only real if measured as tokens arrive.
                     yield TokenEvent(text=piece, index=index, emitted_at_ns=time.perf_counter_ns())
                     index += 1
-                    # Ollama honours num_predict, but a provider that overran it
-                    # would silently break the budgeter's accounting, so the
-                    # contract is enforced here too.
-                    if index >= params.num_predict:
-                        break
                 if chunk.get("done"):
                     self.last_stats = {
                         k: chunk[k]

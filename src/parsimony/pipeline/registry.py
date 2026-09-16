@@ -23,6 +23,8 @@ INITIAL_FIELDS: frozenset[str] = frozenset(
         "invariants",
         "original_query",
         "original_history",
+        "documents",
+        "original_documents",
         "conversation_id",
         "turn_index",
     }
@@ -90,6 +92,7 @@ class StageRegistry:
 def default_registry(cache=None) -> StageRegistry:
     """Wire the stages that exist today. Later sprints append here."""
     from parsimony.modules.m1_compressor import stages as m1_stages
+    from parsimony.modules.m1_context import stages as m1_context_stages
     from parsimony.modules.m2_cache import CacheLookupStage, SemanticCache
     from parsimony.modules.m3_history import stages as m3_stages
     from parsimony.modules.m4_assembler import stages as m4_stages
@@ -103,6 +106,7 @@ def default_registry(cache=None) -> StageRegistry:
     # what the pre-compression lookup WOULD have done without acting on it.
     reg.register(CacheLookupStage(shared_cache, probe_only=True, name="m2_cache_probe"))
     reg.register_all(m3_stages())
+    reg.register_all(m1_context_stages())
     reg.register_all(m1_stages())
     reg.register_all(m4_stages())
     reg.register(OutputBudgeter())

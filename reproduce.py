@@ -310,6 +310,40 @@ def render_tokenprobe(ctx: Context) -> str:
     )
 
 
+def render_longctx(ctx: Context) -> str:
+    """Long-context compression (ADR-040): offline evidence, plus the recorded real-model run.
+
+    The offline half is recomputed here and is deterministic. The real-model
+    half cannot be -- it needs Ollama and about an hour -- so it is summarised
+    from the per-call rows `parsimony longctx --provider ollama` recorded, and
+    the section says which it is showing.
+    """
+    from parsimony.eval import longctx as lc
+
+    items = [i for i in lc.load_longctx() if i.split == "test"]
+    offline = lc.summarise_offline(lc.run_offline(lc.Methods(), items))
+    headers = list(offline[0])
+    rows = [[str(r[h]) for h in headers] for r in offline]
+    _write_csv(ctx.out / "longctx.csv", headers, rows)
+    text = (f"{len(items)} held-out questions over six fictional documents each. Baselines "
+            f"receive the token budget Parsimony used on each question.\n\n"
+            + _table(headers, rows))
+
+    recorded = lc.load_rows(ctx.out / "longctx_real_items.jsonl")
+    recorded = [r for r in recorded if r["split"] == "test"]
+    if not recorded:
+        return text + "\n\n_No real-model run recorded; run `parsimony longctx --provider ollama`._"
+    summaries = lc.summarise_real(recorded)
+    real = lc.real_rows(summaries)
+    rh = list(real[0])
+    rr = [[str(r[h]) for h in rh] for r in real]
+    _write_csv(ctx.out / "longctx_real.csv", rh, rr)
+    model = recorded[0]["model"]
+    return (text + f"\n\n**Recorded on the real model** ({model}, "
+            f"{len(recorded)} calls, read from longctx_real_items.jsonl):\n\n"
+            + _table(rh, rr))
+
+
 def render_calibration_table(ctx: Context) -> str:
     """Contribution 6, in the form a practitioner can act on."""
     table = calibration_table(ctx.results)
@@ -590,6 +624,7 @@ SECTIONS: tuple[Section, ...] = (
     Section("generalisation", "Cross-vocabulary generalisation",
             ("tokenizer_id", "tokens_in_final", "tokens_out"), render_generalisation),
     Section("tokenprobe", "Negative-yield probe", (), render_tokenprobe),
+    Section("longctx", "Long-context compression", (), render_longctx),
     Section("middleware", "Middleware overhead and prefix reuse",
             ("middleware_ns", "prefix_tokens_survived"), render_middleware),
 )

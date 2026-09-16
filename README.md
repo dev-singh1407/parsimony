@@ -52,13 +52,13 @@ Every ledger row carries the provider's content digest, so the two can never be 
 
 | effect | estimate | partial η² |
 |---|---|---|
-| M5 output budgeter | +13.43 pp | 0.556 |
-| M3 history manager | +11.82 pp | 0.430 |
-| M2 semantic cache | +1.93 pp | 0.012 |
-| M1 compressor | +0.23 pp | 0.000 |
+| M5 output budgeter | +12.53 pp | 0.524 |
+| M3 history manager | +11.77 pp | 0.462 |
+| M2 semantic cache | +1.96 pp | 0.013 |
+| M1 compressor | +0.24 pp | 0.000 |
 
-Full stack reaches **+33.9%** total token reduction. The two material interaction terms are both
-negative — **M3×M5 −0.70** and **M2×M5 −0.11** — so where the modules interact at all, they eat each other's
+Full stack reaches **+33.3%** total token reduction. The two material interaction terms are both
+negative — **M3×M5 −0.75** and **M2×M5 −0.09** — so where the modules interact at all, they eat each other's
 lunch rather than compounding. Every other term sits within ±0.02, indistinguishable from zero at this
 sample size.
 
@@ -68,7 +68,7 @@ encoder (ADR-035) made the cache hit more often, which made it overlap its neigh
 | encoder | M2 effect | M3×M5 | additivity shortfall |
 |---|---|---|---|
 | `hashing-v1` | +1.61 pp | −1.14 | 2.53 pp, 95% CI **[+0.93, +3.99]** |
-| `content-v1` (default) | +1.93 pp | −0.70 | 1.66 pp, 95% CI **[+0.02, +3.25]** |
+| `content-v1` (default) | +1.96 pp | −0.75 | 1.69 pp, 95% CI **[+0.04, +3.21]** |
 
 So savings do not compound — but *by how much they fail to compound* is a property of the components, not a
 constant of the technique stack. Under the better encoder the shortfall is smaller, and its interval clears zero by
@@ -103,6 +103,50 @@ unable to answer at all.
 smaller failed — for 16% more wall clock and twice the memory. M6's escalation threshold was also set at
 0.75 against an observed maximum complexity of **0.406**, so the tier could not fire at all. It is now
 calibrated to 0.20 and deliberately left off.
+
+### On long context, the compressor removes four fifths of the prompt
+
+The conversation corpus asks six-word questions, and the compressor saved 0.23% of its tokens because there
+was nothing in them to remove. Real requests carry *context* — retrieved passages, an attached report, an
+earlier long answer — and that is where prefill goes. Requests now carry documents, and M1's context tier
+keeps only the sentences the current question needs, checked by the fidelity gate: every kept sentence
+verbatim and in order, and anything the question names still present (ADR-040).
+
+Measured on 45 held-out questions over six fictional documents each, `qwen2.5:1.5b-instruct` on this laptop.
+Every baseline gets the token budget Parsimony used on that question:
+
+| method | correct | context kept | prompt tokens | prefill | vs full context |
+|---|---|---|---|---|---|
+| full context | 40/45 — 88.9% | 100% | 727 | 8.39 s | — |
+| **Parsimony** | **36/45 — 80.0%** | **21.2%** | **219** | **2.38 s** | p = 0.125 |
+| BM25 top sentences | 32/45 — 71.1% | 21.0% | 216 | 2.34 s | p = 0.039 |
+| stopword removal | 29/45 — 64.4% | 63.7% | 509 | 5.62 s | p = 0.003 |
+| truncate to budget | 14/45 — 31.1% | 19.7% | 197 | 2.07 s | p < 0.001 |
+| random sentences | 6/45 — 13.3% | 20.8% | 227 | 2.38 s | p < 0.001 |
+| no context at all | 1/45 — 2.2% | 0% | 61 | 0.46 s | p < 0.001 |
+
+A fifth of the context, 3.5× less prefill, and no significant difference from sending everything — while
+every obvious method at the same budget loses significantly. The closed-book row is the control that makes
+the rest meaningful: these documents are fictional, so nothing here can be answered from memory.
+
+The difference is sharpest where the answer sentence begins with a pronoun. Truncation answers **0 of 9**
+such questions and Parsimony **9 of 9**, because a sentence inherits the name from the sentence before it,
+and that sentence is then kept so "It" still refers to something.
+
+### Watch it happen
+
+```bash
+parsimony ask --file examples/staff-handbook.md     # attach a file and ask about it
+parsimony chat "What is the travel budget for Tallinn?" -f examples/staff-handbook.md --compare
+parsimony longctx --show kestrel_q2                 # one question: every sentence kept or removed
+```
+
+Each turn is drawn as it runs: every layer with its real duration and what it changed, the prompt bar
+shrinking as cuts are committed, a clock while the model reads the prompt, the answer streaming in against
+the budget the answer limiter set, and then the prompt the model actually received with every removed span
+struck through. `--compare` asks the same question again with every layer switched off, from cold, and puts
+the two measurements side by side — on one attached handbook that is 8.9 s of reading against 3.0 s, for the
+same answer.
 
 ### Five findings that changed the design
 
@@ -145,7 +189,7 @@ module — the same distinction as ADR-028.
 | [`docs/00-architecture.md`](docs/00-architecture.md) | Layering, core data model, orchestrator, stage ordering, repo layout, cross-cutting concerns |
 | [`docs/01-pipeline-stages.md`](docs/01-pipeline-stages.md) | The eight processing stages, each with objective / inputs / outputs / techniques / libraries / pros / cons / alternatives / recommendation / integration |
 | [`docs/02-module-specs.md`](docs/02-module-specs.md) | M1–M8 internals and ablation wiring |
-| [`docs/03-decision-log.md`](docs/03-decision-log.md) | 39 ADRs with justification and consequences. **The intellectual core** — several record where measurement contradicted the plan |
+| [`docs/03-decision-log.md`](docs/03-decision-log.md) | 40 ADRs with justification and consequences. **The intellectual core** — several record where measurement contradicted the plan |
 | [`docs/04-roadmap.md`](docs/04-roadmap.md) | Re-planned 12-week schedule, sprint plan, milestone gates, scope-cut order, risks |
 | [`docs/05-evaluation-harness.md`](docs/05-evaluation-harness.md) | The compute budget problem and its fix; sweep runner; four quality measures; statistics; validity threats |
 | [`docs/06-contracts.md`](docs/06-contracts.md) | Complete L0 type and protocol definitions + the ledger schema. **Review this first** |

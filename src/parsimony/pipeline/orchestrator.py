@@ -19,6 +19,7 @@ from parsimony.core.errors import LedgerError, ModuleError, ProviderError
 from parsimony.core.ledger import GateEvent, LedgerRow, StageOutcome, StageTrace
 from parsimony.core.proposals import ContextPatch, NoOp, ShortCircuit
 from parsimony.core.types import (
+    Document,
     GenParams,
     Invariants,
     Mode,
@@ -91,6 +92,36 @@ class TextDelta:
     def history_changed(self) -> bool:
         """Something moved in the conversation rather than in the question."""
         return self.changed and not self.query_changed
+
+
+class PipelineObserver:
+    """Receives each step of a request AS IT HAPPENS. Every method is optional.
+
+    For the interactive surfaces, which show a request moving through the
+    layers and the model reading and writing in real time, rather than a
+    report printed after everything is over. Display-only: an observer cannot
+    change the request, and an exception inside one is swallowed so a
+    rendering bug can never fail a request. None during sweeps.
+    """
+
+    def begin(self, ctx: RequestContext, tokens_original: int) -> None: ...
+    def stage(self, trace: StageTrace) -> None: ...
+    def prompt(self, text: str, tokens: int) -> None: ...
+    def token(self, event) -> None: ...
+    def stopped(self, reason: str) -> None: ...
+    def generated(self, stats: dict) -> None: ...
+
+
+def _safely(observer, method: str, *args) -> None:
+    if observer is None:
+        return
+    fn = getattr(observer, method, None)
+    if fn is None:
+        return
+    try:
+        fn(*args)
+    except Exception:  # a display must never fail the request it displays
+        pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,12 +202,15 @@ class Pipeline:
         history: tuple[Turn, ...] = (),
         conversation_id: str | None = None,
         turn_index: int = 0,
+        documents: tuple[Document, ...] = (),
     ) -> RequestContext:
         history = tuple(
             t.with_tokens(self.tokenizer.count(t.content)) if not t.token_count else t
             for t in history
         )
-        payload = "\n".join([t.content for t in history] + [query])
+        documents = tuple(documents)
+        payload = "\n".join([d.content for d in documents]
+                            + [t.content for t in history] + [query])
         invariants: Invariants = self._extractor.extract(payload)
         ctx = RequestContext(
             request_id=ulid(),
@@ -186,6 +220,8 @@ class Pipeline:
             invariants=invariants,
             query=query,
             history=history,
+            documents=documents,
+            original_documents=documents,
             system_prompt=self.cfg.system_prompt,
             context_digest=self.cfg.context_digest,
             turn_index=turn_index,
@@ -202,12 +238,23 @@ class Pipeline:
         history: tuple[Turn, ...] = (),
         conversation_id: str | None = None,
         turn_index: int = 0,
+        documents: tuple[Document, ...] = (),
+        observer: PipelineObserver | None = None,
     ) -> Outcome:
         t_start = time.perf_counter_ns()
-        ctx = self.build_context(query, history, conversation_id, turn_index)
+        ctx = self.build_context(query, history, conversation_id, turn_index, documents)
         original_ctx = ctx
+        self._observer = observer
+        if observer is not None:
+            _safely(observer, "begin", ctx, assemble_prefix_stable(
+                original_ctx, ctx.derived.token_count).total_token_count)
 
         traces: list[StageTrace] = []
+
+        def push(trace: StageTrace) -> None:
+            traces.append(trace)
+            _safely(observer, "stage", trace)
+
         text_deltas: list[TextDelta] = []
         tokens_per_stage: dict[str, int] = {}
         gate_events: list[GateEvent] = []
@@ -222,14 +269,14 @@ class Pipeline:
             before_tokens = ctx.derived.token_count(ctx.text_payload())
 
             if isinstance(stage, PlannedStage):
-                traces.append(
+                push(
                     _trace(stage, StageOutcome.NOT_IMPLEMENTED, before_tokens,
                            before_tokens, t0, "scheduled for a later sprint")
                 )
                 continue
 
             if not self.cfg.enables(stage.module_id):
-                traces.append(
+                push(
                     _trace(stage, StageOutcome.SKIPPED, before_tokens, before_tokens,
                            t0, "module disabled")
                 )
@@ -247,14 +294,14 @@ class Pipeline:
             try:
                 if not stage.applies_to(ctx, self.cfg):
                     reason = getattr(stage, "skip_reason", None)
-                    traces.append(
+                    push(
                         _trace(stage, StageOutcome.SKIPPED, before_tokens, before_tokens, t0,
                                reason(ctx, self.cfg) if reason else "not applicable")
                     )
                     continue
                 proposal = stage.propose(ctx, self.cfg)
             except Exception as exc:  # a module must never fail the request
-                traces.append(
+                push(
                     _trace(stage, StageOutcome.ERROR, before_tokens, before_tokens, t0,
                            f"{type(exc).__name__}: {exc}")
                 )
@@ -264,7 +311,7 @@ class Pipeline:
                 cache_evidence = dict(getattr(proposal, "evidence", {}) or {})
 
             if isinstance(proposal, ShortCircuit):
-                traces.append(
+                push(
                     _trace(stage, StageOutcome.SHORT_CIRCUIT, before_tokens, 0, t0,
                            proposal.rationale, proposal.evidence)
                 )
@@ -280,7 +327,7 @@ class Pipeline:
                 break
 
             if isinstance(proposal, NoOp):
-                traces.append(
+                push(
                     _trace(stage, StageOutcome.NOOP, before_tokens, before_tokens, t0,
                            proposal.detail or proposal.reason, proposal.evidence)
                 )
@@ -292,7 +339,7 @@ class Pipeline:
 
             if verdict.passed:
                 after_tokens = ctx.derived.token_count(candidate.text_payload())
-                traces.append(
+                push(
                     _trace(stage, StageOutcome.APPLIED, before_tokens, after_tokens, t0,
                            proposal.rationale, proposal.evidence)
                 )
@@ -308,7 +355,7 @@ class Pipeline:
                 ctx = candidate  # commit
             else:
                 gate_events.extend(verdict.events)
-                traces.append(
+                push(
                     _trace(stage, StageOutcome.REVERTED, before_tokens, before_tokens, t0,
                            verdict.detail, {}, tuple(verdict.events))
                 )
@@ -365,6 +412,7 @@ class Pipeline:
 
             route = ctx.route_tier or RouteTier.MODEL_SMALL
             provider = self._provider_for(route)
+            _safely(observer, "prompt", prompt_text, tokens_in_final)
             g0 = time.perf_counter_ns()
             response, ttft, tpot, early_stopped, memoised = self._generate(
                 prompt_text, ctx, provider
@@ -485,7 +533,8 @@ class Pipeline:
                 # than fabricated — a memo hit has no meaningful TTFT.
                 return cached.text, None, None, cached.early_stopped, True
 
-        stopper = OutputBudgeter.stopper(self.cfg)
+        stopper = OutputBudgeter.stopper(self.cfg, ctx.response_class)
+        observer = getattr(self, "_observer", None)
         pieces: list[str] = []
         first = last = None
         early_stopped = False
@@ -496,13 +545,16 @@ class Pipeline:
                     first = event.emitted_at_ns
                 last = event.emitted_at_ns
                 pieces.append(event.text)
+                _safely(observer, "token", event)
                 if stopper is not None and stopper.observe(event.text):
                     early_stopped = True
+                    _safely(observer, "stopped", stopper.reason or "early stop")
                     break
         except Exception as exc:
             raise ProviderError(f"generation failed: {exc}") from exc
 
         text = "".join(pieces)
+        _safely(observer, "generated", dict(getattr(provider, "last_stats", {}) or {}))
         ttft = (first - t0) if first is not None else None
         tpot = None
         if first is not None and last is not None and len(pieces) > 1:

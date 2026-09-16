@@ -21,12 +21,38 @@ from dataclasses import dataclass
 from parsimony.core.ledger import GateEvent
 from parsimony.core.proposals import TransformKind
 from parsimony.core.types import Invariants, RequestContext
-from parsimony.infra.nlp import RegexInvariantExtractor
+from parsimony.infra.nlp import RegexInvariantExtractor, split_sentences
 
 #: Any Unicode letter or digit. Deliberately not [A-Za-z0-9]: the whole point
 #: of the annihilation check is that it holds for alphabets the extractors
 #: cannot read.
 _WORDLIKE_RE = re.compile(r"[^\W_]")
+_SPACE_RE = re.compile(r"\s+")
+
+
+def _squash(text: str) -> str:
+    return _SPACE_RE.sub(" ", text).strip()
+
+
+def is_sentence_extract(source: str, target: str) -> bool:
+    """Can `target` be produced from `source` by deleting whole sentences?
+
+    Checked on the text itself rather than on any structure the proposing
+    module reports, so a module cannot describe an edit as an extraction and
+    then return something else. Whitespace between sentences is free -- a
+    module may re-join kept sentences with a space or a newline -- but every
+    retained sentence must be character-identical and in its original order.
+    """
+    rest = _squash(target)
+    if not rest:
+        return True
+    for sentence in split_sentences(source):
+        s = _squash(sentence)
+        if rest == s:
+            return True
+        if rest.startswith(s + " "):
+            rest = rest[len(s) + 1:]
+    return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +98,9 @@ class FidelityGate:
 
         if kind is TransformKind.SELECT:
             return self._check_select(before, after, module_id)
+
+        if kind is TransformKind.EXTRACT:
+            return self._check_extract(before, after, module_id)
 
         return self._check_rewrite(before, after, module_id)
 
@@ -136,4 +165,70 @@ class FidelityGate:
                 (GateEvent(module_id, "structure", ("query",)),),
                 "select must not alter the query",
             )
+        if after.documents != before.documents:
+            return Verdict(
+                False,
+                (GateEvent(module_id, "structure", ("documents",)),),
+                "select must not alter supplied documents",
+            )
+        return Verdict.ok()
+
+    def _check_extract(
+        self, before: RequestContext, after: RequestContext, module_id: str
+    ) -> Verdict:
+        """Sentence-level removal inside documents and turns (ADR-040).
+
+        Three guarantees, each independent of what the proposing module claims:
+
+          1. Structure. The question is untouched; no document or turn appears
+             that did not exist; turns keep their roles and order; every kept
+             unit is its source with whole sentences deleted, nothing reworded.
+          2. Anchors. Anything the QUESTION names -- a number, a name, a quoted
+             string -- that the context contained must still be in the context.
+             Deleting sentences legitimately loses numbers (that is the point),
+             so a REWRITE check would refuse every extraction; but deleting the
+             only sentences about the thing being asked about is never a saving.
+          3. Content. Context that had words cannot be reduced to none.
+        """
+        def fail(cls: str, values: tuple[str, ...], detail: str) -> Verdict:
+            return Verdict(False, (GateEvent(module_id, cls, values),), detail)
+
+        if after.query != before.query:
+            return fail("structure", ("query",), "extract must not alter the query")
+
+        source_docs = {d.doc_id: d for d in before.documents}
+        for doc in after.documents:
+            src = source_docs.get(doc.doc_id)
+            if src is None:
+                return fail("structure", (doc.doc_id,), "extract introduced a document")
+            if doc.title != src.title or not is_sentence_extract(src.content, doc.content):
+                return fail("structure", (doc.doc_id,), "extract altered a sentence")
+
+        if [t.turn_id for t in after.history] != [t.turn_id for t in before.history]:
+            return fail("structure", ("history",), "extract must not add, drop or reorder turns")
+        for old, new in zip(before.history, after.history):
+            if new.role != old.role or not is_sentence_extract(old.content, new.content):
+                return fail("structure", (new.turn_id,), "extract altered a sentence")
+
+        def context_of(ctx: RequestContext) -> str:
+            return "\n".join([d.content for d in ctx.documents]
+                             + [t.content for t in ctx.history])
+
+        source, target = context_of(before), context_of(after)
+        if _WORDLIKE_RE.search(source) and not _WORDLIKE_RE.search(target):
+            return fail("content", (source[:60],), "extract removed all context")
+
+        asked = self.invariants_of(before.query)
+        anchors = Invariants(numbers=asked.numbers, entities=asked.entities,
+                             quoted=asked.quoted)
+        had = anchors.missing_from(source)          # named in the question, never in context
+        lost = anchors.missing_from(target)
+        dropped = {cls: vals - had.get(cls, frozenset()) for cls, vals in lost.items()}
+        dropped = {cls: vals for cls, vals in dropped.items() if vals}
+        if dropped:
+            events = tuple(GateEvent(module_id, cls.value, tuple(sorted(vals)))
+                           for cls, vals in dropped.items())
+            summary = ", ".join(f"{c.value}:{len(v)}" for c, v in dropped.items())
+            return Verdict(False, events, f"extract dropped every mention of {summary} "
+                                          f"named in the question")
         return Verdict.ok()

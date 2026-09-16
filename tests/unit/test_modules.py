@@ -200,6 +200,59 @@ class TestEarlyStopper:
         assert not any(stopper.observe(w) for w in ["Yes.", " Yes.", " Yes."])
 
 
+class TestEarlyStopNeverBreaksCode:
+    """The real model wrote a correct merge function and the novelty rule cut it
+    off at `merged_list.append(list` -- correct code is repetitive by design."""
+
+    MERGE = [
+        "```", "python", "\n", "def", " merge", "(a", ",", " b", "):", "\n",
+        "    merged", " =", " []", "\n", "    i", " =", " j", " =", " 0", "\n",
+        *(["    while", " i", " <", " len", "(a", ")", " and", " j", " <", " len", "(b", "):", "\n",
+           "        if", " a", "[i", "]", " <", " b", "[j", "]:", "\n",
+           "            merged", ".append", "(a", "[i", "])", "\n",
+           "            i", " +=", " 1", "\n"] * 6),
+        "    return", " merged", "\n", "```",
+    ]
+
+    def test_code_questions_get_no_early_stop(self):
+        from parsimony.modules.m5_budgeter import OutputBudgeter
+
+        assert OutputBudgeter.stopper(full_stack(), ResponseClass.CODE) is None
+
+    def test_prose_questions_still_do(self):
+        from parsimony.modules.m5_budgeter import OutputBudgeter
+
+        for rc in (ResponseClass.FACTUAL, ResponseClass.REASONING, ResponseClass.SUMMARISATION):
+            assert isinstance(OutputBudgeter.stopper(full_stack(), rc), TrigramNoveltyStopper)
+
+    def test_repetitive_code_inside_a_fence_is_never_stopped(self):
+        stopper = TrigramNoveltyStopper()
+        assert not any(stopper.observe(piece) for piece in self.MERGE)
+        assert not stopper.in_code
+
+    def test_the_same_code_without_a_fence_would_have_been_stopped(self):
+        """Guards the guard: without it, this input really does trigger the rule."""
+        stopper = TrigramNoveltyStopper()
+        assert any(stopper.observe(piece) for piece in self.MERGE if piece != "```")
+
+    def test_a_fence_split_across_two_pieces_is_still_seen(self):
+        stopper = TrigramNoveltyStopper()
+        stopper.observe("Here it is: ``")
+        stopper.observe("`python")
+        assert stopper.in_code
+        stopper.observe("\n``")
+        stopper.observe("`")
+        assert not stopper.in_code
+
+    def test_prose_after_the_code_block_is_judged_again(self):
+        stopper = TrigramNoveltyStopper()
+        for piece in self.MERGE:
+            stopper.observe(piece)
+        sentence = " This merges both lists in linear time overall."
+        stopped = any(stopper.observe(" " + w) for w in (sentence * 2).split())
+        assert stopped and stopper.reason == "restated a sentence"
+
+
 # ---------------------------------------------------------------- M6 --------
 class TestSafeArithmetic:
     @pytest.mark.parametrize(

@@ -13,7 +13,7 @@ change and a single orchestrator *commits* it only after a safety check. Because
 independently switchable, the whole system is a 2⁴ factorial experiment rather than a fixed pipeline.
 
 Measured over 151 conversations and 263 requests against `qwen2.5:1.5b-instruct` running locally on CPU, the
-full stack removes **33.9%** of tokens with **no loss of answer accuracy** (92.5% → 97.5% on 40 gold items,
+full stack removes **33.3%** of tokens with **no loss of answer accuracy** (92.5% → 97.5% on 40 gold items,
 zero regressions). Three findings are new. **Savings do not compound**: an additivity shortfall of 1.66
 percentage points, and its size is a property of the configuration rather than a constant. **Prefill
 dominates CPU inference** at 92–99% of total time, ~8.5 ms per input token, making input reduction worth far
@@ -183,8 +183,8 @@ the safety property is the constraint under which every optimisation must operat
 
 **Contribution 1 — The additivity shortfall, measured.** A full 2⁴ factorial over compressor × cache ×
 history manager × output budgeter with bootstrap confidence intervals and partial η² effect sizes. Savings do
-not compound: the shortfall is **1.66 pp, 95% CI [+0.02, +3.25]**. Further, its magnitude is a property of
-the *configuration* — improving the encoder moved it from 2.53 pp to 1.66 pp, because a cache that hits more
+not compound: the shortfall is **1.69 pp, 95% CI [+0.04, +3.21]**. Further, its magnitude is a property of
+the *configuration* — improving the encoder moved it from 2.53 pp to 1.69 pp, because a cache that hits more
 often overlaps its neighbours less. (Answers RQ1, Gap 1.)
 
 **Contribution 2 — The CPU cost structure, and the price of prompt order.** Prefill is **92–99%** of total
@@ -372,23 +372,23 @@ Full 2⁴ factorial, 151 conversations, 263 requests, 17 cells.
 
 | Effect | Estimate | Partial η² |
 |---|---|---|
-| M5 output budgeter | +13.44 pp | 0.556 |
-| M3 history manager | +11.82 pp | 0.430 |
-| M2 semantic cache | +1.93 pp | 0.012 |
-| M1 compressor | +0.23 pp | 0.000 |
-| M3 × M5 interaction | **−0.70 pp** | 0.002 |
+| M5 output budgeter | +12.53 pp | 0.524 |
+| M3 history manager | +11.77 pp | 0.462 |
+| M2 semantic cache | +1.96 pp | 0.013 |
+| M1 compressor | +0.24 pp | 0.000 |
+| M3 × M5 interaction | **−0.75 pp** | 0.002 |
 
-Full stack: **+33.9%** total token reduction. Both material interaction terms are negative and both involve
+Full stack: **+33.3%** total token reduction. Both material interaction terms are negative and both involve
 M5 — trimming history and shortening output reduce the same conversation.
 
-> **Additivity shortfall: 1.66 pp, 95% CI [+0.02, +3.25].**
+> **Additivity shortfall: 1.69 pp, 95% CI [+0.04, +3.21].**
 
 And the sharper result: the shortfall is **configuration-dependent**.
 
 | Encoder | M2 effect | M3×M5 | Additivity shortfall |
 |---|---|---|---|
 | `hashing-v1` | +1.61 pp | −1.14 | 2.53 pp, [+0.93, +3.99] |
-| `content-v1` (default) | +1.93 pp | −0.70 | 1.66 pp, [+0.02, +3.25] |
+| `content-v1` (default) | +1.96 pp | −0.75 | 1.69 pp, [+0.04, +3.21] |
 
 Improving the encoder made the cache hit more often, so it overlapped its neighbours less. The weaker encoder
 was **not** reinstated to protect the interval.

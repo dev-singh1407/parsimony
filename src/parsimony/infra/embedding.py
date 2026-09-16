@@ -120,6 +120,87 @@ class HashingEmbedder:
         return out
 
 
+class OllamaEmbedder:
+    """A neural sentence encoder served by the Ollama runtime already installed.
+
+    The semantic model the lexical encoders stand in for, without PyTorch: the
+    same local runtime that serves the chat model serves an embedding model
+    over its /api/embed endpoint. all-minilm is MiniLM-L6 (22M parameters,
+    384 dimensions, ~46 MB) -- the model ADR-028 named as the fix for tier 2 --
+    and on this CPU a batch of forty sentences costs tens of milliseconds
+    against the seconds of prefill they decide about.
+
+    Vectors are memoised per text for the life of the process: the cache, the
+    history selector and the context selector all embed the same query, and a
+    network round trip per stage would spend the overhead budget three times.
+    """
+
+    def __init__(self, model: str = "all-minilm", host: str = "http://localhost:11434",
+                 *, timeout: float = 60.0) -> None:
+        self.model = model
+        self.host = host.rstrip("/")
+        self.timeout = timeout
+        self._dim: int | None = None
+        self._memo: dict[str, np.ndarray] = {}
+
+    @property
+    def id(self) -> str:
+        return f"ollama:{self.model}"
+
+    @property
+    def dim(self) -> int:
+        if self._dim is None:
+            self._dim = int(self.embed(["dimension probe"]).shape[1])
+        return self._dim
+
+    def _post(self, texts: list[str]) -> list[list[float]]:
+        import json
+        import urllib.error
+        import urllib.request
+
+        req = urllib.request.Request(
+            f"{self.host}/api/embed",
+            data=json.dumps({"model": self.model, "input": texts}).encode(),
+            headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                body = json.loads(resp.read())
+        except (urllib.error.URLError, OSError) as exc:
+            from parsimony.core.errors import FeatureNotAvailable
+
+            raise FeatureNotAvailable(
+                f"embedding model {self.model!r} is not reachable at {self.host} ({exc}). "
+                f"Start Ollama and pull the model, or use embedder_id='content-v1'.") from exc
+        vectors = body.get("embeddings")
+        if not vectors or len(vectors) != len(texts):
+            from parsimony.core.errors import FeatureNotAvailable
+
+            raise FeatureNotAvailable(f"{self.model!r} returned no embeddings: "
+                                      f"{str(body)[:120]}")
+        return vectors
+
+    def embed(self, texts: list[str]) -> np.ndarray:
+        missing = [t for t in dict.fromkeys(texts) if t not in self._memo]
+        if missing:
+            for text, vec in zip(missing, self._post(missing)):
+                v = np.asarray(vec, dtype=np.float32)
+                norm = float(np.linalg.norm(v)) or 1.0
+                self._memo[text] = v / norm
+        if not texts:
+            return np.zeros((0, self._dim or 384), dtype=np.float32)
+        out = np.vstack([self._memo[t] for t in texts])
+        self._dim = out.shape[1]
+        return out
+
+    @classmethod
+    def available(cls, model: str = "all-minilm", host: str = "http://localhost:11434") -> bool:
+        try:
+            cls(model, host, timeout=5.0).embed(["probe"])
+            return True
+        except Exception:
+            return False
+
+
 class SentenceTransformerEmbedder:
     """Drop-in swap for HashingEmbedder. Requires the optional 'models' extra.
 
@@ -174,6 +255,16 @@ can could will would shall should may might must
 please kindly just really very much
 me tell explain give show
 """.split())
+
+def content_terms(text: str) -> list[str]:
+    """Stemmed content words, in order, repeats kept -- the unit BM25 counts.
+
+    The same view of a content word the encoder takes, so relevance ranking in
+    M1 and similarity in M2 cannot disagree about what a sentence is about.
+    """
+    norm = _NORM_RE.sub(" ", text.lower())
+    return [_stem(w) for w in _WORD_RE.findall(norm) if w not in _STOPWORDS]
+
 
 #: Public alias. The cache compares CONTENT words and must take the same
 #: view of what a content word is; two stopword lists would mean the
@@ -260,6 +351,8 @@ class ContentEmbedder(HashingEmbedder):
 
 
 def get_embedder(embedder_id: str = "hashing-v1"):
+    if embedder_id.startswith("ollama:"):
+        return OllamaEmbedder(embedder_id.split(":", 1)[1])
     if embedder_id.startswith("content"):
         return ContentEmbedder()
     if embedder_id.startswith("hashing"):

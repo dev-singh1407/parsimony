@@ -30,7 +30,7 @@ ABSTRACT = [
     "system is a 2^4 factorial experiment rather than a fixed pipeline.",
 
     "Measured over 151 conversations and 263 requests against a locally hosted 1.5-billion "
-    "parameter model, the full stack removes 33.9% of tokens with no loss of answer accuracy: "
+    "parameter model, the full stack removes 33.3% of tokens with no loss of answer accuracy: "
     "gold accuracy rises from 92.5% to 97.5% with zero regressions. Three findings are new. "
     "Savings do not compound, with an additivity shortfall of 1.63 percentage points whose "
     "size is a property of the configuration rather than a constant. Prefill dominates CPU "
@@ -303,13 +303,13 @@ SECTIONS = [
             "across 151 conversations and 263 requests in 17 cells, with bootstrap confidence "
             "intervals and partial eta-squared effect sizes.",
             ([
-                ("M5 output budgeter", "+13.44", "0.556"),
-                ("M3 history manager", "+11.82", "0.430"),
-                ("M2 semantic cache", "+1.93", "0.012"),
+                ("M5 output budgeter", "+12.53", "0.524"),
+                ("M3 history manager", "+11.77", "0.462"),
+                ("M2 semantic cache", "+1.96", "0.012"),
                 ("M1 compressor", "+0.23", "0.000"),
-                ("M3 x M5 interaction", "-0.70", "0.002"),
+                ("M3 x M5 interaction", "-0.75", "0.002"),
             ], ["Effect", "Estimate (pp)", "Partial eta-squared"]),
-            "The full stack reaches 33.9% total token reduction. Both material interaction terms "
+            "The full stack reaches 33.3% total token reduction. Both material interaction terms "
             "are negative and both involve M5, because trimming history and shortening output "
             "reduce the same conversation. The additivity shortfall is 1.63 percentage points "
             "with a 95% confidence interval of -0.02 to +3.23.",

@@ -235,7 +235,7 @@ and add an adaptive output budgeter with a streaming early stop as its own modul
 \end{gap}
 \textbf{Answered, and the expected direction was wrong:} reading the prompt is
 \textbf{92--99\%} of the time (\S6.2). The budgeter is still the biggest single token
-saver (+13.44\,pp), because it is the only module touching the output at all.
+saver (+12.53\,pp), because it is the only module touching the output at all.
 
 \subsection{Gap 3: Compression and caching have never met}
 \begin{gap}{Gap 3 --- The Compression--Cache Interaction Is Unmeasured}
@@ -551,16 +551,16 @@ Full $2^4$ factorial, 151 conversations, 263 requests, 17 cells.
 \toprule
 \textbf{Effect} & \textbf{Estimate} & \textbf{Partial $\eta^2$} \\
 \midrule
-M5 output budgeter & +13.44\,pp & 0.556 \\
-M3 history manager & +11.82\,pp & 0.430 \\
-M2 semantic cache  & +1.93\,pp  & 0.012 \\
+M5 output budgeter & +12.53\,pp & 0.524 \\
+M3 history manager & +11.77\,pp & 0.462 \\
+M2 semantic cache  & +1.96\,pp  & 0.012 \\
 M1 compressor      & +0.23\,pp  & 0.000 \\
 M3 $\times$ M5 interaction & \textbf{$-$0.70\,pp} & 0.002 \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-Full stack: \textbf{+33.9\%} total token reduction. Both real interaction terms are
+Full stack: \textbf{+33.3\%} total token reduction. Both real interaction terms are
 negative and both involve M5 --- trimming history and shortening the answer are cutting
 the same conversation. \textbf{Shortfall: 1.63\,pp, 95\% CI $[-0.02,+3.23]$.}
 
@@ -572,7 +572,7 @@ And the sharper result: the shortfall depends on the configuration.
 \textbf{Encoder} & \textbf{M2 effect} & \textbf{M3$\times$M5} & \textbf{Shortfall} \\
 \midrule
 \texttt{hashing-v1} & +1.61\,pp & $-$1.14 & 2.53\,pp, $[+0.93,+3.99]$ \\
-\texttt{content-v1} (default) & +1.93\,pp & $-$0.70 & 1.66\,pp, $[+0.02,+3.25]$ \\
+\texttt{content-v1} (default) & +1.96\,pp & $-$0.70 & 1.66\,pp, $[+0.02,+3.25]$ \\
 \bottomrule
 \end{tabular}
 \end{center}

@@ -158,7 +158,7 @@ one-shot exact length control [37], and studies of reasoning ability under stric
 > **Our position.** We use the cheapest possible mechanism — a per-class `num_predict` budget plus a
 > streaming trigram-novelty early stop — precisely because the alternatives require fine-tuning, which is out
 > of reach on the target hardware. Our contribution here is not the mechanism but the measurement: M5 is the
-> **largest single contributor** in our ablation (+13.44 pp), which is not where the compression literature's
+> **largest single contributor** in our ablation (+12.53 pp), which is not where the compression literature's
 > emphasis would predict.
 
 ---
@@ -221,12 +221,12 @@ raw logs with `python reproduce.py`.
 A full 2⁴ factorial over compressor × cache × history manager × output budgeter, 151 conversations, 263
 requests, 17 cells, with bootstrap confidence intervals and partial η² effect sizes.
 
-**Result:** savings do **not** compound. The additivity shortfall is **1.66 pp, 95% CI [+0.02, +3.25]** under
+**Result:** savings do **not** compound. The additivity shortfall is **1.69 pp, 95% CI [+0.04, +3.21]** under
 our default configuration.
 
 **And the sharper finding:** the shortfall is **not a constant of the technique stack — it is a property of
 the configuration.** Improving our encoder made the cache hit more often, which made it overlap its
-neighbours *less*, moving the shortfall from 2.53 pp [+0.93, +3.99] to 1.66 pp [+0.02, +3.25]. We kept the
+neighbours *less*, moving the shortfall from 2.53 pp [+0.93, +3.99] to 1.69 pp [+0.04, +3.21]. We kept the
 better encoder and reported both. No work in Strand 1 or 2 is positioned to observe this, because observing
 it requires holding four techniques in one harness while varying a fifth component.
 
