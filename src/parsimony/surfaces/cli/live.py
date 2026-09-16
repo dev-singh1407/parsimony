@@ -15,9 +15,10 @@ Here the screen follows the request:
   * the answer streams in word by word, with the real rate and the limit the
     answer limiter set; if the early stop fires, it fires on screen;
   * afterwards, the prompt the AI actually received is shown with every
-    removed span struck through, and the runtime's own counters say how many
-    tokens it read, how many it reused from the previous turn, and how long
-    reading took.
+    removed span struck through AND labelled (strike-through is a terminal
+    style; a transcript loses it and removed text would read as kept), and the
+    runtime's own counters say how many tokens it read, how many it reused from
+    the previous turn, and how long reading took.
 
 Nothing is slowed down or animated for effect. Layers that take a fraction of
 a millisecond appear at once, and say so; the seconds a viewer waits are the
@@ -348,14 +349,23 @@ def _sentences_view(before: str, after: str, limit: int = 3) -> Text:
     removed_run: list[str] = []
 
     def flush() -> None:
+        # Every removed run is LABELLED, not only struck through. Strike-through
+        # is a terminal style: paste the same panel into a transcript, a report
+        # or a screenshot tool that drops styling and removed text reads as
+        # kept, which is the one misreading this panel exists to prevent.
         if not removed_run:
             return
-        if len(removed_run) <= limit:
+        if len(removed_run) == 1:
+            out.append("[removed] ", style="red dim")
+            out.append(removed_run[0] + " ", style="red strike dim")
+        elif len(removed_run) <= limit:
+            out.append(f"[removed, {len(removed_run)} sentences] ", style="red dim")
             for s in removed_run:
                 out.append(s + " ", style="red strike dim")
         else:
+            out.append(f"[removed, {len(removed_run)} sentences] ", style="red dim")
             out.append(removed_run[0] + " ", style="red strike dim")
-            out.append(f"[... {len(removed_run) - 1} more sentences removed] ", style="dim")
+            out.append(f"[... {len(removed_run) - 1} more] ", style="dim")
         removed_run.clear()
 
     for s in split_sentences(before):
@@ -413,7 +423,7 @@ def received_panel(outcome) -> Panel:
         body.add_row("Your question", Text(ctx.query + "   (unchanged)"))
 
     return Panel(body, title="[bold]What the AI actually received[/bold]  "
-                             "[dim]struck-through text was removed before sending[/dim]",
+                             "[dim]anything marked [removed] was not sent[/dim]",
                  border_style="bright_blue", title_align="left")
 
 
