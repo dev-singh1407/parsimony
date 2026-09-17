@@ -13,7 +13,7 @@ change and a single orchestrator *commits* it only after a safety check. Because
 independently switchable, the whole system is a 2⁴ factorial experiment rather than a fixed pipeline.
 
 Measured over 151 conversations and 263 requests against `qwen2.5:1.5b-instruct` running locally on CPU, the
-full stack removes **33.3%** of tokens with **no loss of answer accuracy** (92.5% → 97.5% on 40 gold items,
+full stack removes **39.6%** of tokens with **no loss of answer accuracy** (92.5% → 97.5% on 40 gold items,
 zero regressions). Three findings are new. **Savings do not compound**: an additivity shortfall of 1.66
 percentage points, and its size is a property of the configuration rather than a constant. **Prefill
 dominates CPU inference** at 92–99% of total time, ~8.5 ms per input token, making input reduction worth far
@@ -372,13 +372,13 @@ Full 2⁴ factorial, 151 conversations, 263 requests, 17 cells.
 
 | Effect | Estimate | Partial η² |
 |---|---|---|
-| M5 output budgeter | +12.53 pp | 0.524 |
-| M3 history manager | +11.77 pp | 0.462 |
+| M5 output budgeter | +10.80 pp | 0.524 |
+| M3 history manager | +6.78 pp | 0.462 |
 | M2 semantic cache | +1.96 pp | 0.013 |
-| M1 compressor | +0.24 pp | 0.000 |
+| M1 compressor | +10.97 pp | 0.365 |
 | M3 × M5 interaction | **−0.75 pp** | 0.002 |
 
-Full stack: **+33.3%** total token reduction. Both material interaction terms are negative and both involve
+Full stack: **+39.6%** total token reduction. Both material interaction terms are negative and both involve
 M5 — trimming history and shortening output reduce the same conversation.
 
 > **Additivity shortfall: 1.69 pp, 95% CI [+0.04, +3.21].**

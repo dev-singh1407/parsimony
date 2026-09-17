@@ -84,13 +84,28 @@ class TestInteractionClaim:
                         "every interaction term is negative"):
                 assert bad not in text, f"{name} overstates: most interactions are zero"
 
-    def test_material_interactions_are_all_negative(self):
-        """The claim the docs actually make must hold, at the stated threshold."""
+    def test_material_pairwise_interactions_are_all_negative(self):
+        """Pairs overlap; that is the claim, and it must hold at the threshold."""
         material = [
-            (k, v) for k, v in _effects().items() if "x" in k and abs(v) >= MATERIAL
+            (k, v) for k, v in _effects().items()
+            if k.count("x") == 1 and abs(v) >= MATERIAL
         ]
-        assert material, "expected at least one material interaction"
+        assert material, "expected at least one material pairwise interaction"
         assert all(v < 0 for _, v in material), dict(material)
+
+    def test_a_material_higher_order_term_must_be_acknowledged(self):
+        """Three modules competing for the same tokens produce a POSITIVE
+        third-order term -- the pairwise overlaps double-count, and the triple
+        corrects for it. It is real, so a document that prints the pairwise
+        story must print this one too rather than quietly rounding it away."""
+        higher = [(k, v) for k, v in _effects().items()
+                  if k.count("x") >= 2 and abs(v) >= MATERIAL]
+        if not higher:
+            return
+        name, value = max(higher, key=lambda kv: abs(kv[1]))
+        readable = name.replace("x", "×")
+        assert any(readable in text for _, text in _docs()), (
+            f"{readable} is {value:+.2f} pp and no document mentions it")
 
     def test_documents_quote_material_interactions_correctly(self):
         """Derived from the CSV rather than hardcoded, so a legitimate change

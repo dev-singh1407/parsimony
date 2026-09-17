@@ -78,7 +78,7 @@ class CompressionConfig:
     context_enabled: bool = True
     # Below this much context, ranking sentences costs more attention than the
     # prefill it could remove, and there is too little text to rank reliably.
-    context_min_tokens: int = 300
+    context_min_tokens: int = 100
     # Upper bound on what is kept, as a fraction of the context. The relevance
     # floor usually stops selection first.
     context_target_ratio: float = 0.35
@@ -121,8 +121,16 @@ class CompressionConfig:
     context_closure_depth: int = 2
     context_min_saving_tokens: int = 32
     # History: only turns before the most recent exchange, and only long ones.
+    #
+    # These were set for attached documents, where a thousand tokens of context
+    # is ordinary, and at those values the tier never fired on a conversation
+    # at all (ADR-043). A turn is a tenth the size of a document, so the gates
+    # are set for turns: on the 151-conversation corpus this takes the full
+    # stack from 19,987 input tokens to 18,114 (-9%) with the proxy quality
+    # measures flat, and on the follow-up corpus it changes nothing because
+    # those turns are shorter still.
     context_keep_recent_turns: int = 2
-    context_turn_min_tokens: int = 120
+    context_turn_min_tokens: int = 40
     bm25_k1: float = 1.2
     bm25_b: float = 0.75
     # Ranking terms are compared on this many leading characters after

@@ -2,6 +2,6 @@ query class,recommended configuration,token reduction %
 arithmetic,M1+M2+M3+M5+M4+M6,+68.9
 code,M1+M2+M3+M5+M4+M6,+20.8
 factual,M1+M2+M3+M5+M4+M6,+22.8
-follow_up,M1+M2+M3+M5+M4+M6,+40.9
-paraphrase,M1+M2+M3+M5+M4+M6,+50.9
-summarisation,M1+M2+M3+M5+M4+M6,+20.7
+follow_up,M1+M2+M3+M5+M4+M6,+39.7
+paraphrase,M1+M2+M3+M5+M4+M6,+54.2
+summarisation,M1+M2+M3+M5+M4+M6,+22.1

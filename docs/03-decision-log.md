@@ -1766,3 +1766,84 @@ the separation above predicts.
   is that this is calibrated on a small sample and the 12 reported questions confirm rather than establish
   it.
 - `context_topic_floor=0.0` restores the old behaviour, which is what the table's middle row measures.
+
+---
+
+### ADR-043 — History was measured in tokens, which rewards dropping the answer
+
+**Status.** Accepted, 17 September 2026. Extends M3 (ADR-011) and M1's context tier (ADR-040).
+
+**Context.** M3 decides which earlier turns survive and M1's context tier shortens the ones that do. Both were
+scored only on how many tokens they removed, because the conversation corpus has no ground truth: its
+assistant turns come from `MockProvider`, so "the answer changed" and "the answer got worse" are
+indistinguishable there. A metric that counts only tokens removed rewards removing the answer.
+
+**Decision — a corpus that can tell the difference.** `corpus/followups.jsonl`: 20 conversations that state a
+fact in their first turn (a server's memory, an allergy, a policy number), spend four exchanges on unrelated
+matters, and end with a question only that first turn can answer. Assistant replies are written out, so the
+history is realistic in length, and no reply restates the fact — otherwise a system that kept only the
+acknowledgement would pass for the wrong reason. Splits: dev (6) for tuning, test (14) reported.
+
+Five arms, differing **only** in how the conversation is handled:
+
+**Results.** 14 held-out conversations, `qwen2.5:1.5b-instruct`, one call per arm, each with its own nonce so
+no arm is timed against the previous one's key-value cache:
+
+| how history is handled | correct | 95% CI | fact kept | prompt tokens | prefill | vs everything |
+|---|---|---|---|---|---|---|
+| every turn, verbatim | 13/14 — 92.9% | 68.5–98.7 | 14/14 | 199 | 1.91 s | — |
+| **relevance (MMR), as shipped** | **13/14 — 92.9%** | 68.5–98.7 | **14/14** | **165** | **1.55 s** | 0 lost, p = 1.000 |
+| relevance + sentence compression | 13/14 — 92.9% | 68.5–98.7 | 14/14 | 165 | 1.54 s | 0 lost, p = 1.000 |
+| keep the last 4 turns | **0/14 — 0.0%** | 0.0–21.5 | **0/14** | 121 | 1.06 s | 13 lost, p < 0.001 |
+| no history at all (control) | 1/14 — 7.1% | 0.4–31.5 | 0/14 | 56 | 0.29 s | 12 lost, p < 0.001 |
+
+**Keeping the last few turns — the default in every chat framework — answers none of them.** It is not a
+weak baseline chosen to lose: it is what a token budget plus recency does, and on a conversation where the
+important thing was said first it is indistinguishable from sending no history at all (0/14 against 1/14).
+
+**Relevance selection matches sending everything exactly**, 13/14 either way, on 17% fewer tokens and 19%
+less prefill, with the needed fact surviving all fourteen times. The saving is free here rather than traded
+against quality — which is the claim worth making, and a weaker one than the "one better" an earlier run of
+this same study showed before a composition bug was fixed below.
+
+**The sentence compression arm is identical to the arm above it**, because the tier never fired: these turns
+are 30–45 tokens and its gates were set for attached documents (300 tokens of context, 120-token turns). That
+is the second decision here.
+
+**Decision — gates set for turns, not only for documents.** `context_min_tokens` 300 → 100 and
+`context_turn_min_tokens` 120 → 40. On the 151-conversation corpus this takes the full stack's input from
+**37.5% reduction to 47.0%**, and its total from 33.3% to **39.6%**, with the proxy quality measures flat. On the follow-up corpus it changes nothing at all, because even 40 tokens is
+above most of those turns. On the long-context benchmark nothing moves: those contexts are ~800 tokens, far
+above either threshold.
+
+That left the change resting on proxy quality against mock-written turns, which is not this project's
+standard, so ten more conversations were authored: the same shape, but the fact sits inside a **120-160 token
+assistant answer**, which is what a real assistant conversation looks like. Seven are held out:
+
+| how history is handled | correct | fact kept | prompt tokens | prefill |
+|---|---|---|---|---|
+| every turn, verbatim | 6/7 | 7/7 | 251 | 2.60 s |
+| relevance (MMR) | 6/7 | 7/7 | 227 | 2.31 s |
+| **relevance + sentence compression** | **6/7** | **7/7** | **159** | **1.52 s** |
+| keep the last 4 turns | 0/7 | 0/7 | 107 | 0.99 s |
+| no history at all | 0/7 | 0/7 | 56 | 0.32 s |
+
+**30% fewer prompt tokens than relevance selection alone, 34% less prefill, and not one answer lost** — the
+answer sentence survived in all seven while the rest of its turn went. That is the evidence the gates change
+needed.
+
+**And a bug the new corpus exposed.** On the first run the tier fired on **one** of those ten conversations.
+M3's position-aware arrangement moves the most relevant turn to the END of the list it passes on, and the
+tier protected "the last two turns" -- so it was protecting exactly the turn worth compressing, every time.
+Protection now means recent in the CONVERSATION, identified by turn id against `original_history`; the tier
+fires on 8 of 10. Two modules were each behaving correctly in isolation, and the composition was wrong: the
+project's own thesis, arriving as a bug.
+
+**Consequences.**
+
+- M3's contribution is now stated in answers as well as tokens, on the failure mode that matters: the fact
+  the last question needs.
+- The comparison a reviewer asks for — "why not just keep the last few turns?" — has a number: 0/14.
+- `parsimony followups` runs it; the model-free half (does the fact survive) regenerates in `reproduce.py`
+  and needs no model.
+- The context tier now applies to conversations as well as documents, with the caveat above.

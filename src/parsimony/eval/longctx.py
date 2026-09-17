@@ -121,7 +121,9 @@ class Methods:
         from parsimony.infra.providers import MockProvider
         from parsimony.pipeline.orchestrator import Pipeline
 
-        self.cfg = cfg or full_stack()
+        from parsimony.infra.embedding import best_config
+
+        self.cfg = cfg if cfg is not None else best_config(full_stack())
         self._tokenizer, self._embedder = tokenizer, embedder
         self.pipeline = Pipeline(self.cfg, provider=MockProvider(), tokenizer=tokenizer,
                                  embedder=embedder)

@@ -102,7 +102,7 @@ def chat(
     """Run one query through the pipeline, shown live."""
     query = require_query(query)
     documents = load_documents(files)
-    cfg = baseline() if plain else full_stack()
+    cfg = pick_encoder(baseline() if plain else full_stack())
     # Text capture is always on here. It is display-only and provably does not
     # change the result (tests/unit/test_text_capture.py), and without it the
     # explanation cannot say WHICH words a stage removed -- only how many.
@@ -175,7 +175,7 @@ def demo(
         )
     )
 
-    demo_cfg = full_stack()
+    demo_cfg = pick_encoder(full_stack())
     pipeline = Pipeline(demo_cfg, capture_text=text)
     counter = get_tokenizer(demo_cfg.tokenizer_id).count
 
@@ -221,8 +221,9 @@ def demo(
         "Research gap 3 is unanswerable if this ordering is fixed in code (ADR-002).[/dim]\n"
     )
     arms = []
+    base = pick_encoder(full_stack())
     for label, mode in (("RAW", "RAW"), ("COMPRESSED", "COMPRESSED")):
-        arms.append(run_cell(with_cache_lookup(replace(full_stack(), label=label), mode), corpus))
+        arms.append(run_cell(with_cache_lookup(replace(base, label=label), mode), corpus))
     console.print(
         Panel(
             f"cache lookup on the [bold]raw[/bold] query:        "
@@ -342,7 +343,7 @@ def gap3(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
     lookup sits in stage_order. This is the experiment ADR-002 exists for.
     """
     corpus = load_corpus(corpus_path)
-    base = full_stack()
+    base = pick_encoder(full_stack())
     arms = [
         ("RAW  (cache sees the original query)", with_cache_lookup(replace(base, label="RAW"), "RAW")),
         ("COMPRESSED (cache sees the compressed query)",
@@ -396,7 +397,7 @@ def learn(
     from parsimony.modules.m7_learner import learn as mine
 
     corpus = load_corpus(corpus_path)
-    cfg = replace(full_stack(), mode=Mode.EXPERIMENT)
+    cfg = replace(pick_encoder(full_stack()), mode=Mode.EXPERIMENT)
     pipeline = Pipeline(cfg, memo=GenerationMemo())
 
     def generate(question: str) -> str:
@@ -450,7 +451,7 @@ def calibrate(
     from parsimony.eval.corpus import load_adversarial
     from parsimony.infra.embedding import get_embedder
 
-    base = full_stack()
+    base = pick_encoder(full_stack())
     pairs = load_adversarial()
     embedder = get_embedder(base.embedder_id)
     points = sweep_thresholds(base, pairs=pairs, embedder=embedder,
@@ -507,7 +508,7 @@ def calibrate_dedup(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
     from parsimony.eval.calibration import sweep_dedup_threshold
 
     corpus = load_corpus(corpus_path)
-    points = sweep_dedup_threshold(full_stack(), corpus)
+    points = sweep_dedup_threshold(pick_encoder(full_stack()), corpus)
 
     table = Table(title=f"M1 tier 2 dedup threshold — {corpus.n_requests} requests",
                   header_style="bold")
@@ -535,23 +536,25 @@ def calibrate_dedup(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
 def pick_encoder(cfg, *, announce: bool = True):
     """Use the neural encoder when it is reachable, and say which one ran.
 
-    A silent fallback between encoders would be the worst of both worlds: the
-    thresholds differ per encoder (ADR-041), so a run that quietly changed
-    encoder would quietly change the cache's behaviour.
-    """
-    from parsimony.core.config import NEURAL_EMBEDDER, neural
-    from parsimony.infra.embedding import OllamaEmbedder
+    Every command goes through here, not just the interactive ones: the
+    encoder decides cache hits, history selection and sentence scoring alike,
+    so a benchmark run on the lexical one while `ask` used the neural one would
+    be reporting a different system from the one in use.
 
-    if cfg.embedder_id != NEURAL_EMBEDDER and OllamaEmbedder.available():
-        cfg = neural(cfg)
-        if announce:
-            console.print(f"[dim]Encoder: {cfg.embedder_id} (neural, ~33 ms per question). "
-                          f"Similarity thresholds calibrated for it: tau_lo "
-                          f"{cfg.cache.tau_lo}.[/dim]")
-    elif announce:
-        console.print(f"[dim]Encoder: {cfg.embedder_id} (lexical). Pull all-minilm for the "
-                      f"neural one: ollama pull all-minilm[/dim]")
-    return cfg
+    A silent fallback would be the worst of both worlds -- the thresholds
+    differ per encoder (ADR-041) -- so the choice is always announced.
+    """
+    from parsimony.infra.embedding import best_config
+
+    chosen = best_config(cfg)
+    if announce:
+        if chosen.embedder_id != cfg.embedder_id:
+            console.print(f"[dim]Encoder: {chosen.embedder_id} (neural, ~33 ms per question); "
+                          f"thresholds calibrated for it, tau_lo {chosen.cache.tau_lo}.[/dim]")
+        else:
+            console.print(f"[dim]Encoder: {cfg.embedder_id} (lexical). For the neural one: "
+                          f"ollama pull all-minilm[/dim]")
+    return chosen
 
 
 def load_documents(paths: list[Path] | None) -> tuple:
@@ -851,7 +854,9 @@ def compare(
             Pipeline(baseline(), provider=prov).run("Say ready.")
 
     arms = []
-    for label, cfg in (("pipeline OFF", baseline()), ("pipeline ON", full_stack())):
+    encoder_cfg = pick_encoder(full_stack())
+    for label, cfg in (("pipeline OFF", pick_encoder(baseline(), announce=False)),
+                       ("pipeline ON", encoder_cfg)):
         with console.status(f"[bold green]{label}"):
             # Each arm runs twice and only the SECOND is measured. Ollama's KV
             # cache outlives the process, so whether a given prompt is already
@@ -1040,7 +1045,8 @@ def judge(
 
     with console.status("[bold green]running") as status:
         study = run_judge_study(
-            load_corpus(), baseline(), [("full stack", full_stack())],
+            load_corpus(), pick_encoder(baseline(), announce=False),
+            [("full stack", pick_encoder(full_stack()))],
             judge=judge_obj, provider=provider, n_sample=n,
             progress=lambda m: status.update(f"[bold green]{m}"),
         )
@@ -1101,7 +1107,7 @@ def learning(
     parsed = tuple(float(r) for r in rates.split(",") if r.strip())
     with console.status("[bold green]sweeping") as status:
         points = recurrence_sweep(
-            corpus, full_stack(), rates=parsed, n_conversations=conversations,
+            corpus, pick_encoder(full_stack()), rates=parsed, n_conversations=conversations,
             progress=lambda m: status.update(f"[bold green]{m}"),
         )
 
@@ -1238,6 +1244,91 @@ def generalise(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
         "This covers the TOKENIZER dimension of report 4.6. Decode speed, answer quality and\n"
         "quantisation are properties of the model and still need Ollama.[/dim]"
     )
+
+
+@app.command()
+def followups(
+    provider: str = typer.Option("mock", "--provider",
+                                 help="mock: which facts survive, no model needed. "
+                                      "ollama: also ask the real model."),
+    split: str = typer.Option("test", "--split", help="test (reported), dev (tuning) or all."),
+    model: str = typer.Option(None, "--model", help="Ollama model tag."),
+    gates: str = typer.Option("100,40", "--gates",
+                              help="context_min_tokens,context_turn_min_tokens for the "
+                                   "sentence-compression arm."),
+    out: Path = typer.Option(Path("figures"), "--out"),
+) -> None:
+    """Does history management keep the fact the last question needs? (ADR-043)"""
+    import csv
+
+    from parsimony.eval import followups as fu
+
+    items = [i for i in fu.load_followups() if split == "all" or i.split == split]
+    if not items:
+        fail(f"no conversations in split {split!r}", hint="use --split test, dev or all")
+    try:
+        gate_pair = tuple(int(x) for x in gates.split(","))
+        assert len(gate_pair) == 2
+    except (ValueError, AssertionError):
+        fail(f"--gates must be two numbers, got {gates!r}")
+
+    base = pick_encoder(full_stack())
+    tokenizer = get_tokenizer(base.tokenizer_id)
+
+    # Model-free first: is the fact still in the prompt?
+    kept_table = Table(title=f"Does the fact survive? {len(items)} conversations, {split} split",
+                       header_style="bold")
+    for col, justify in (("how history is handled", "left"), ("fact kept", "right"),
+                         ("prompt tokens", "right")):
+        kept_table.add_column(col, justify=justify)
+    for arm, cfg in fu.arms(base, gate_pair).items():
+        if cfg is None:
+            kept_table.add_row(fu.ARM_LABELS[arm], "[dim]n/a[/dim]", "[dim]-[/dim]")
+            continue
+        pipe = Pipeline(cfg, provider=make_provider("mock"), tokenizer=tokenizer)
+        kept = tokens = 0
+        for item in items:
+            outcome = pipe.run(item.question, item.turns,
+                               conversation_id=f"{item.conversation_id}:{arm}")
+            kept += fu.evidence_survives(item, outcome.ctx)
+            tokens += outcome.row.tokens_in_final
+        colour = "green" if kept == len(items) else "red" if kept == 0 else "yellow"
+        kept_table.add_row(fu.ARM_LABELS[arm], f"[{colour}]{kept}/{len(items)}[/{colour}]",
+                           f"{tokens / len(items):.0f}")
+    console.print(kept_table)
+    console.print("[dim]The fact is stated in the first turn; four unrelated exchanges follow. "
+                  "Keeping the last few turns is the industry default.[/dim]\n")
+
+    if provider == "mock":
+        console.print("[dim]Add --provider ollama to ask the real model whether the answer "
+                      "survives too.[/dim]")
+        return
+
+    real = make_provider("ollama", model=model)
+    real.num_ctx = 4096
+    out.mkdir(parents=True, exist_ok=True)
+    with console.status("[bold green]asking the model") as status:
+        rows = fu.run_real(items, real, base=base, gates=gate_pair,
+                           out_path=out / "followups_items.jsonl",
+                           progress=lambda m: status.update(f"[bold green]{m}"))
+    ids = {i.conversation_id for i in items}
+    summary = fu.summarise([r for r in rows if r["conversation_id"] in ids])
+    table = Table(title=f"Answers from {real.model_name}", header_style="bold")
+    for col in ("how history is handled", "correct", "95% CI", "fact kept", "prompt tokens",
+                "prefill", "lost / gained", "p"):
+        table.add_column(col, justify="left" if col.startswith("how") else "right")
+    for row in summary:
+        table.add_row(row["method"], f"{row['correct']}  {row['accuracy %']}%", row["95% CI"],
+                      row["fact kept"], row["prompt tokens"],
+                      f"{float(row['prefill ms']) / 1000:.1f} s",
+                      "" if row["arm"] == "everything"
+                      else f"{row['lost vs everything']} / {row['gained']}",
+                      row["McNemar p"])
+    console.print(table)
+    with (out / "followups.csv").open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=list(summary[0]))
+        writer.writeheader()
+        writer.writerows(summary)
 
 
 @app.command()

@@ -159,6 +159,11 @@ objection, plus it obscures the embedding geometry Gap 3 is about).
 
 **Objective.** Choose which prior turns survive, and where they are placed.
 
+**Measured on answers, not only on tokens (ADR-043).** `corpus/followups.jsonl`: 20 conversations that state
+a fact in their first turn, spend four exchanges elsewhere, then ask something only that turn can answer.
+Selecting by token count alone rewards dropping the answer, which is exactly what keeping the last few turns
+does here — it loses the fact in every conversation.
+
 **reads** `query, history, derived.embed` · **writes** `history`
 **Emits** `ContextPatch(kind=SELECT)` for selection, then a separate `ContextPatch(kind=SELECT)` for
 arrangement.

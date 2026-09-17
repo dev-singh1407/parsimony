@@ -235,6 +235,14 @@ skipped verification was safe only while the encoder was too weak to score an ad
 Verification now runs on every candidate, and thresholds are calibrated per encoder (`neural()`). The same
 work found a two-second-per-call cost in resolving `localhost` (ADR-041).
 
+**Also closed: history measured on answers.** `corpus/followups.jsonl` -- 30 conversations that state a fact
+early and ask about it last -- gave M3 and M1's context tier the ground truth they never had. Keeping the
+last four turns answers 0 of 14; relevance selection answers 13 of 14, one more than sending everything, on
+17% fewer tokens. Where the fact sits inside a long earlier answer, sentence compression sends 30% fewer
+tokens again with nothing lost. It also found a composition bug: M3's arrangement moved the most relevant
+turn to the end of the list and the context tier protected "the last two turns", so it was protecting exactly
+the turn worth compressing (ADR-043).
+
 **Open, in priority order.**
 
 **Also closed: the absolute relevance floor.** Twenty off-topic questions were authored, and the check that

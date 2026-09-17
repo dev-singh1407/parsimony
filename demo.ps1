@@ -7,6 +7,7 @@
 #   .\demo.ps1 warmup           load the model (run this BEFORE the guide arrives)
 #   .\demo.ps1 doc              a document, live, with and without the layers
 #   .\demo.ps1 sentences        which sentences of the documents survived
+#   .\demo.ps1 followups        which history strategy keeps the needed fact
 #   .\demo.ps1 1                Act 1 - what the system does
 #   .\demo.ps1 2                Act 2 - the gate blocking a bad edit
 #   .\demo.ps1 3                Act 3 - cache safety
@@ -143,6 +144,12 @@ switch ($act) {
         Show-Banner "S" "Which sentences survived" `
             "Six documents, every sentence marked kept or removed, the answer sentences in bold. No model needed."
         Run-Cli longctx --show kestrel_q2
+    }
+
+    "followups" {
+        # Instant without a model: it reports which history strategy keeps the
+        # fact the final question needs. With --provider ollama it also asks.
+        Run-Cli followups @rest
     }
 
     "longctx" {

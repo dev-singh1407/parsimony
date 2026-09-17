@@ -52,23 +52,30 @@ Every ledger row carries the provider's content digest, so the two can never be 
 
 | effect | estimate | partial η² |
 |---|---|---|
-| M5 output budgeter | +12.53 pp | 0.524 |
-| M3 history manager | +11.77 pp | 0.462 |
-| M2 semantic cache | +1.96 pp | 0.013 |
-| M1 compressor | +0.24 pp | 0.000 |
+| M1 compressor | +10.97 pp | 0.365 |
+| M5 output budgeter | +10.80 pp | 0.354 |
+| M3 history manager | +6.78 pp | 0.140 |
+| M1×M3 interaction | −4.99 pp | 0.076 |
+| M2 semantic cache | +1.96 pp | 0.012 |
 
-Full stack reaches **+33.3%** total token reduction. The two material interaction terms are both
-negative — **M3×M5 −0.75** and **M2×M5 −0.09** — so where the modules interact at all, they eat each other's
-lunch rather than compounding. Every other term sits within ±0.02, indistinguishable from zero at this
-sample size.
+Full stack reaches **+39.6%** total token reduction, −47.0% on the input side alone. **The largest
+interaction is M1×M3 at −4.99 pp**, and it is there because both are paid out of the same tokens: M3 drops
+earlier turns, M1's context tier shortens the ones that survive. Whichever runs first collects the saving.
+Every pairwise interaction that matters is negative — the modules eat each other's lunch rather than
+compounding.
 
 **The additivity shortfall depends on the configuration, and that is the sharper result.** Improving the
 encoder (ADR-035) made the cache hit more often, which made it overlap its neighbours *less*:
 
-| encoder | M2 effect | M3×M5 | additivity shortfall |
+| configuration | M1 effect | largest interaction | additivity shortfall |
 |---|---|---|---|
-| `hashing-v1` | +1.61 pp | −1.14 | 2.53 pp, 95% CI **[+0.93, +3.99]** |
-| `content-v1` (default) | +1.96 pp | −0.75 | 1.69 pp, 95% CI **[+0.04, +3.21]** |
+| `hashing-v1`, M1 on the question only | +0.22 pp | M3×M5, −1.14 then | 2.53 pp, **[+0.93, +3.99]** |
+| `content-v1`, M1 on the question only | +0.24 pp | M3×M5, −0.75 then | 1.69 pp, **[+0.04, +3.21]** |
+| `content-v1`, M1 on history too (shipped) | +10.97 pp | **M1×M3 −4.99** | **15.13 pp, [+11.15, +18.27]** |
+| `all-minilm`, M1 on history too | +11.75 pp | M1×M3, −4.40 there | 14.81 pp, [+10.97, +18.08] |
+
+A positive third-order term, **M1×M3×M5 +0.45 pp**, sits under those: when three modules compete for the
+same tokens the pairwise overlaps double-count, and the triple corrects for it.
 
 So savings do not compound — but *by how much they fail to compound* is a property of the components, not a
 constant of the technique stack. Under the better encoder the shortfall is smaller, and its interval clears zero by
@@ -143,6 +150,24 @@ right amount to send is almost none. Sending it all costs 8.7 s of prefill — a
 strings a violin has with six irrelevant documents attached, the model said *six*. With no context at all it
 is right every time (12/12). Parsimony keeps 4.1% of the documents, takes 0.92 s, and is also right every
 time (ADR-042).
+
+### "Why not just keep the last few turns?" — because it answers none of them
+
+Every chat framework keeps the most recent turns until a token budget is full. On 14 held-out conversations
+that state a fact first and ask about it last, that default answers **0 of 14**, which is worse than sending
+no history at all. Relevance selection answers **13 of 14** — exactly what sending every turn achieves — on
+17% fewer tokens and 19% less prefill (ADR-043).
+
+| how history is handled | correct | fact kept | prompt tokens | prefill |
+|---|---|---|---|---|
+| every turn, verbatim | 13/14 | 14/14 | 199 | 1.91 s |
+| **relevance (MMR), as shipped** | **13/14** | **14/14** | **165** | **1.55 s** |
+| keep the last 4 turns | **0/14** | **0/14** | 121 | 1.06 s |
+| no history at all (control) | 1/14 | 0/14 | 56 | 0.29 s |
+
+Where the fact sits inside a *long* earlier answer, compressing that answer to its relevant sentences sends
+**30% fewer tokens again (227 → 159) with nothing lost** — 6/7 either way, the answer sentence surviving
+every time.
 
 ### Watch it happen
 
@@ -228,7 +253,7 @@ module — the same distinction as ADR-028.
 | [`docs/00-architecture.md`](docs/00-architecture.md) | Layering, core data model, orchestrator, stage ordering, repo layout, cross-cutting concerns |
 | [`docs/01-pipeline-stages.md`](docs/01-pipeline-stages.md) | The eight processing stages, each with objective / inputs / outputs / techniques / libraries / pros / cons / alternatives / recommendation / integration |
 | [`docs/02-module-specs.md`](docs/02-module-specs.md) | M1–M8 internals and ablation wiring |
-| [`docs/03-decision-log.md`](docs/03-decision-log.md) | 42 ADRs with justification and consequences. **The intellectual core** — several record where measurement contradicted the plan |
+| [`docs/03-decision-log.md`](docs/03-decision-log.md) | 43 ADRs with justification and consequences. **The intellectual core** — several record where measurement contradicted the plan |
 | [`docs/04-roadmap.md`](docs/04-roadmap.md) | Re-planned 12-week schedule, sprint plan, milestone gates, scope-cut order, risks |
 | [`docs/05-evaluation-harness.md`](docs/05-evaluation-harness.md) | The compute budget problem and its fix; sweep runner; four quality measures; statistics; validity threats |
 | [`docs/06-contracts.md`](docs/06-contracts.md) | Complete L0 type and protocol definitions + the ledger schema. **Review this first** |

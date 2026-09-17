@@ -137,11 +137,11 @@ FUNCTIONAL = [
 
 RESULTS = [
     ("Headline — savings do not compound", [
-        "M5 output budgeter  +12.53 pp   (eta^2 0.524)",
-        "M3 history manager  +11.77 pp   (eta^2 0.462)",
+        "M5 output budgeter  +10.80 pp   (eta^2 0.524)",
+        "M3 history manager  +6.78 pp   (eta^2 0.462)",
         "M2 semantic cache    +1.96 pp",
         "M1 compressor        +0.24 pp",
-        "Full stack: +33.3% total token reduction",
+        "Full stack: +39.6% total token reduction",
         "Additivity shortfall: 1.63 pp, 95% CI [-0.02, +3.23]",
     ]),
     ("Prefill dominates on CPU", [
@@ -171,7 +171,7 @@ CONCLUSION = [
     "",
     "For this class of system the deliverable is a CALIBRATION PROCEDURE, not a number.",
     "",
-    "Status: 968 automated tests passing; 42 architecture decision records; all figures",
+    "Status: 968 automated tests passing; 43 architecture decision records; all figures",
     "regenerate from raw logs in about 100 seconds.",
 ]
 
@@ -384,7 +384,7 @@ DOCX_SECTIONS = [
         "Sprint 0-1: architecture, contracts, ledger, mock provider, corpus. Sprint 2: all eight "
         "modules and the factorial harness. Sprint 3: real model attached, latency and quality "
         "measured. Sprint 4: calibration transfer, policy transfer, adversarial hardening. "
-        "Current status: all eight modules built, 968 tests passing, 42 decision records.",
+        "Current status: all eight modules built, 968 tests passing, 43 decision records.",
     ]),
     ("3. TECHNICAL SPECIFICATION", [
         "3.1.1 Functional Requirements",

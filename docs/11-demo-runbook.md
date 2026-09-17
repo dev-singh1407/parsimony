@@ -210,6 +210,7 @@ Counter-intuitive, and it is what separates a project from a report. Pick **one*
 | Command | Time | Shows |
 |---|---|---|
 | `.\demo.ps1 longctx` | 2 s | Parsimony against truncation, retrieval, stopwords and random at the same budget |
+| `.\demo.ps1 followups` | 3 s | Which history strategy keeps the fact the last question needs |
 | `.\demo.ps1 ask --file examples/staff-handbook.md` | live | Attach a file and ask freely; type `compare` at any point |
 | `.\demo.ps1 learning` | 4 s | "Self-improving" measured: +0.00 pp at 0% traffic repetition, +17.83 pp at 57% |
 | `.\demo.ps1 generalise` | 42 s | Does a calibration transfer to another vocabulary? Ratios yes, mechanisms no |
@@ -257,6 +258,14 @@ instead, or run them beforehand and show the scrollback.
 > On CPU, reading the prompt is 92 to 99% of the time — about 8.5 milliseconds per input token, measured.
 > Writing the answer is almost free by comparison. That is why input tokens are the thing worth cutting, and
 > it is the opposite of the GPU-datacentre assumption most of the literature is written under.
+
+**"Why not just keep the last few turns? That is what everyone does."**
+> Because on the conversations where it matters it answers **none** of them. We wrote 14 conversations that
+> state a fact first -- a server's memory, an allergy, a policy number -- spend four exchanges elsewhere, and
+> then ask about that fact. Keeping the last four turns scores **0 of 14**, which is worse than sending no
+> history at all. Relevance selection scores **13 of 14** -- one more than sending every turn -- on 17% fewer
+> tokens. And where the fact sits inside a long earlier answer, compressing that answer to its relevant
+> sentences sends 30% fewer tokens again with no answers lost. `.\demo.ps1 followups` prints it.
 
 **"These layers are basic. Anyone could build this."**
 > Anyone can build the obvious version of each one, and we did — `parsimony.eval.naive` holds them as running

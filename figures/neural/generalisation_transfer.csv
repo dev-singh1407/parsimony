@@ -1,0 +1,5 @@
+claim,Qwen2.5-1.5B-Instruct,gpt2,transfers
+leading-space form is cheaper (' happened' vs 'happened'),1 vs 3,1 vs 3,yes
+capitalisation costs tokens ('explain' vs 'Explain'),1 vs 2,2 vs 2,**NO**
+first-word deletion can cost tokens,11 vs 12,7 vs 8,yes
+tier-1 normalisations that save nothing,7/20 (35%),7/20 (35%),yes

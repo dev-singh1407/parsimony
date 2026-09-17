@@ -233,18 +233,39 @@ class TestPrefixSurvival:
         assert chronological > position
 
     def test_the_two_arrangements_send_the_same_tokens(self, make_pipeline):
-        """The other half of the finding: the cost is invisible to token counts."""
+        """The other half of the finding: the cost is invisible to token counts.
+
+        Measured on a FIXED history rather than a self-feeding conversation.
+        Letting each arm generate its own history compares two different
+        conversations: the arrangements produce different prompts, the provider
+        answers each differently, and those answers become the next turn's
+        history, so the totals drift for reasons that have nothing to do with
+        arrangement. With the history held still, the same turns are rendered
+        in two orders and the question is exactly the one ADR-025 asks.
+        """
         base = full_stack()
         chrono_cfg = replace(base, history=replace(base.history, arrangement="chronological"))
+        history = tuple(
+            Turn(f"t{i}", "user" if i % 2 == 0 else "assistant", text)
+            for i, text in enumerate([
+                "Explain what a hash table is.",
+                "A hash table maps keys to values through a hash function, which turns a key "
+                "into an index into an array of buckets.",
+                "What is its average lookup complexity?",
+                "Constant time on average, because the hash function distributes keys evenly "
+                "across the buckets and each lookup touches one of them.",
+                "And in the worst case?",
+                "Linear, when every key collides into one bucket and the lookup degenerates "
+                "into a scan of that bucket's chain.",
+                "Give me an example.",
+                "A dictionary in Python is a hash table: d['key'] hashes the key and indexes "
+                "straight to the slot holding its value.",
+            ])
+        )
 
-        def total_in(cfg):
-            p = make_pipeline(cfg)
-            history: list[Turn] = []
-            total = 0
-            for i, q in enumerate(QUESTIONS):
-                out = p.run(q, tuple(history), conversation_id="c1", turn_index=i)
-                history += [Turn(f"u{i}", "user", q), Turn(f"a{i}", "assistant", out.response)]
-                total += out.row.tokens_in_final
-            return total
+        def tokens(cfg):
+            return make_pipeline(cfg).run("What about collisions?", history,
+                                          conversation_id="c1", turn_index=4
+                                          ).row.tokens_in_final
 
-        assert total_in(base) == pytest.approx(total_in(chrono_cfg), rel=0.02)
+        assert tokens(base) == pytest.approx(tokens(chrono_cfg), rel=0.02)

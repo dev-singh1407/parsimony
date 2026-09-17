@@ -158,7 +158,7 @@ one-shot exact length control [37], and studies of reasoning ability under stric
 > **Our position.** We use the cheapest possible mechanism — a per-class `num_predict` budget plus a
 > streaming trigram-novelty early stop — precisely because the alternatives require fine-tuning, which is out
 > of reach on the target hardware. Our contribution here is not the mechanism but the measurement: M5 is the
-> **largest single contributor** in our ablation (+12.53 pp), which is not where the compression literature's
+> **largest single contributor** in our ablation (+10.80 pp), which is not where the compression literature's
 > emphasis would predict.
 
 ---

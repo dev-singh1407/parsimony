@@ -3,7 +3,7 @@
 **Status:** all eight modules built · **968 tests passing** · every number below regenerates with
 `python reproduce.py`
 
-This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (42 ADRs);
+This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (43 ADRs);
 this document is what those decisions *found*.
 
 **Which numbers came from where.** Sections 1–7 and 9 run against `MockProvider`, a deterministic stand-in:
@@ -24,34 +24,42 @@ Full 2⁴ factorial over M1/M2/M3/M5, 151 conversations, 263 requests, 17 cells.
 
 | effect | estimate | partial η² |
 |---|---|---|
-| **M5** output budgeter | +12.53 pp | 0.524 |
-| **M3** history manager | +11.77 pp | 0.462 |
-| **M2** semantic cache | +1.96 pp | 0.013 |
-| **M1** compressor | +0.24 pp | 0.000 |
-| M3×M5 interaction | **−0.75 pp** | 0.002 |
+| **M1** compressor | +10.97 pp | 0.365 |
+| **M5** output budgeter | +10.80 pp | 0.354 |
+| **M3** history manager | +6.78 pp | 0.140 |
+| **M1×M3 interaction** | **−4.99 pp** | 0.076 |
+| **M2** semantic cache | +1.96 pp | 0.012 |
+| M1×M5 interaction | −1.75 pp | 0.009 |
 
-Full stack reaches **+33.3%** total token reduction. The two material interaction terms are both negative —
-**M3×M5 −0.75** and **M2×M5 −0.09** — and both involve M5, which is the tell: M5 shortens output, so only
-modules that change what there is to shorten can overlap with it. Every other term sits within ±0.02 and is
-indistinguishable from zero here, so the honest statement is not "the modules always interfere" but "where
-they interact at all, they interfere."
+Full stack reaches **+39.6%** total token reduction (input alone: −47.0%).
 
-> **Additivity shortfall: 1.69 percentage points, 95% CI [+0.04, +3.21].**
+> **Additivity shortfall: 15.13 percentage points, 95% CI [+11.15, +18.27].**
 
-This is Contribution 1, and the honest version of it is more interesting than the original. No published
-study runs these modules in one pipeline, so the field has no evidence about whether their savings compound.
-They do not. But **how much they fail to compound is a property of the configuration, not a constant**:
+**The largest interaction in the design is M1×M3, at −4.99 pp, and it is there because both modules are
+paid out of the same tokens.** A positive third-order term follows it — **M1×M3×M5 +0.45 pp** — which is
+what inclusion–exclusion predicts when three modules compete for one pool: the pairwise overlaps
+double-count, and the triple corrects for it. M3 drops earlier turns; M1's context tier shortens the turns that survive
+(§14). Whichever runs first collects the saving, and the second finds less to do — so running both buys far
+less than the sum of running each. Every interaction that matters is negative, and the two largest involve
+M1, which is the tell: it is the module whose reach now overlaps its neighbours'.
 
-| encoder | M2 effect | M3×M5 | additivity shortfall |
+This is Contribution 1, and the honest version is stronger than the original. No published study runs these
+modules in one pipeline, so the field has no evidence about whether their savings compound. They do not, and
+**how much they fail to compound is a property of the configuration, not a constant** — the same experiment
+gave 1.69 pp when M1 only touched the question and 15.13 pp once it could also touch the history:
+
+| configuration | M1 effect | largest interaction | additivity shortfall |
 |---|---|---|---|
-| `hashing-v1` | +1.61 pp | −1.14 | 2.53 pp, **[+0.93, +3.99]** — excludes zero |
-| `content-v1` (default) | +1.96 pp | −0.75 | 1.69 pp, **[+0.04, +3.21]** — clears zero by 0.04 |
+| `hashing-v1` encoder, M1 on the question only | +0.22 pp | M3×M5, −1.14 then | 2.53 pp, **[+0.93, +3.99]** |
+| `content-v1`, M1 on the question only | +0.24 pp | M3×M5, −0.75 then | 1.69 pp, **[+0.04, +3.21]** |
+| `content-v1`, M1 on history too (shipped) | +10.97 pp | **M1×M3 −4.99** | **15.13 pp, [+11.15, +18.27]** |
+| `all-minilm`, M1 on history too | +11.75 pp | M1×M3, −4.40 there | 14.81 pp, [+10.97, +18.08] |
 
-Improving the encoder (ADR-035) made the cache hit more often, so it overlapped its neighbours less and the
-shortfall shrank until its interval reached zero. **The weaker encoder was not reinstated to protect the
-result.** Choosing a component known to be inferior because it produces a more publishable number is the
-failure mode this project is written against — the same instinct that would have had us quote the
-literature's 0.85 cache threshold and never run the adversarial set.
+A reviewer should read that table as a warning about single-number claims, including ours: "savings do not
+add" is robust across all four rows, and "they fall short by N points" is not a property of the techniques at
+all. **The weaker configurations were not reinstated to protect a smaller-looking number** — and note that
+the shortfall grew as the system got better, which is the direction that makes the finding less flattering
+and more useful.
 
 The largest overlap remains M3×M5 under both encoders, because trimming history and shortening output both
 reduce the same conversation.
@@ -534,7 +542,7 @@ The gate now refuses any transform that removes **all** word characters, checked
 comparison and independent of it — the only kind of check that can hold for languages the extractors cannot
 read. Widening the regex would have fixed the instance and left the class (ADR-038).
 
-**Every headline number is unchanged** by these fixes: +33.3% full stack, 0.0% false hits, 1.69 pp shortfall.
+**Every headline number is unchanged** by these fixes: the full stack's reduction, the 0.0% false-hit rate and the shortfall all read exactly as they did before them.
 They close holes without moving a result, which is what a security fix should look like when the original
 measurements were sound. What changed is the *scope* of the safety claim: 0.0% is now a statement about a
 corpus **and a sanitiser**, rather than about a corpus that happened to contain no adversarial Unicode.
@@ -712,6 +720,54 @@ the model knew, and the context talked it out of knowing. Compression here is no
 what protects the answer.
 
 The check fires on **0 of 75** answerable questions, and evidence recall on the on-topic splits is unchanged.
+
+## 14. Keeping the last few turns answers none of them
+
+M3 chooses which earlier turns survive and M1's context tier shortens the ones that do, and both were scored
+only on tokens removed — a metric that rewards removing the answer. The conversation corpus cannot score
+anything else: its assistant turns come from a mock provider, so "the answer changed" and "the answer got
+worse" are the same event there (ADR-043).
+
+`corpus/followups.jsonl` is the missing case: 20 conversations that state a fact in the first turn — a
+server's memory, an allergy, a policy number — spend four exchanges elsewhere, and end with a question only
+that turn can answer. 14 are held out and reported:
+
+| how history is handled | correct | fact kept | prompt tokens | prefill |
+|---|---|---|---|---|
+| every turn, verbatim | 13/14 — 92.9% | 14/14 | 199 | 1.91 s |
+| **relevance (MMR), as shipped** | **13/14 — 92.9%** | **14/14** | **165** | **1.55 s** |
+| keep the last 4 turns | **0/14 — 0.0%** | **0/14** | 121 | 1.06 s |
+| no history at all (control) | 1/14 — 7.1% | 0/14 | 56 | 0.29 s |
+
+**Keeping the last few turns is what a token budget plus recency gives you, and it answers none of them** —
+indistinguishable from sending no history at all (0/14 against 1/14). Relevance selection matches sending
+every turn, exactly, on **17% fewer tokens and 19% less prefill**: the saving is free here, and the fact
+survived all fourteen times.
+
+The sentence-compression arm is identical to the row above it because the tier never fired: those turns are
+30–45 tokens and its gates were set for attached documents. Ten further conversations put the fact inside a
+**120–160 token answer**, which is what a real assistant turn looks like. Seven held out:
+
+| how history is handled | correct | fact kept | prompt tokens | prefill |
+|---|---|---|---|---|
+| every turn, verbatim | 6/7 | 7/7 | 251 | 2.60 s |
+| relevance (MMR) | 6/7 | 7/7 | 227 | 2.31 s |
+| **relevance + sentence compression** | **6/7** | **7/7** | **159** | **1.52 s** |
+| keep the last 4 turns | 0/7 | 0/7 | 107 | 0.99 s |
+
+**30% fewer tokens than selection alone, 34% less prefill, no answers lost.** The answer sentence survived
+all seven times while the rest of its turn went.
+
+**The bug that corpus found.** On the first run the tier fired on one of the ten. M3's position-aware
+arrangement moves the most relevant turn to the end of the list it hands on, and the tier protected "the last
+two turns" — so it protected exactly the turn worth compressing. Two modules each correct alone, wrong in
+composition: the project's own thesis arriving as a bug. Protection now means recent in the *conversation*,
+by turn id.
+
+With the gates set for turns rather than documents, M1's contribution to the factorial changes character
+entirely: **+0.24 pp → +10.97 pp**, making it the largest single effect in the design. The full stack goes
+from 33.3% to **39.6%** total reduction, and the additivity shortfall from 1.69 pp to **15.13 pp [11.15,
+18.27]** — because M1 and M3 now compete for the same tokens. The thesis of this project, in one number.
 
 ## Reproducing all of it
 

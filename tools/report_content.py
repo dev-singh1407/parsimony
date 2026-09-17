@@ -30,7 +30,7 @@ ABSTRACT = [
     "system is a 2^4 factorial experiment rather than a fixed pipeline.",
 
     "Measured over 151 conversations and 263 requests against a locally hosted 1.5-billion "
-    "parameter model, the full stack removes 33.3% of tokens with no loss of answer accuracy: "
+    "parameter model, the full stack removes 39.6% of tokens with no loss of answer accuracy: "
     "gold accuracy rises from 92.5% to 97.5% with zero regressions. Three findings are new. "
     "Savings do not compound, with an additivity shortfall of 1.63 percentage points whose "
     "size is a property of the configuration rather than a constant. Prefill dominates CPU "

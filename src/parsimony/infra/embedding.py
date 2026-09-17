@@ -352,6 +352,26 @@ class ContentEmbedder(HashingEmbedder):
         return feats
 
 
+def best_config(cfg):
+    """`cfg` with the best encoder this machine can actually serve.
+
+    Resolved HERE, to a concrete encoder id, rather than by letting a config
+    say "auto": `config_hash` is experiment identity, and two runs that used
+    different encoders must never share one. The returned config carries the
+    encoder it will use and the thresholds calibrated for it (ADR-041).
+
+    Every surface and every evaluation entry point calls this, so a machine
+    with the embedding model pulled gets the better cache, the better history
+    selection and the better sentence scoring everywhere -- not only in the
+    interactive commands.
+    """
+    from parsimony.core.config import NEURAL_EMBEDDER, neural
+
+    if cfg.embedder_id == NEURAL_EMBEDDER or not OllamaEmbedder.available():
+        return cfg
+    return neural(cfg)
+
+
 def get_embedder(embedder_id: str = "hashing-v1"):
     if embedder_id.startswith("ollama:"):
         return OllamaEmbedder(embedder_id.split(":", 1)[1])

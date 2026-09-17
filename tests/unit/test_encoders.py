@@ -199,3 +199,44 @@ class TestTheBenchmarkHarnessHonoursTheEncoder:
         item = items["orrin_q1"]
         assert evidence_kept(item, methods.parsimony(item, full_stack()).documents)[0] == 0
         assert evidence_kept(item, methods.parsimony(item, neural()).documents)[0] == 1
+
+
+class TestTheChoiceIsGlobal:
+    """One resolution point, used by every surface and every study.
+
+    The encoder decides cache hits, history selection and sentence scoring
+    alike, so a benchmark run on one encoder while `ask` used the other would
+    be reporting a different system from the one in use.
+    """
+
+    def test_an_already_neural_config_is_left_alone(self):
+        from parsimony.infra.embedding import best_config
+
+        cfg = neural()
+        assert best_config(cfg) is cfg
+
+    def test_it_resolves_to_a_concrete_encoder_never_to_auto(self):
+        """`config_hash` is experiment identity: two runs on different encoders
+        must not share one, so nothing may stay unresolved."""
+        from parsimony.infra.embedding import best_config
+
+        chosen = best_config(full_stack())
+        assert chosen.embedder_id in {"content-v1", NEURAL_EMBEDDER}
+        assert chosen.config_hash == best_config(chosen).config_hash
+
+    @needs_embedder
+    def test_it_upgrades_and_recalibrates_together(self):
+        from parsimony.infra.embedding import best_config
+
+        chosen = best_config(full_stack())
+        assert chosen.embedder_id == NEURAL_EMBEDDER
+        assert chosen.cache.tau_lo == neural().cache.tau_lo
+
+    def test_commands_say_which_encoder_they_used(self):
+        from typer.testing import CliRunner
+
+        from parsimony.surfaces.cli.main import app
+
+        result = CliRunner().invoke(app, ["calibrate"])
+        assert result.exit_code == 0, result.output
+        assert "Encoder:" in result.output

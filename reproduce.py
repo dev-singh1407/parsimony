@@ -447,6 +447,61 @@ def render_encoders(ctx: Context) -> str:
     return _table(headers, rows) + note
 
 
+def render_followups(ctx: Context) -> str:
+    """Does history management keep the fact the last question needs? (ADR-043)
+
+    Model-free half: is the fact still in the prompt each arm produces. That is
+    deterministic and runs here. The answers themselves need the real model and
+    are read back from what `parsimony followups --provider ollama` recorded.
+    """
+    from parsimony.eval import followups as fu  # noqa: PLC0415
+    from parsimony.infra.providers import MockProvider  # noqa: PLC0415
+    from parsimony.pipeline.orchestrator import Pipeline  # noqa: PLC0415
+
+    items = [i for i in fu.load_followups() if i.split == "test"]
+    if not items:
+        return "_No follow-up corpus._"
+
+    headers = ["how history is handled", "conversations", "fact kept", "prompt tokens"]
+    rows = []
+    for arm, cfg in fu.arms(full_stack(), (100, 40)).items():
+        if cfg is None:
+            rows.append([fu.ARM_LABELS[arm], str(len(items)), "n/a", "-"])
+            continue
+        pipe = Pipeline(cfg, provider=MockProvider())
+        kept = tokens = 0
+        for item in items:
+            outcome = pipe.run(item.question, item.turns,
+                               conversation_id=f"{item.conversation_id}:{arm}")
+            kept += fu.evidence_survives(item, outcome.ctx)
+            tokens += outcome.row.tokens_in_final
+        rows.append([fu.ARM_LABELS[arm], str(len(items)), f"{kept}/{len(items)}",
+                     f"{tokens / len(items):.0f}"])
+    _write_csv(ctx.out / "followups_kept.csv", headers, rows)
+    text = (f"{len(items)} conversations. Each states a fact in its first turn, spends four "
+            f"exchanges elsewhere, and ends with a question only that turn can answer.\n\n"
+            + _table(headers, rows))
+
+    recorded = [r for r in fu.load_rows(ctx.out / "followups_items.jsonl")
+                if r["split"] == "test"] if hasattr(fu, "load_rows") else []
+    if not recorded:
+        import json as _json
+
+        path = ctx.out / "followups_items.jsonl"
+        recorded = ([_json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
+                     if line.strip()] if path.exists() else [])
+        recorded = [r for r in recorded if r["split"] == "test"]
+    if not recorded:
+        return text + ("\n\n_No real-model run recorded; run `parsimony followups "
+                       "--provider ollama`._")
+    summary = fu.summarise(recorded)
+    rh = list(summary[0])
+    rr = [[str(r[h]) for h in rh] for r in summary]
+    _write_csv(ctx.out / "followups.csv", rh, rr)
+    return (text + f"\n\n**Recorded on the real model** ({recorded[0]['model']}, "
+            f"{len(recorded)} calls):\n\n" + _table(rh, rr))
+
+
 def render_calibration_table(ctx: Context) -> str:
     """Contribution 6, in the form a practitioner can act on."""
     table = calibration_table(ctx.results)
@@ -730,6 +785,7 @@ SECTIONS: tuple[Section, ...] = (
             ("tokenizer_id", "tokens_in_final", "tokens_out"), render_generalisation),
     Section("tokenprobe", "Negative-yield probe", (), render_tokenprobe),
     Section("longctx", "Long-context compression", (), render_longctx),
+    Section("followups", "Conversations: does the needed fact survive?", (), render_followups),
     Section("middleware", "Middleware overhead and prefix reuse",
             ("middleware_ns", "prefix_tokens_survived"), render_middleware),
 )
@@ -763,6 +819,11 @@ def main() -> int:
                         help="Conversations in the unmemoised timing pass.")
     parser.add_argument("--timing-repeats", type=int, default=2,
                         help="Repeats of the timing pass (latency is the only stochastic part).")
+    parser.add_argument("--encoder", default="lexical", choices=("lexical", "neural"),
+                        help="lexical (default): content-v1, offline and deterministic, and what "
+                             "the committed figures were produced with. neural: all-minilm "
+                             "through Ollama, with the thresholds calibrated for it -- write it "
+                             "to a separate --out so the two sets can be compared.")
     args = parser.parse_args()
 
     missing = check_schema()
@@ -777,7 +838,20 @@ def main() -> int:
     print(f"corpus {len(corpus)} conversations, {corpus.n_requests} requests "
           f"(hash {corpus.corpus_hash})")
 
-    cells = list(factorial_cells(axes=AXES, always_on=frozenset()))
+    base = full_stack()
+    if args.encoder == "neural":
+        from parsimony.core.config import neural  # noqa: PLC0415
+        from parsimony.infra.embedding import OllamaEmbedder  # noqa: PLC0415
+
+        if not OllamaEmbedder.available():
+            print("--encoder neural, but no embedding model is reachable "
+                  "(ollama pull all-minilm)", file=sys.stderr)
+            return 2
+        base = neural(base)
+    print(f"encoder {base.embedder_id} (tau_lo {base.cache.tau_lo}, "
+          f"verify_always {base.cache.verify_always})")
+
+    cells = list(factorial_cells(base=base, axes=AXES, always_on=frozenset()))
     cells.append(
         cells[-1].with_modules(cells[-1].enabled_modules | {"M4", "M6"},
                                label="+".join(AXES) + "+M4+M6")

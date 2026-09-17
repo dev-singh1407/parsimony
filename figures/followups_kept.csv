@@ -1,0 +1,6 @@
+how history is handled,conversations,fact kept,prompt tokens
+"every turn, verbatim",14,14/14,162
+keep the last 4 turns,14,0/14,85
+relevance (MMR),14,14/14,127
+relevance + sentence compression,14,14/14,127
+no history at all (control),14,n/a,-

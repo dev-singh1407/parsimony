@@ -126,17 +126,36 @@ def eligible_turns(ctx: RequestContext, cfg: ParsimonyConfig) -> list[int]:
     The most recent exchange is never touched: a follow-up ("and the second
     one?") points into it, and relevance to the follow-up's words cannot see
     what it points at.
+
+    "Most recent" means recent in the CONVERSATION, not last in the list this
+    stage receives. M3's position-aware arrangement moves the most relevant
+    turn to the end of that list, so protecting the last two positions
+    protected exactly the turn worth compressing -- on ten conversations whose
+    key fact sat in a long earlier answer, the tier fired once. Identifying the
+    protected turns by id, from the original history, fixes it (ADR-043).
     """
     c = cfg.compression
-    keep_from = max(0, len(ctx.history) - c.context_keep_recent_turns)
-    return [i for i, t in enumerate(ctx.history[:keep_from])
-            if t.token_count >= c.context_turn_min_tokens]
+    recent = {t.turn_id for t in ctx.original_history[-c.context_keep_recent_turns:]}         if c.context_keep_recent_turns else set()
+    return [i for i, t in enumerate(ctx.history)
+            if t.turn_id not in recent and t.token_count >= c.context_turn_min_tokens]
 
 
 def build_units(ctx: RequestContext, turn_ids: list[int], count, prefix: int = 6) -> list[Unit]:
+    """Sentences to choose between, in CONVERSATION order.
+
+    Not in the order this stage happens to receive them: M3's position-aware
+    arrangement moves the most relevant turn to the end, and the redundancy
+    penalty in `select` compares each candidate against what is already kept,
+    so ranking in list order made the kept set depend on where M4 was going to
+    place things. Two arrangements of the same conversation then sent different
+    numbers of tokens (648 against 611), which is exactly the confound ADR-025
+    exists to rule out.
+    """
+    original = {t.turn_id: i for i, t in enumerate(ctx.original_history)}
+    ordered = sorted(turn_ids, key=lambda i: original.get(ctx.history[i].turn_id, i))
     units: list[Unit] = []
     sources = [(("doc", i), d.content) for i, d in enumerate(ctx.documents)]
-    sources += [(("turn", i), ctx.history[i].content) for i in turn_ids]
+    sources += [(("turn", i), ctx.history[i].content) for i in ordered]
     for source, content in sources:
         for pos, (line, text) in enumerate(_split_with_lines(content)):
             units.append(Unit(source, pos, line, text, count(text),
