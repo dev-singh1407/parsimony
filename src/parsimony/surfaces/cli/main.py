@@ -12,10 +12,11 @@ from dataclasses import replace
 from pathlib import Path
 
 import typer
-from rich.console import Console
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.rule import Rule
 from rich.table import Table
+from rich.text import Text
 
 from parsimony.core.config import baseline, factorial_cells, full_stack, with_cache_lookup
 from parsimony.core.types import Mode, Turn
@@ -1415,38 +1416,80 @@ def _print_longctx_real(summaries, model_name: str) -> None:
     console.print(t)
 
 
+#: One colour per decision the selector can take. Tags name real branches of
+#: `m1_context.select`, so a reader who looks up a tag finds code.
+TAG_STYLE = {
+    "ANCHOR": "magenta",
+    "MATCH": "green",
+    "CLOSURE": "cyan",
+    "PROTECTED": "blue",
+    "BUDGET": "yellow",
+    "REDUNDANT": "yellow",
+    "FLOOR": "grey58",
+    "OFF-TOPIC": "red",
+    "KEPT": "green",
+}
+
+
+def marginalia(audit, *, evidence=(), width: int = 46):
+    """The context as a page with margin notes: text left, decision right.
+
+    A vertical list of "kept / removed" answers the wrong question. What a
+    reader wants beside a sentence is why THAT sentence went, and the numbers
+    the decision turned on -- which is what the margin carries.
+    """
+    from rich.columns import Columns
+
+    panels = []
+    for source, units in audit.by_source().items():
+        grid = Table.grid(padding=(0, 2))
+        grid.add_column(overflow="fold", ratio=2)
+        grid.add_column(width=width, overflow="fold")
+        for unit in units:
+            answer = any(e in unit.text for e in evidence)
+            if unit.kept:
+                style = "bold" if answer else ""
+                arrow = "<-"
+            else:
+                style = "red strike dim"
+                arrow = "<-"
+            colour = TAG_STYLE.get(unit.tag, "white")
+            verdict = "KEEP" if unit.kept else "DROP"
+            note = Text.from_markup(
+                f"[{colour}]{arrow} [{verdict}: {unit.tag}][/{colour}] [dim]{unit.detail}[/dim]")
+            grid.add_row(Text(unit.text, style=style), note)
+        title = units[0].source_label if units else str(source)
+        panels.append(Panel(grid, title=f"[bold]{title}[/bold]", title_align="left",
+                            border_style="grey42", padding=(0, 1)))
+    return Columns(panels, equal=False, expand=True) if len(panels) == 1 else Group(*panels)
+
+
 def _show_compression(methods, item) -> None:
     """One question, its six documents, and exactly which sentences survived and why."""
-    from parsimony.infra.nlp import split_sentences
+    from parsimony.modules.m1_context import audit as audit_context
 
-    got = methods.parsimony(item)
-    kept_text = "\n".join(d.content for d in got.documents)
-    before = methods.context_tokens(item.documents)
-    after = methods.context_tokens(got.documents)
+    cfg = methods.cfg
+    pipeline = methods._pipeline_for(cfg)
+    ctx = pipeline.build_context(item.question, conversation_id=item.item_id,
+                                 documents=item.documents)
+    report = audit_context(ctx, cfg)
+
     console.print(Panel(f"[bold]{item.question}[/bold]\n[dim]{item.item_id} - {item.kind} - "
                         f"answer: {item.gold.gold_answer}[/dim]", border_style="bright_blue"))
-    for doc in item.documents:
-        body = []
-        for s in split_sentences(doc.content):
-            if s in kept_text:
-                mark = "[green]kept   [/green]  "
-                style = "bold" if any(e in s for e in item.evidence) else ""
-                body.append(f"{mark}[{style}]{s}[/{style}]" if style else f"{mark}{s}")
-            else:
-                body.append(f"[dim]removed  {s}[/dim]")
-        console.print(Panel("\n".join(body), title=doc.title, title_align="left",
-                            border_style="grey50"))
-    d = got.detail
+    console.print(marginalia(report, evidence=item.evidence))
+
+    kept = sum(1 for u in report.units if u.kept and u.tag != "PROTECTED")
+    considered = sum(1 for u in report.units if u.tag != "PROTECTED")
     console.print(
-        f"[bold]{before} -> {after} context tokens[/bold] "
-        f"({100 * (1 - after / before):.0f}% removed). "
-        f"Kept {d.get('sentences_kept', '?')} of {d.get('sentences', '?')} sentences; "
-        f"stopped by {d.get('stopped_by', '?')}; "
-        f"{d.get('closure_added', 0)} kept only so a following 'It'/'This' makes sense.")
-    if d.get("anchors"):
-        names = ", ".join(d["anchors"])
-        console.print(f"[dim]Named in the question and guaranteed a sentence: {names}.[/dim]")
-    console.print("[dim]Answer sentences are in bold.[/dim]")
+        f"[bold]{report.tokens_before} -> {report.tokens_after} context tokens[/bold] "
+        f"({report.removed_pct:.0f}% removed). Kept {kept} of {considered} sentences; "
+        f"stopped by {report.stopped_by}.")
+    if report.anchors:
+        console.print(f"[dim]Named in the question and guaranteed a sentence: "
+                      f"{', '.join(report.anchors)}.[/dim]")
+    legend = "  ".join(f"[{TAG_STYLE[t]}]{t}[/{TAG_STYLE[t]}]"
+                       for t in ("ANCHOR", "MATCH", "CLOSURE", "REDUNDANT", "BUDGET", "FLOOR"))
+    console.print(f"[dim]Answer sentences are in bold.[/dim]  {legend}")
 
 
 @app.command()

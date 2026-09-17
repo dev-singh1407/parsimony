@@ -23,6 +23,11 @@ class DerivedCache:
         self._tokens: dict[str, int] = {}
         self._sentences: dict[str, tuple[str, ...]] = {}
         self._vectors: dict[str, np.ndarray] = {}
+        #: Nanoseconds spent inside the encoder for this request. The neural
+        #: encoder costs ~9 ms a sentence on this CPU, which is a material
+        #: fraction of what the compression it informs saves -- so the surfaces
+        #: that report the saving report this beside it (ADR-041).
+        self.embed_ns = 0
         self._counts = {
             "token_count": 0,
             "token_count_hits": 0,
@@ -71,9 +76,13 @@ class DerivedCache:
         missing = [t for t in dict.fromkeys(texts) if t not in self._vectors]
         self._counts["embed_hits"] += len(texts) - len(missing)
         if missing:
+            import time as _time
+
             self._counts["embed_calls"] += 1
             self._counts["embed_texts"] += len(missing)
+            started = _time.perf_counter_ns()
             computed = self._embedder.embed(missing)
+            self.embed_ns += _time.perf_counter_ns() - started
             for text, vec in zip(missing, computed):
                 self._vectors[text] = vec
         return np.vstack([self._vectors[t] for t in texts])

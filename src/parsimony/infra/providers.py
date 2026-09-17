@@ -405,3 +405,34 @@ class OllamaProvider:
                     break
         finally:
             resp.close()
+
+
+def kv_bytes_per_token(provider) -> tuple[int, str] | None:
+    """Bytes of key-value cache one prompt token occupies, from the model's own metadata.
+
+    Derived, not measured, and derived from figures the runtime reports rather
+    than from anything assumed: 2 (K and V) x blocks x kv-heads x head-dim x 2
+    bytes for fp16. For qwen2.5:1.5b-instruct that is 2 x 28 x 2 x 128 x 2 =
+    28,672 bytes, so a thousand prompt tokens is ~28 MB of cache that has to be
+    written and then re-read for every token generated afterwards.
+
+    Returned with the arithmetic that produced it, because a megabyte figure
+    with no derivation beside it is indistinguishable from a decorative one.
+    """
+    info = (getattr(provider, "info", None) or {}).get("model_info") or {}
+    blocks = heads = kv_heads = embedding = None
+    for key, value in info.items():
+        if key.endswith(".block_count"):
+            blocks = value
+        elif key.endswith(".attention.head_count"):
+            heads = value
+        elif key.endswith(".attention.head_count_kv"):
+            kv_heads = value
+        elif key.endswith(".embedding_length"):
+            embedding = value
+    if not (blocks and heads and kv_heads and embedding):
+        return None
+    head_dim = embedding // heads
+    per_token = 2 * blocks * kv_heads * head_dim * 2
+    how = (f"2 x {blocks} blocks x {kv_heads} kv-heads x {head_dim} dims x 2 bytes (fp16)")
+    return per_token, how

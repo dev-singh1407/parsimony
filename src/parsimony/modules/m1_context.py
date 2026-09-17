@@ -48,7 +48,7 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from parsimony.core.config import ParsimonyConfig
 from parsimony.core.proposals import ContextPatch, NoOp, Proposal, TransformKind
@@ -104,6 +104,62 @@ class Selection:
     stopped_by: str
     coverage: float = 1.0                # question terms present in the context
     off_topic: bool = False
+    #: unit index -> (tag, detail). Every unit appears exactly once, so a
+    #: surface can state WHY each sentence went or stayed instead of showing a
+    #: kept set and leaving the reader to guess. Tags name decisions this
+    #: module actually makes -- ANCHOR, MATCH, CLOSURE, FLOOR, BUDGET,
+    #: REDUNDANT, OFF-TOPIC -- and nothing else.
+    reasons: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class UnitAudit:
+    """One sentence, its score, and the decision taken on it."""
+
+    index: int
+    source: tuple[str, int]
+    source_label: str
+    position: int
+    text: str
+    tokens: int
+    score: float
+    kept: bool
+    tag: str
+    detail: str
+
+    @property
+    def protected(self) -> bool:
+        return self.tag == "PROTECTED"
+
+
+@dataclass(frozen=True, slots=True)
+class ContextAudit:
+    """Every sentence the request carried, with what happened to it."""
+
+    units: tuple[UnitAudit, ...]
+    tokens_before: int
+    tokens_after: int
+    budget: int
+    coverage: float
+    off_topic: bool
+    stopped_by: str
+    anchors: dict
+    applied: bool
+    note: str = ""
+
+    @property
+    def removed_tokens(self) -> int:
+        return self.tokens_before - self.tokens_after
+
+    @property
+    def removed_pct(self) -> float:
+        return 100.0 * self.removed_tokens / self.tokens_before if self.tokens_before else 0.0
+
+    def by_source(self):
+        groups: dict[tuple[str, int], list[UnitAudit]] = {}
+        for unit in self.units:
+            groups.setdefault(unit.source, []).append(unit)
+        return groups
 
 
 def _split_with_lines(content: str) -> list[tuple[int, str]]:
@@ -285,12 +341,18 @@ def select(query: str, units: list[Unit], cfg: ParsimonyConfig,
         # annihilated outright. One sentence costs ~20 tokens and says plainly
         # that the documents were consulted.
         top = max(range(len(units)), key=lambda i: rel[i]) if units else None
+        why = {i: ("OFF-TOPIC", f"the question shares {100 * coverage:.0f}% of its words "
+                                f"with this context")
+               for i in range(len(units))}
+        if top is not None:
+            why[top] = ("MATCH", "kept as the single closest sentence, so the context is not empty")
         return Selection(frozenset() if top is None else frozenset({top}), tuple(rel), {}, 0,
                          budget, "nothing in the context bears on the question",
-                         coverage, True)
+                         coverage, True, why)
 
     kept: set[int] = set()
     used = 0
+    why: dict[int, tuple[str, str]] = {}
 
     def keep(i: int) -> None:
         nonlocal used
@@ -301,8 +363,9 @@ def select(query: str, units: list[Unit], cfg: ParsimonyConfig,
     # Guarantee: the best sentence for every name the question mentions.
     guaranteed = ({a: max(ids, key=lambda i: rel[i]) for a, ids in anchored.items()}
                   if c.context_anchor_guarantee else {})
-    for i in guaranteed.values():
+    for name, i in guaranteed.items():
         keep(i)
+        why[i] = ("ANCHOR", f"guaranteed: the question names {name!r}")
 
     stopped_by = "exhausted"
     floor = c.context_relevance_floor
@@ -325,10 +388,19 @@ def select(query: str, units: list[Unit], cfg: ParsimonyConfig,
         if used + units[best].tokens > budget:
             if not kept:
                 keep(best)          # one sentence always survives
+                why[best] = ("MATCH", f"kept anyway: nothing else fit ({rel[best]:.2f})")
+            else:
+                why.setdefault(best, ("BUDGET", f"scored {rel[best]:.2f} but the "
+                                                f"{budget}-token budget was spent"))
             stopped_by = "budget"
             # A smaller relevant sentence may still fit.
             continue
         keep(best)
+        redundancy = max((_overlap(units[best].terms, units[j].terms)
+                          for j in kept if j != best), default=0.0)
+        why[best] = ("MATCH", f"relevance {rel[best]:.2f}"
+                              + (f", overlap {redundancy:.2f} with a kept sentence"
+                                 if redundancy >= 0.5 else ""))
 
     # Dependency closure, walking back through consecutive dependent openings.
     closure_added = 0
@@ -343,12 +415,27 @@ def select(query: str, units: list[Unit], cfg: ParsimonyConfig,
                 break
             if prev not in kept:
                 keep(prev)
+                why[prev] = ("CLOSURE", "kept so the next sentence's opening word resolves")
                 closure_added += 1
             j = prev
 
+    for i in range(len(units)):
+        if i in why:
+            continue
+        if i in kept:
+            why[i] = ("MATCH", f"relevance {rel[i]:.2f}")
+            continue
+        redundancy = max((_overlap(units[i].terms, units[j].terms) for j in kept), default=0.0)
+        if stopped_by == "budget" and rel[i] >= floor:
+            why[i] = ("BUDGET", f"scored {rel[i]:.2f}; the {budget}-token budget was spent")
+        elif redundancy >= 0.5 and rel[i] >= floor:
+            why[i] = ("REDUNDANT", f"overlap {redundancy:.2f} with a sentence already kept")
+        else:
+            why[i] = ("FLOOR", f"relevance {rel[i]:.2f}, under the {floor:.2f} floor")
+
     return Selection(frozenset(kept), tuple(rel),
                      {a: units[i].text for a, i in guaranteed.items()},
-                     closure_added, budget, stopped_by, coverage, False)
+                     closure_added, budget, stopped_by, coverage, False, why)
 
 
 def render_source(units: list[Unit], kept: frozenset[int]) -> str:
@@ -366,6 +453,75 @@ def render_source(units: list[Unit], kept: frozenset[int]) -> str:
             out.append(" " + u.text)
         last_line = u.line
     return "".join(out)
+
+
+def audit(ctx: RequestContext, cfg: ParsimonyConfig) -> ContextAudit:
+    """Every sentence of the request's context, with the decision taken on it.
+
+    One computation feeding every surface that explains this stage -- the
+    terminal marginalia, the live dashboard, the web heatmap and the proof
+    document. They were each about to re-derive "why was this dropped" from
+    evidence dictionaries, and four re-derivations of one decision is four
+    chances to describe the system as it is not.
+
+    Protected turns (the most recent exchange) appear too, tagged PROTECTED, so
+    a reader can see the sentences the stage deliberately never considered.
+    """
+    d = ctx.derived
+    c = cfg.compression
+    turn_ids = eligible_turns(ctx, cfg)
+    count = d.token_count if d is not None else (lambda t: len(t.split()))
+    units = build_units(ctx, turn_ids, count, c.context_term_prefix)
+    labels: dict[tuple[str, int], str] = {
+        ("doc", i): (doc.title or doc.doc_id) for i, doc in enumerate(ctx.documents)}
+    labels.update({("turn", i): f"{ctx.history[i].role} turn {i + 1}"
+                   for i in range(len(ctx.history))})
+
+    before = sum(u.tokens for u in units)
+    rows: list[UnitAudit] = []
+    note = ""
+    if not units or before < c.context_min_tokens:
+        note = (f"context is {before} tokens, below the {c.context_min_tokens}-token threshold "
+                f"where selection pays" if units else "no documents and no long earlier turns")
+        for i, u in enumerate(units):
+            rows.append(UnitAudit(i, u.source, labels.get(u.source, "context"), u.position,
+                                  u.text, u.tokens, 1.0, True, "KEPT",
+                                  "below the size threshold: nothing is removed"))
+        selection = None
+    else:
+        dense = None
+        if getattr(d, "has_embedder", False) and c.context_dense_weight > 0:
+            vectors = d.embed([ctx.query] + [u.text for u in units])
+            dense = [float(vectors[0] @ v) for v in vectors[1:]]
+        titles = {("doc", i): doc.title for i, doc in enumerate(ctx.documents)}
+        selection = select(ctx.query, units, cfg, dense, titles)
+        for i, u in enumerate(units):
+            tag, detail = selection.reasons.get(i, ("FLOOR", ""))
+            rows.append(UnitAudit(i, u.source, labels.get(u.source, "context"), u.position,
+                                  u.text, u.tokens, selection.relevance[i],
+                                  i in selection.kept, tag, detail))
+
+    # The sentences of protected turns: never candidates, and worth showing.
+    protected = [i for i in range(len(ctx.history)) if i not in turn_ids]
+    index = len(rows)
+    for i in protected:
+        turn = ctx.history[i]
+        if turn.token_count < c.context_turn_min_tokens:
+            continue
+        for pos, (_line, text) in enumerate(_split_with_lines(turn.content)):
+            rows.append(UnitAudit(index, ("turn", i), labels.get(("turn", i), "turn"), pos,
+                                  text, count(text), 1.0, True, "PROTECTED",
+                                  "in the most recent exchange, which is never compressed"))
+            index += 1
+
+    after = sum(u.tokens for u in rows if u.kept and u.tag != "PROTECTED")
+    return ContextAudit(tuple(rows), before, after,
+                        selection.budget if selection else before,
+                        selection.coverage if selection else 1.0,
+                        bool(selection and selection.off_topic),
+                        selection.stopped_by if selection else "not applicable",
+                        dict(selection.anchors) if selection else {},
+                        applied=selection is not None, note=note)
 
 
 class ContextCompressor:

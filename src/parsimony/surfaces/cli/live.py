@@ -33,6 +33,7 @@ import time
 from dataclasses import dataclass, field
 
 from rich.console import Console, Group
+from rich.layout import Layout
 from rich.live import Live
 from rich.panel import Panel
 from rich.spinner import Spinner
@@ -102,6 +103,10 @@ class LiveTurn(PipelineObserver):
     attachments: str = ""
     g: dict = field(default_factory=lambda: dict(FANCY))
 
+    ctx: object = None                # the request as it arrived, for the audit
+    audit: object = None              # m1_context.ContextAudit, once that stage has run
+    kv_per_token: tuple | None = None  # (bytes, how it was derived)
+    hud_width: int = 34
     traces: list = field(default_factory=list)
     tokens_original: int = 0
     tokens_now: int = 0
@@ -119,9 +124,22 @@ class LiveTurn(PipelineObserver):
 
     def begin(self, ctx, tokens_original: int) -> None:
         self.tokens_original = self.tokens_now = tokens_original
+        self.ctx = ctx
 
     def stage(self, trace) -> None:
         self.traces.append(trace)
+        if trace.name == "m1_context" and self.ctx is not None and self.cfg is not None:
+            # Recomputed rather than smuggled through the trace: evidence goes
+            # into every ledger row, and per-sentence detail would multiply the
+            # ledger's size for data no analysis reads. The embeddings are
+            # memoised on this request's derived cache, so the recomputation is
+            # arithmetic over vectors it already has.
+            try:
+                from parsimony.modules.m1_context import audit as audit_context
+
+                self.audit = audit_context(self.ctx, self.cfg)
+            except Exception:
+                self.audit = None
         if trace.outcome is StageOutcome.APPLIED:
             self.tokens_now = max(0, self.tokens_now - (trace.tokens_before - trace.tokens_after))
         if trace.outcome is StageOutcome.SHORT_CIRCUIT:
@@ -297,6 +315,130 @@ class LiveTurn(PipelineObserver):
             grid.add_row("", line)
         return grid
 
+    # -- dashboard panes ---------------------------------------------------
+
+    def document_pane(self, height: int = 24):
+        """The attached text, struck through as the selector decides against it."""
+        if self.audit is None:
+            source = getattr(self.ctx, "original_documents", ()) or ()
+            body = Text("\n\n".join(f"{d.title or d.doc_id}\n{d.content[:400]}"
+                                     for d in source[:3]) or "no documents attached",
+                        style="dim")
+            return Panel(body, title="[bold]What you attached[/bold]",
+                         border_style="grey42", padding=(0, 1))
+
+        lines = Text()
+        shown = 0
+        folded = 0
+        for unit in self.audit.units:
+            if unit.tag == "PROTECTED":
+                continue
+            if shown >= height:
+                folded += 1
+                continue
+            shown += 1
+            if unit.kept:
+                lines.append(unit.text + " ", style="bright_green")
+            else:
+                lines.append(unit.text + " ", style="grey30 strike")
+        if folded:
+            lines.append(f"\n[... {folded} further sentences, decided the same way]",
+                         style="dim")
+        kept = sum(1 for u in self.audit.units if u.kept and u.tag != "PROTECTED")
+        total = sum(1 for u in self.audit.units if u.tag != "PROTECTED")
+        return Panel(lines, border_style="green",
+                     title=f"[bold]Context[/bold] [green]{kept} kept[/green] / "
+                           f"[grey50]{total - kept} removed[/grey50]",
+                     title_align="left", padding=(0, 1))
+
+    def hud_pane(self, width: int = 34):
+        """Measured counters. Anything derived says so, and shows its arithmetic.
+
+        Built as fitted lines rather than a table: the pane is narrow, and a
+        column layout truncated every note into "of 890 t..." -- a HUD whose
+        units are cut off is worse than no HUD.
+        """
+        inner = max(24, width - 4)
+        body = Text()
+
+        def line(label: str, value: str, note: str = "", style: str = "bold") -> None:
+            pad = max(1, inner - len(label) - len(value))
+            body.append(label, style="dim")
+            body.append(" " * pad)
+            body.append(value + "\n", style=style)
+            if note:
+                body.append(f"  {note[:inner - 2]}\n", style="dim")
+
+        removed = max(0, self.tokens_original - (self.prompt_tokens or self.tokens_now))
+        sent = self.prompt_tokens if self.prompt_tokens is not None else self.tokens_now
+        line("prompt", f"{sent:,} tokens", f"of {self.tokens_original:,} as written")
+        if self.tokens_original:
+            line("removed", f"{removed:,}", f"{100 * removed / self.tokens_original:.0f}% of the prompt",
+                 style="bold green")
+
+        derived = getattr(self.ctx, "derived", None)
+        embed_ns = getattr(derived, "embed_ns", 0) if derived is not None else 0
+        selector = next((t for t in self.traces if t.name == "m1_context"), None)
+        if selector is not None:
+            sentences = (selector.evidence or {}).get("sentences")
+            if embed_ns:
+                line("encoder", _ms(embed_ns), f"scored {sentences} sentences")
+                line("ranking", _ms(max(0, selector.duration_ns - embed_ns)), "BM25, anchors, MMR")
+            else:
+                line("selector", _ms(selector.duration_ns),
+                     f"ranked {sentences} sentences" if sentences else "")
+
+        read = self.reading_seconds
+        if self.phase == "reading":
+            line("AI reading", f"{read or 0:.1f} s", "in progress", style="bold yellow")
+        elif read is not None and self.phase in ("writing", "done"):
+            if self.reused_earlier_work:
+                line("AI read", "reused", "the runtime had this prompt cached")
+            else:
+                line("AI read", _secs(read), f"{self.ms_per_token:.1f} ms per token")
+        if self.pieces:
+            wrote = self.writing_seconds or 0.0
+            note = ("simulated" if self.simulated else
+                    f"{(len(self.pieces) - 1) / wrote:.0f} tokens/s"
+                    if wrote > 0.05 and len(self.pieces) > 1 else "")
+            line("AI wrote", f"{len(self.pieces)} tokens", note)
+
+        body.append("\n")
+        saved = removed * self.ms_per_token / 1000
+        line("not read", _secs(saved), f"at {self.ms_per_token:.1f} ms/token, measured here"
+             if not self.simulated and not self.reused_earlier_work
+             else f"at {self.ms_per_token:.1f} ms/token, measured", style="bold green")
+        if self.kv_per_token and removed:
+            per_token, how = self.kv_per_token
+            line("KV cache", f"{removed * per_token / 1e6:.1f} MB", "never allocated",
+                 style="bold green")
+            body.append(Text(f"  {how}\n", style="dim italic"))
+        return Panel(body, title="[bold]Measured[/bold]", border_style="bright_blue",
+                     title_align="left", padding=(0, 1))
+
+    def dashboard(self, height: int = 40, width: int = 110):
+        self.hud_width = max(30, width // 3)
+        layout = Layout()
+        head = Text()
+        head.append(f"{self.title}  ", style="bold bright_blue")
+        head.append(self.question, style="bold")
+        if self.attachments:
+            head.append(f"\n{self.attachments}", style="dim")
+        answer = Text("".join(self.pieces).strip() or "...", style="")
+        if self.phase == "writing":
+            answer.append(self.g["caret"], style="blink bold")
+        layout.split_column(
+            Layout(Panel(head, border_style="bright_blue", padding=(0, 1)), name="head", size=4),
+            Layout(name="body", ratio=2),
+            Layout(self._layer_rows(), name="layers", size=min(14, max(6, height // 3))),
+            Layout(Panel(answer, title="[bold]Answer[/bold]", title_align="left",
+                         border_style="green", padding=(0, 1)), name="answer", size=6),
+        )
+        layout["body"].split_row(Layout(self.document_pane(height=max(6, height // 3)),
+                                        name="doc", ratio=2),
+                                 Layout(self.hud_pane(self.hud_width), name="hud", ratio=1))
+        return layout
+
     def __rich__(self):
         head = Text()
         head.append(f"{self.title}  ", style="bold bright_blue")
@@ -324,16 +466,40 @@ class LiveTurn(PipelineObserver):
 def run_live(console: Console, pipeline, question: str, history=(), *, documents=(),
              conversation_id=None, turn_index: int = 0, title: str = "Parsimony",
              attachments: str = ""):
-    """Run one request with the live view; returns (outcome, view)."""
+    """Run one request with the live view; returns (outcome, view).
+
+    With documents attached the screen becomes a fixed dashboard -- text on the
+    left striking through as the selector decides, counters on the right -- and
+    that view is transient: when the request finishes it gives way to the
+    permanent record (what the model received, what was measured), so the
+    scrollback stays readable and nothing is only visible while it moves.
+    """
+    from parsimony.infra.providers import kv_bytes_per_token
+
     stage_names = [s.name for s in pipeline.registry.ordered(pipeline.cfg)]
     view = LiveTurn(question, stage_names, cfg=pipeline.cfg, cache=pipeline.cache,
                     simulated=pipeline.provider.model_digest.startswith("mock"),
                     title=title, attachments=attachments, g=glyphs_for(console))
-    with Live(view, console=console, refresh_per_second=12, transient=False):
+    try:
+        view.kv_per_token = kv_bytes_per_token(pipeline.provider)
+    except Exception:
+        view.kv_per_token = None
+
+    height = console.size.height or 40
+    as_dashboard = bool(documents) and console.is_terminal and height >= 24
+
+    class _Screen:
+        def __rich__(self):
+            return view.dashboard(height, console.size.width or 110) if as_dashboard else view
+
+    with Live(_Screen(), console=console, refresh_per_second=12, transient=as_dashboard):
         outcome = pipeline.run(question, tuple(history), conversation_id=conversation_id,
                                turn_index=turn_index, documents=documents, observer=view)
         if view.phase not in ("answered", "done"):
             view.phase = "answered" if not outcome.generated else "done"
+    if as_dashboard:
+        # The dashboard has gone; leave the same layers table behind it.
+        console.print(view._layer_rows())
     return outcome, view
 
 

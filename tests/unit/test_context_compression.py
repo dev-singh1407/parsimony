@@ -378,8 +378,12 @@ class TestAttachingFiles:
 
         result = CliRunner().invoke(app, ["longctx", "--show", "harlow_q3"])
         assert result.exit_code == 0, result.output
-        assert "kept" in result.output and "removed" in result.output
+        # Marginalia: every sentence carries the decision taken on it, and the
+        # tags name real branches of the selector rather than prose.
+        assert "[KEEP: " in result.output and "[DROP: " in result.output
+        assert "ANCHOR" in result.output and "FLOOR" in result.output
         assert "context tokens" in result.output
+        assert "relevance 0." in result.output, "a decision without its number is an assertion"
 
 
 class TestNothingRelevantIsNotKeptAnyway:
