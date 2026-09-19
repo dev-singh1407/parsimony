@@ -1,6 +1,6 @@
 # Parsimony — Findings to date
 
-**Status:** all eight modules built · **1,087 tests passing** · every number below regenerates with
+**Status:** all eight modules built · **1,089 tests passing** · every number below regenerates with
 `python reproduce.py`
 
 This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (44 ADRs);

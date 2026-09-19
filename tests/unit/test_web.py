@@ -475,3 +475,32 @@ class TestARequestTheModelNeverSaw:
         if "estimate" in joined:
             assert "type 'compare'" not in joined
             assert "A/B tab" in joined
+
+
+class TestTheScriptActuallyParses:
+    """A syntax error in the page script is invisible to every other test here.
+
+    They read the file as text, so they pass while the page is dead: one bad
+    token and nothing runs, the header sticks on "connecting...", and the only
+    symptom is in a console nobody opened. This actually happened -- an escaped
+    newline was written into the file as a real one, and 47 green tests said
+    the page was fine.
+    """
+
+    def test_the_page_script_parses(self):
+        import shutil
+        import subprocess
+
+        node = shutil.which("node")
+        if not node:
+            pytest.skip("no node available to parse the script")
+        app = web.PAGE.parent / "web_app.js"
+        result = subprocess.run([node, "--check", str(app)],
+                                capture_output=True, text=True, timeout=60)
+        assert result.returncode == 0, result.stderr
+
+    def test_the_stylesheet_has_balanced_braces(self):
+        """A stylesheet cannot be parsed here, but an unclosed rule silently
+        drops every rule after it, which is worth one cheap check."""
+        css = (web.PAGE.parent / "web_app.css").read_text(encoding="utf-8")
+        assert css.count("{") == css.count("}"), "unbalanced braces in the stylesheet"

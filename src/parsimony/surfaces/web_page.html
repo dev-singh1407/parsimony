@@ -100,7 +100,7 @@
       <button class="ghost icon" id="t-play" title="Play through the stages">▶ Play</button>
       <button class="ghost icon" id="t-next" title="Next stage">▶|</button>
       <button class="ghost icon" id="t-last" title="Jump to the end">▶▶</button>
-      <div class="now" id="t-now">
+      <div class="now" id="t-now" role="status" aria-live="polite">
         <span class="sub">run something, then scrub through it stage by stage</span>
       </div>
       <div class="narrow" style="min-width:150px">
@@ -111,7 +111,8 @@
         </select>
       </div>
     </div>
-    <div class="track" id="track"></div>
+    <div class="track" id="track" role="group"
+         aria-label="stages of this request, click one to jump to it"></div>
     <div class="ticks">
       <span id="tick-l">0 ms</span>
       <span class="dimtext" id="tick-note">segment width = that stage's measured share of middleware time</span>
@@ -153,7 +154,9 @@
 
   <div class="panel">
     <h2>Every layer, as the terminal prints it
-      <span class="hint">same names, same reasons, same numbers as <code>parsimony chat</code></span></h2>
+      <span class="hint">same names, same reasons, same numbers as <code>parsimony chat</code></span>
+      <button class="ghost tiny" id="copy-run" title="Copy this table as plain text"
+              style="margin-left:auto">copy as text</button></h2>
     <table id="layers">
       <thead><tr>
         <th style="width:26px"></th><th>Layer</th><th>Module</th>

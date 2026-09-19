@@ -216,10 +216,18 @@ function drawTrack() {
     const pct = (Math.max(s.ms, 0.05) / total) * 100;
     const label = pct > 7 ? esc(labelFor(s.name)) : "";
     return `<div class="seg ${s.outcome}" id="seg-${i}" style="flex:0 0 ${pct}%"`
+         + ` tabindex="0" role="button"`
+         + ` aria-label="${esc(labelFor(s.name))}, ${s.ms.toFixed(1)} milliseconds"`
          + ` title="${esc(labelFor(s.name))} — ${s.ms.toFixed(1)}ms">`
          + `<div class="segfill"></div><div class="seglab">${label}</div></div>`;
   }).join("");
-  RUN.stages.forEach((s, i) => { $("seg-" + i).onclick = () => goTo(i); });
+  RUN.stages.forEach((s, i) => {
+    const seg = $("seg-" + i);
+    seg.onclick = () => goTo(i);
+    seg.onkeydown = (e) => {
+      if (e.key === "Enter" || e.key === " ") { goTo(i); e.preventDefault(); }
+    };
+  });
   $("tick-r").textContent = total.toFixed(0) + " ms of middleware";
 }
 
@@ -566,6 +574,42 @@ function paintLayers() {
   }).join("");
 }
 
+/* The table as plain text, for pasting into a report. The numbers in a write-up
+   should come from the run, not from someone retyping them off a screenshot. */
+$("copy-run").onclick = async () => {
+  if (!RUN.layers.length) return;
+  const d = RUN.summary;
+  const w = [22, 6, 9, 8];
+  const pad = (s, n) => String(s).padEnd(n).slice(0, n);
+  const lines = [
+    `Parsimony - ${$("pq").value.trim()}`,
+    `${d.tokens.original} tokens written -> ${d.tokens.final} sent `
+      + `(${d.tokens.removed} removed, ${Math.round((1 - d.tokens.ratio) * 100)}%)`,
+    `route ${d.route.tier}  cache ${d.cache.hit ? "HIT" : "miss"}  `
+      + `gate ${d.gate.fired ? "blocked an edit" : "passed"}`,
+    "",
+    pad("Layer", w[0]) + pad("Mod", w[1]) + pad("Time", w[2]) + pad("Tokens", w[3])
+      + "What happened",
+  ];
+  for (const l of RUN.layers) {
+    lines.push(pad(l.label, w[0]) + pad(l.module, w[1])
+      + pad(l.ms == null ? "" : l.ms.toFixed(1) + "ms", w[2])
+      + pad(l.delta ? String(l.delta) : "-", w[3]) + l.why);
+  }
+  lines.push("", ...d.measured);
+  const text = lines.join("\n");
+  try {
+    await navigator.clipboard.writeText(text);
+    $("copy-run").textContent = "copied";
+  } catch (e) {
+    // Clipboard access is refused in some contexts; show it instead of failing
+    // silently, so the text is still available to select.
+    $("pipe-prompt").textContent = text;
+    $("copy-run").textContent = "shown below";
+  }
+  setTimeout(() => { $("copy-run").textContent = "copy as text"; }, 1800);
+};
+
 /* ── running one request ──────────────────────────────────────────── */
 fetch("/api/plan").then((r) => r.json()).then((p) => {
   RUN.plan = p.stages; drawStack(); paintAll();
@@ -575,8 +619,9 @@ $("pipe-sample").onclick = async () => {
   try {
     const s = await (await fetch("/api/sample")).json();
     $("pipe-text").value = s.text;
-    $("pipe-ctx-size").textContent = Math.round(s.text.length / 1024) + " KB attached";
+    sizeContext();
     if (!$("pq").value.trim()) $("pq").value = s.question;
+    remember();
   } catch (e) { $("pipe-err").textContent = "no sample document on this machine"; }
 };
 /* Four scenarios worth showing, because the interesting behaviour is not all in
@@ -592,16 +637,40 @@ document.querySelectorAll(".chip-b").forEach((b) => {
       if (!$("pipe-text").value.trim()) await $("pipe-sample").onclick();
     } else {
       $("pipe-text").value = "";
-      $("pipe-ctx-size").textContent = "nothing yet";
+      sizeContext();
     }
+    remember();
     $("run-pipe").click();
   };
 });
 
-$("pipe-text").addEventListener("input", () => {
+/* Keep the question and the attached text across a reload. Losing a 4 KB
+   handbook to an accidental refresh mid-demo is a small thing that feels like a
+   broken tool; browser storage is per-viewer and nothing here leaves the
+   machine, and every access is guarded because a private window throws. */
+const REMEMBER = "parsimony.pipe.v1";
+function remember() {
+  try {
+    localStorage.setItem(REMEMBER, JSON.stringify({
+      q: $("pq").value, text: $("pipe-text").value.slice(0, 400000),
+    }));
+  } catch (e) { /* private window, or storage disabled: carry on without it */ }
+}
+function recall() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(REMEMBER) || "{}");
+    if (saved.q && !$("pq").value) $("pq").value = saved.q;
+    if (saved.text && !$("pipe-text").value) $("pipe-text").value = saved.text;
+  } catch (e) { /* nothing remembered is a perfectly good state */ }
+  sizeContext();
+}
+function sizeContext() {
   const n = $("pipe-text").value.length;
   $("pipe-ctx-size").textContent = n ? Math.round(n / 1024) + " KB attached" : "nothing yet";
-});
+}
+$("pipe-text").addEventListener("input", () => { sizeContext(); remember(); });
+$("pq").addEventListener("input", remember);
+recall();
 
 $("run-pipe").onclick = () => {
   const question = $("pq").value.trim();
