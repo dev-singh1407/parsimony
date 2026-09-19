@@ -4,8 +4,15 @@
 :root {
   --bg: #0d0f14; --panel: #151922; --panel2: #10141b; --line: #252c38;
   --ink: #e8edf5; --dim: #8994a6; --faint: #5b6575;
+  /* Colour carries one meaning each, everywhere on the page:
+       keep   = survived, or a layer that changed the request for the better
+       drop   = removed, never sent
+       stop   = refused or failed -- the gate blocking an edit, a stage erroring
+       accent = where you are now (the playhead, the selected layer)
+       warn   = answered without the model, or a figure that is estimated
+       idle   = ran and chose to do nothing */
   --keep: #4ec9a8; --drop: #e06c75; --accent: #6aa9ff; --warn: #e5c07b;
-  --violet: #a78bfa;
+  --stop: #f07178; --idle: #4b5563; --violet: #a78bfa;
   --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
   --sans: system-ui, "Segoe UI", Inter, sans-serif;
   --r: 10px;
@@ -124,8 +131,10 @@ button.ghost:disabled { opacity: .35; cursor: default; }
 .seg.applied .segfill { background: var(--keep); }
 .seg.reverted .segfill { background: var(--drop); }
 .seg.short_circuit .segfill { background: var(--warn); }
-.seg.noop .segfill { background: #39445a; }
+.seg.noop .segfill { background: var(--idle); }
 .seg.skipped .segfill { background: #232b38; }
+.seg.error .segfill, .seg.not_implemented .segfill { background: var(--stop); }
+.seg.not_reached .segfill { background: #1b2330; }
 .seg.at { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent),
           0 0 18px -6px var(--accent); transform: translateY(-2px); }
 .seg.past { opacity: 1; } .seg.future { opacity: .32; }
@@ -153,12 +162,16 @@ button.ghost:disabled { opacity: .35; cursor: default; }
 .cell .cs { font-family: var(--mono); font-size: 11px; margin-top: 6px; color: var(--dim);
             display: flex; justify-content: space-between; gap: 6px; }
 .cell .cs .d { font-weight: 650; }
+.cell .cs .w { font-variant-numeric: tabular-nums; }
 .cell.past, .cell.at { opacity: 1; }
 .cell.applied { border-color: var(--keep); background: #12211e; }
 .cell.applied .cs .d { color: var(--keep); }
 .cell.reverted { border-color: var(--drop); background: #221417; }
 .cell.reverted .cs .d { color: var(--drop); }
 .cell.short_circuit { border-color: var(--warn); background: #201d14; }
+.cell.error { border-color: var(--stop); background: #241518; }
+.cell.error .cs .d { color: var(--stop); }
+.cell.not_implemented, .cell.not_reached { border-style: dashed; }
 .cell.at { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent),
            0 0 24px -8px var(--accent); transform: translateY(-2px); }
 .cell.sel { outline: 2px solid var(--violet); outline-offset: 1px; }
@@ -215,6 +228,8 @@ button.ghost:disabled { opacity: .35; cursor: default; }
 .verdict.reverted { color: var(--drop); border-color: var(--drop); }
 .verdict.short_circuit { color: var(--warn); border-color: var(--warn); }
 .verdict.noop, .verdict.skipped { color: var(--dim); }
+.verdict.error { color: var(--stop); border-color: var(--stop); }
+.verdict.not_reached, .verdict.not_implemented { color: var(--faint); }
 .why { font-size: 13.5px; margin: 8px 0 12px; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px;
       font-family: var(--mono); font-size: 12px; }
@@ -243,10 +258,55 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 tr.at td { background: #16202c; }
 tr.applied td.num.d { color: var(--keep); font-weight: 650; }
 tr.reverted td.num.d { color: var(--drop); }
+tr.error td { background: #1d1315; }
+tr.error td.num.d { color: var(--stop); }
 tr.dim td { color: var(--dim); }
 td .mark { font-family: var(--mono); }
 .mark.ok { color: var(--keep); } .mark.no { color: var(--faint); }
 .mark.stop { color: var(--drop); } .mark.star { color: var(--warn); }
+
+/* ── the prompt bar: the terminal's ###......  line ──────────────── */
+.tokenbar { display: flex; align-items: center; gap: 12px; margin: -4px 0 14px;
+            padding: 0 4px; }
+.tokenbar .tb-label { font-family: var(--mono); font-size: 12px; color: var(--dim);
+                      flex: 0 0 auto; }
+.tokenbar .tb-track { flex: 1 1 auto; height: 13px; border-radius: 7px;
+                      background: repeating-linear-gradient(90deg, #1d2431 0 6px,
+                      #161c26 6px 12px); overflow: hidden; border: 1px solid var(--line); }
+.tokenbar .tb-sent { height: 100%; width: 0;
+                     background: linear-gradient(90deg, var(--accent), var(--keep));
+                     transition: width .85s cubic-bezier(.2,.8,.2,1); }
+.tokenbar .tb-num { font-family: var(--mono); font-size: 12px; flex: 0 0 auto;
+                    color: var(--dim); }
+.tokenbar .tb-num b { color: var(--keep); } .tokenbar .tb-num i { color: var(--drop);
+                    font-style: normal; }
+
+/* ── what the AI actually received ──────────────────────────────── */
+.received { display: grid; grid-template-columns: 150px 1fr; gap: 3px 16px;
+            font-size: 12.5px; max-height: 420px; overflow: auto; padding-right: 6px; }
+.received > .rl { font-weight: 600; color: var(--ink); padding: 5px 0;
+                  font-size: 12px; }
+.received > .rl.faded { color: var(--faint); font-weight: 500; }
+.received > .rc { font-family: var(--mono); line-height: 1.62; padding: 5px 0;
+                  border-bottom: 1px solid #1b212b; color: #cfd8e6; }
+.received > .rc:last-child { border-bottom: 0; }
+.received .gone { color: #6a7382; text-decoration: line-through;
+                  text-decoration-color: rgba(224,108,117,.65); }
+.received .tagr { color: var(--drop); font-size: 11px; white-space: nowrap; }
+.received .fold { color: var(--faint); font-size: 11px; }
+.received .plain { color: var(--dim); }
+.received .rc .unsentnote, .received.unsent .rc { color: var(--warn); }
+.received .whole { color: var(--drop); text-decoration: line-through;
+                   text-decoration-color: rgba(224,108,117,.5); opacity: .8; }
+
+/* ── measured ───────────────────────────────────────────────────── */
+.measured { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.measured li { padding: 6px 0 6px 18px; position: relative; border-bottom: 1px solid #1b212b;
+               line-height: 1.55; }
+.measured li:last-child { border-bottom: 0; }
+.measured li::before { content: "·"; position: absolute; left: 4px; color: var(--faint); }
+.measured li.warn { color: var(--warn); }
+.measured li.warn::before { content: "!"; color: var(--warn); }
 
 /* ── prompt / answer ─────────────────────────────────────────────── */
 .mono-box { font-family: var(--mono); font-size: 12px; line-height: 1.55;

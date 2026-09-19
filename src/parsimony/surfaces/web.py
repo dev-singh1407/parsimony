@@ -41,6 +41,7 @@ Nothing here is a second implementation of anything: every figure comes from
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -62,6 +63,19 @@ ASSETS = {
     "/app.css": ("web_app.css", "text/css; charset=utf-8"),
     "/app.js": ("web_app.js", "text/javascript; charset=utf-8"),
 }
+
+
+_MARKUP = re.compile(r"\[/?[a-z][a-z0-9 _]*\]")
+
+
+def _plain(markup: str) -> str:
+    """Rich console markup out, the sentence intact.
+
+    `[removed]` is content, not markup, and survives: it is the label the
+    terminal prints beside every cut and the one thing that must not be lost
+    when the same wording is shown somewhere without styling.
+    """
+    return _MARKUP.sub(lambda m: m.group(0) if m.group(0) == "[removed]" else "", markup)
 
 
 def sample_document() -> Path | None:
@@ -344,6 +358,7 @@ class Visualiser:
         # carried forward. The result is the payload at every stage boundary,
         # which is what the document view scrubs through.
         from parsimony.surfaces.cli.explain import _NAME, _reason
+        from parsimony.surfaces.cli.live import measured_lines, received_rows
 
         deltas = {d.stage: d for d in outcome.text_deltas}
         first = next((d.before for d in outcome.text_deltas), "")
@@ -415,6 +430,7 @@ class Visualiser:
                       "top_k": [[k, round(v, 3)] for k, v in (row.cache_top_k or ())][:3]},
             "gate": {"fired": row.gate_fired,
                      "events": [g.invariant_class for g in (row.gate_events or ())]},
+            "served_without_model": not outcome.generated,
             "timing": {"middleware_ms": row.middleware_ns / 1e6,
                        "prefill_s": prefill, "ms_per_token": rate,
                        "timed_here": timed_here,
@@ -427,6 +443,14 @@ class Visualiser:
             "stages": seen,
             "layers": layers,
             "units": units,
+            # The terminal's own two panels, from the terminal's own functions.
+            # Rendered differently here, worded identically -- the sentence about
+            # what was measured and what was estimated is the one that must not
+            # differ between the screen and the transcript.
+            "received": received_rows(outcome),
+            "measured": [_plain(line) for line in
+                         measured_lines(outcome, view,
+                                        measure_hint="open the A/B tab")],
             "prompt": getattr(outcome, "prompt_text", "") or "",
         }
         emit("done", summary)

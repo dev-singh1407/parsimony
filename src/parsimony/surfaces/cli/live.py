@@ -506,56 +506,85 @@ def run_live(console: Console, pipeline, question: str, history=(), *, documents
 # ------------------------------------------------------- after the request --
 
 
-def _sentences_view(before: str, after: str, limit: int = 3) -> Text:
-    """Kept sentences plain, removed ones struck through; long removed runs folded."""
+def sentence_runs(before: str, after: str, limit: int = 3) -> list[dict]:
+    """What survived and what did not, as runs, for any surface to render.
+
+    Structured rather than styled so the terminal and the web page cannot drift
+    apart: both render from this. Every removed run carries a LABEL as well as
+    its text, because strike-through is a presentation detail -- paste the panel
+    into a transcript, a report or a screenshot tool that drops styling and
+    removed text reads as kept, which is the one misreading this exists to
+    prevent.
+    """
     from parsimony.infra.nlp import split_sentences
 
     kept = set(split_sentences(after))
-    out = Text()
+    runs: list[dict] = []
     removed_run: list[str] = []
 
     def flush() -> None:
-        # Every removed run is LABELLED, not only struck through. Strike-through
-        # is a terminal style: paste the same panel into a transcript, a report
-        # or a screenshot tool that drops styling and removed text reads as
-        # kept, which is the one misreading this panel exists to prevent.
         if not removed_run:
             return
-        if len(removed_run) == 1:
-            out.append("[removed] ", style="red dim")
-            out.append(removed_run[0] + " ", style="red strike dim")
-        elif len(removed_run) <= limit:
-            out.append(f"[removed, {len(removed_run)} sentences] ", style="red dim")
-            for s in removed_run:
-                out.append(s + " ", style="red strike dim")
+        n = len(removed_run)
+        label = "[removed]" if n == 1 else f"[removed, {n} sentences]"
+        if n > limit:
+            runs.append({"kept": False, "label": label, "text": removed_run[0],
+                         "folded": n - 1})
         else:
-            out.append(f"[removed, {len(removed_run)} sentences] ", style="red dim")
-            out.append(removed_run[0] + " ", style="red strike dim")
-            out.append(f"[... {len(removed_run) - 1} more] ", style="dim")
+            runs.append({"kept": False, "label": label, "text": " ".join(removed_run),
+                         "folded": 0})
         removed_run.clear()
 
     for s in split_sentences(before):
         if s in kept:
             flush()
-            out.append(s + " ")
+            runs.append({"kept": True, "label": "", "text": s, "folded": 0})
         else:
             removed_run.append(s)
     flush()
+    return runs
+
+
+def _sentences_view(before: str, after: str, limit: int = 3) -> Text:
+    """Kept sentences plain, removed ones struck through; long removed runs folded."""
+    out = Text()
+    for run in sentence_runs(before, after, limit):
+        if run["kept"]:
+            out.append(run["text"] + " ")
+            continue
+        out.append(run["label"] + " ", style="red dim")
+        out.append(run["text"] + " ", style="red strike dim")
+        if run["folded"]:
+            out.append(f"[... {run['folded']} more] ", style="dim")
     return out
 
 
-def received_panel(outcome) -> Panel:
-    """What the AI was actually sent, with everything removed struck through."""
-    from parsimony.surfaces.cli.render import _diff_text
+def received_rows(outcome) -> list[dict]:
+    """The assembled prompt, section by section, with what each one lost.
 
+    One structure, two surfaces. Each row is {label, kind, runs, note}: `runs`
+    are sentence runs from `sentence_runs`, and `note` carries the cases where
+    there is nothing left to show a run of -- a section dropped whole, a turn
+    dropped whole, a question left unchanged.
+    """
     ctx = outcome.ctx
-    body = Table.grid(padding=(0, 2))
-    body.add_column(style="bold", width=18, overflow="fold")
-    body.add_column(overflow="fold")
+    rows: list[dict] = []
+
+    def row(label, kind, runs=(), note=""):
+        rows.append({"label": label, "kind": kind, "runs": list(runs), "note": note})
+
+    # A request the cache or the calculator answered never reached the model, so
+    # there is no "received" to show. Listing the context here as though it had
+    # been sent is the exact misreading this panel exists to prevent -- and it
+    # would overstate what the prompt cost, in the panel a reader trusts most.
+    if not outcome.generated:
+        row("Nothing", "unsent", (),
+            "answered without the model - no prompt was assembled or sent")
+        return rows
 
     if ctx.system_prompt:
-        body.add_row("Instructions", Text(ctx.system_prompt + "   (always first, never changes)",
-                                          style="dim"))
+        row("Instructions", "system", (),
+            ctx.system_prompt + "   (always first, never changes)")
 
     kept_turns = {t.turn_id: t for t in ctx.history}
     for turn in ctx.original_history:
@@ -563,38 +592,74 @@ def received_panel(outcome) -> Panel:
         now = kept_turns.get(turn.turn_id)
         if now is None:
             snippet = turn.content if len(turn.content) < 90 else turn.content[:87] + "..."
-            body.add_row(Text(who, style="dim"), Text(snippet + "   (dropped: not relevant now)",
-                                                      style="red strike dim"))
+            row(who, "turn-dropped", (), snippet + "   (dropped: not relevant now)")
         elif now.content != turn.content:
-            body.add_row(who, _sentences_view(turn.content, now.content))
+            row(who, "turn", sentence_runs(turn.content, now.content))
         else:
             snippet = turn.content if len(turn.content) < 160 else turn.content[:157] + "..."
-            body.add_row(who, Text(snippet))
+            row(who, "turn", (), snippet)
 
     kept_docs = {d.doc_id: d for d in ctx.documents}
     for doc in ctx.original_documents:
         label = doc.title or doc.doc_id
         now = kept_docs.get(doc.doc_id)
         if now is None:
-            body.add_row(Text(label, style="dim"),
-                         Text("whole section removed: nothing in it bears on the question",
-                              style="red strike dim"))
+            row(label, "doc-dropped", (),
+                "whole section removed: nothing in it bears on the question")
         else:
-            body.add_row(label, _sentences_view(doc.content, now.content))
+            row(label, "doc", sentence_runs(doc.content, now.content))
 
     if ctx.query != ctx.original_query:
-        body.add_row("Your question", _diff_text(ctx.original_query, ctx.query, show="before"))
-        body.add_row("sent as", Text(ctx.query, style="bold"))
+        row("Your question", "query-edited", sentence_runs(ctx.original_query, ctx.query))
+        row("sent as", "query", (), ctx.query)
     else:
-        body.add_row("Your question", Text(ctx.query + "   (unchanged)"))
+        row("Your question", "query", (), ctx.query + "   (unchanged)")
+    return rows
+
+
+def received_panel(outcome) -> Panel:
+    """What the AI was actually sent, with everything removed struck through."""
+    body = Table.grid(padding=(0, 2))
+    body.add_column(style="bold", width=18, overflow="fold")
+    body.add_column(overflow="fold")
+
+    for r in received_rows(outcome):
+        dim = (r["kind"].endswith("dropped") or r["kind"] == "system"
+               or r["kind"] == "unsent")
+        label = Text(r["label"], style="dim") if dim else r["label"]
+        if r["runs"]:
+            content = Text()
+            for run in r["runs"]:
+                if run["kept"]:
+                    content.append(run["text"] + " ")
+                    continue
+                content.append(run["label"] + " ", style="red dim")
+                content.append(run["text"] + " ", style="red strike dim")
+                if run["folded"]:
+                    content.append(f"[... {run['folded']} more] ", style="dim")
+        else:
+            content = Text(r["note"],
+                           style="red strike dim" if r["kind"].endswith("dropped")
+                           else "bold cyan" if r["kind"] == "unsent"
+                           else "dim" if r["kind"] == "system" else "")
+        body.add_row(label, content)
 
     return Panel(body, title="[bold]What the AI actually received[/bold]  "
                              "[dim]anything marked [removed] was not sent[/dim]",
                  border_style="bright_blue", title_align="left")
 
 
-def measured_panel(outcome, view: LiveTurn) -> Panel:
-    """Real counters from this request, and what the untrimmed prompt would have cost."""
+def measured_lines(outcome, view: LiveTurn, *,
+                   measure_hint: str = "type 'compare'") -> list[str]:
+    """Real counters from this request, in the wording both surfaces print.
+
+    Rich console markup is left in: the terminal renders it, and the web strips
+    it. One wording, so the page and the transcript cannot disagree about what
+    was measured and what was estimated -- which is the sentence that matters
+    most on both. `measure_hint` is the one thing that legitimately differs:
+    the terminal tells you to type `compare`, the page points at its own A/B
+    tab, and neither should be told to do the other.
+    """
     row = outcome.row
     lines = []
     if not outcome.generated:
@@ -630,14 +695,19 @@ def measured_panel(outcome, view: LiveTurn) -> Panel:
         if before > after and not view.simulated:
             lines.append(f"The full {before:,}-token prompt would have taken about "
                          f"[bold]{before * rate / 1000:.1f} s[/bold] to read at that rate "
-                         f"[dim](estimate - type 'compare' to measure it)[/dim].")
+                         f"[dim](estimate - {measure_hint} to measure it)[/dim].")
         if view.stop_reason:
             lines.append(f"The answer was cut short because it {view.stop_reason}.")
     if view.simulated:
         lines.append("[yellow]Simulated AI: the layers are real, the timings are not. "
                      "Start Ollama for real ones.[/yellow]")
-    return Panel("\n".join(lines), title="[bold]Measured[/bold]", border_style="grey50",
-                 title_align="left")
+    return lines
+
+
+def measured_panel(outcome, view: LiveTurn) -> Panel:
+    """Real counters from this request, and what the untrimmed prompt would have cost."""
+    return Panel("\n".join(measured_lines(outcome, view)), title="[bold]Measured[/bold]",
+                 border_style="grey50", title_align="left")
 
 
 def comparison_table(ours, ours_view: LiveTurn, plain, plain_view: LiveTurn) -> Table:

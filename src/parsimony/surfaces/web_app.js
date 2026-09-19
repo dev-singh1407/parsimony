@@ -444,6 +444,47 @@ function detailFor(name, ev, s, l) {
   }
 }
 
+/* ── the prompt bar, the terminal's ###......... line ─────────────── */
+function paintTokenBar(t) {
+  $("tokenbar").hidden = false;
+  $("tb-sent").style.width = (t.ratio * 100).toFixed(1) + "%";
+  $("tb-num").innerHTML = `<b>${fmt(t.final)}</b> sent · <i>${fmt(t.removed)} removed `
+    + `(${Math.round((1 - t.ratio) * 100)}%)</i> of ${fmt(t.original)} written`;
+}
+
+/* ── what the AI actually received ───────────────────────────────── */
+function paintReceived(rows) {
+  if (!rows || !rows.length) return;
+  $("received").classList.toggle("unsent", rows.length === 1 && rows[0].kind === "unsent");
+  $("received").innerHTML = rows.map((r) => {
+    const faded = r.kind.endsWith("dropped") || r.kind === "system";
+    let body;
+    if (r.runs && r.runs.length) {
+      body = r.runs.map((run) => run.kept
+        ? esc(run.text) + " "
+        : `<span class="tagr">${esc(run.label)}</span> `
+          + `<span class="gone">${esc(run.text)}</span> `
+          + (run.folded ? `<span class="fold">[… ${run.folded} more]</span> ` : "")
+      ).join("");
+    } else if (r.kind.endsWith("dropped")) {
+      body = `<span class="whole">${esc(r.note)}</span>`;
+    } else {
+      body = `<span class="${r.kind === "system" ? "plain" : ""}">${esc(r.note)}</span>`;
+    }
+    return `<div class="rl${faded ? " faded" : ""}">${esc(r.label)}</div>`
+         + `<div class="rc">${body}</div>`;
+  }).join("");
+}
+
+/* ── measured ────────────────────────────────────────────────────── */
+function paintMeasured(lines) {
+  if (!lines || !lines.length) return;
+  $("measured").innerHTML = lines.map((l) => {
+    const warn = /simulated|estimate|reused that work|not measured/i.test(l);
+    return `<li class="${warn ? "warn" : ""}">${esc(l)}</li>`;
+  }).join("");
+}
+
 /* ── the terminal's table ─────────────────────────────────────────── */
 function paintLayers() {
   if (!RUN.layers.length) return;
@@ -514,6 +555,9 @@ $("run-pipe").onclick = () => {
   $("layers-body").innerHTML = '<tr class="dim"><td></td><td colspan="6">running…</td></tr>';
   $("pipe-answer").innerHTML = '<span class="cursor"></span>';
   $("pipe-prompt").textContent = "—";
+  $("tokenbar").hidden = true;
+  $("received").innerHTML = '<div class="dimtext" style="font-size:13px">assembling…</div>';
+  $("measured").innerHTML = '<li class="dimtext">measuring…</li>';
   $("prompt-tok").textContent = ""; $("answer-tok").textContent = "";
   $("pipe-timing").textContent = "";
   drawStack(); paintAll();
@@ -560,12 +604,19 @@ $("run-pipe").onclick = () => {
     $("ring-fg").style.strokeDashoffset = String(C * (1 - d.tokens.ratio));
     $("m-ratio").textContent = Math.round(d.tokens.ratio * 100) + "%";
     const t = d.timing;
-    $("pipe-timing").textContent =
-      `Middleware took ${t.middleware_ms.toFixed(0)} ms and saved ${t.saved_s.toFixed(1)} s `
-      + `of prefill at ${t.ms_per_token.toFixed(1)} ms/token`
-      + (t.timed_here ? ", measured on this machine."
-        : t.reused ? " — but the runtime reused an earlier prompt, so that rate is not cold."
-        : " — the model is simulated, so that rate is the project's recorded figure.");
+    // Four cases, and they mean different things. Saying "simulated" for a
+    // request the cache answered was simply wrong: there was no prefill at all.
+    $("pipe-timing").textContent = d.served_without_model
+      ? `Middleware took ${t.middleware_ms.toFixed(0)} ms and the model was never called. `
+        + `Sending the question would have meant reading ${fmt(d.tokens.original)} tokens — `
+        + `about ${t.saved_s.toFixed(1)} s at ${t.ms_per_token.toFixed(1)} ms/token — and then `
+        + `waiting for an answer.`
+      : `Middleware took ${t.middleware_ms.toFixed(0)} ms and saved ${t.saved_s.toFixed(1)} s `
+        + `of prefill at ${t.ms_per_token.toFixed(1)} ms/token`
+        + (t.timed_here ? ", measured on this machine."
+          : t.reused ? " — but the runtime reused an earlier prompt, so that rate is not cold."
+          : " — the model is simulated, so that rate is the project's recorded figure.");
+    paintTokenBar(d.tokens); paintReceived(d.received); paintMeasured(d.measured);
     buildDoc(); drawTrack(); goTo(-1);
     refreshSession();
     stop();

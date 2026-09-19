@@ -353,3 +353,125 @@ class TestTheCacheIsSharedAcrossRequests:
         vis.run_pipeline("What is the travel budget for Porto?", "", lambda *a: None)
         other = vis.run_pipeline("How many people work in Leeds?", "", lambda *a: None)
         assert other["cache"]["hit"] is False
+
+
+class TestThePageAndItsStylesheetAgree:
+    """Markup, script and stylesheet must describe the same page.
+
+    Written because they had drifted: `error`, `not_implemented` and
+    `not_reached` were states the script could put on a node, with no rule
+    anywhere to style them -- a stage that failed would have rendered
+    indistinguishable from one that succeeded, which is the single worst thing
+    this page could get wrong.
+    """
+
+    @staticmethod
+    def _sources():
+        d = web.PAGE.parent
+        return (web.PAGE.read_text(encoding="utf-8"),
+                (d / "web_app.js").read_text(encoding="utf-8"),
+                (d / "web_app.css").read_text(encoding="utf-8"))
+
+    #: Names the script builds by interpolation, which no regex over the source
+    #: can see. Each must correspond to a value the server actually sends.
+    BUILT = {
+        "applied", "noop", "skipped", "reverted", "short_circuit", "error",
+        "not_implemented", "not_reached",          # StageOutcome values
+        "at", "past", "future", "sel",             # scrub position
+        "kept", "cut", "alive", "flash",           # sentence states
+        "ok", "no", "star", "stop",                # table marks
+        "faded", "plain", "warn", "below", "dim", "keep", "drop", "gone",
+    }
+
+    def test_every_class_the_page_uses_has_a_rule(self):
+        import re
+
+        html, js, css = self._sources()
+        used = set()
+        for m in re.finditer(r'class="([^"{}$]+)"', html):
+            used.update(m.group(1).split())
+        for m in re.finditer(r'class="([^"$`{]*)', js):
+            used.update(w for w in m.group(1).split() if w)
+        defined = set(re.findall(r"\.([A-Za-z][\w-]*)", css))
+        missing = sorted((used | self.BUILT) - defined)
+        assert not missing, f"no style for: {', '.join(missing)}"
+
+    def test_every_stage_outcome_can_be_told_apart(self):
+        """A state the server can send must be visible as its own thing."""
+        from parsimony.core.ledger import StageOutcome
+
+        _html, _js, css = self._sources()
+        for outcome in StageOutcome:
+            assert f".{outcome.value}" in css, (
+                f"{outcome.value} has no styling; it would look like a success")
+
+    def test_every_id_the_script_reaches_for_exists(self):
+        import re
+
+        html, js, _css = self._sources()
+        page_ids = set(re.findall(r'id="([^"$]+)"', html))
+        built = {m + "-" for m in re.findall(r'id="([a-z-]+)-\$\{', js)}
+        asked = set(re.findall(r'\$\("([^"$]+)"\)', js))
+        unknown = sorted(i for i in asked - page_ids
+                         if not any(i.startswith(p) for p in built))
+        assert not unknown, f"the script reaches for ids the page lacks: {unknown}"
+
+    def test_the_stylesheet_and_script_are_actually_served(self, server):
+        for path in web.ASSETS:
+            status, body = get(server, path)
+            assert status == 200 and len(body) > 200, path
+
+
+class TestARequestTheModelNeverSaw:
+    """A cache hit and a calculator answer send no prompt at all.
+
+    Both panels got this wrong: "What the AI actually received" listed the whole
+    document as though it had been sent, and the timing line blamed a simulated
+    model for the absent prefill. Overstating what was sent, in the two places a
+    reader trusts most, is the worst available failure for this page.
+    """
+
+    def test_the_received_panel_says_nothing_was_sent(self, vis):
+        summary = vis.run_pipeline("What is 17 * 4?", "", lambda *a: None)
+        assert summary["served_without_model"] is True
+        assert summary["tokens"]["final"] == 0
+        kinds = {r["kind"] for r in summary["received"]}
+        assert kinds == {"unsent"}, "no section may be listed as received"
+        assert "no prompt" in summary["received"][0]["note"]
+
+    def test_it_does_not_list_the_document_as_received(self, vis, handbook_text):
+        """The cache answers the second ask; the document is not sent again."""
+        question = "What is the annual travel budget for the Tallinn office?"
+        vis.run_pipeline(question, handbook_text, lambda *a: None)
+        again = vis.run_pipeline(question, handbook_text, lambda *a: None)
+        if not again["served_without_model"]:
+            pytest.skip("the cache did not serve this one")
+        assert {r["kind"] for r in again["received"]} == {"unsent"}
+        assert not any("Leeds" in (r["note"] or "") for r in again["received"])
+
+    def test_the_measured_panel_says_it_answered_without_the_model(self, vis):
+        summary = vis.run_pipeline("What is 17 * 4?", "", lambda *a: None)
+        joined = " ".join(summary["measured"])
+        assert "without the AI" in joined
+        assert "removed" not in joined, "there was no prompt to remove anything from"
+
+    def test_a_normal_request_still_lists_its_sections(self, vis, handbook_text):
+        summary = vis.run_pipeline("Who runs the Porto office?", handbook_text,
+                                   lambda *a: None)
+        assert summary["served_without_model"] is False
+        kinds = {r["kind"] for r in summary["received"]}
+        assert "doc" in kinds or "doc-dropped" in kinds
+
+    def test_the_page_has_a_branch_for_it(self):
+        app = (web.PAGE.parent / "web_app.js").read_text(encoding="utf-8")
+        assert "served_without_model" in app
+        assert "the model was never called" in app
+
+    def test_the_estimate_points_at_the_surface_you_are_on(self, vis, handbook_text):
+        """The terminal says "type 'compare'"; a browser cannot."""
+        summary = vis.run_pipeline("How many people work in Leeds?", handbook_text,
+                                   lambda *a: None)
+        joined = " ".join(summary["measured"])
+        if "estimate" in joined:
+            assert "type 'compare'" not in joined
+            assert "A/B tab" in joined

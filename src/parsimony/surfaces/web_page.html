@@ -86,6 +86,12 @@
       <div class="mk" id="m-saved-k">prefill not spent</div></div>
   </div>
 
+  <div class="tokenbar" id="tokenbar" hidden>
+    <div class="tb-label">Prompt</div>
+    <div class="tb-track"><div class="tb-sent" id="tb-sent"></div></div>
+    <div class="tb-num" id="tb-num"></div>
+  </div>
+
   <!-- transport: scrub the request's own timeline -->
   <div class="transport" id="transport">
     <div class="tbar">
@@ -158,10 +164,25 @@
     </table>
   </div>
 
+  <div class="panel">
+    <h2>What the AI actually received
+      <span class="hint">anything marked <b>[removed]</b> was not sent · same panel the
+        terminal prints</span></h2>
+    <div class="received" id="received">
+      <div class="dimtext" style="font-size:13px">run something to see the prompt it
+        assembled, section by section</div>
+    </div>
+  </div>
+
   <div class="two-col">
     <div class="panel">
-      <h2>What the model was sent <span class="hint" id="prompt-tok"></span></h2>
-      <pre class="mono-box" id="pipe-prompt">—</pre>
+      <h2>Measured <span class="hint">the terminal's own wording</span></h2>
+      <ul class="measured" id="measured"><li class="dimtext">nothing run yet</li></ul>
+      <details style="margin-top:10px">
+        <summary class="dimtext" style="cursor:pointer;font-size:12.5px">
+          the raw prompt, exactly as sent <span id="prompt-tok"></span></summary>
+        <pre class="mono-box" id="pipe-prompt" style="margin-top:8px">—</pre>
+      </details>
     </div>
     <div class="panel">
       <h2>What it answered <span class="hint" id="answer-tok"></span></h2>
