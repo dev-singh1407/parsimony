@@ -133,6 +133,15 @@ class Visualiser:
             self.provider = make_provider(provider_name)
         self.simulated = self.provider.model_digest.startswith("mock")
         self.totals = SessionTotals()
+        # One cache for the whole session, not one per request. A Pipeline
+        # builds its own when it is not given one, which meant the Memory layer
+        # could never hit here however many times you asked the same question --
+        # it was being handed an empty cache every time, and reporting the miss
+        # honestly. Sharing it is what a real session does.
+        from parsimony.modules.m2_cache import SemanticCache
+
+        self.cache = SemanticCache(self.cfg.cache.ttl_seconds,
+                                   max_entries=self.cfg.cache.max_entries)
 
     # -- heatmap ---------------------------------------------------------
 
@@ -141,7 +150,7 @@ class Visualiser:
         from parsimony.pipeline.orchestrator import Pipeline
 
         documents = split_into_documents(text, name)
-        pipe = Pipeline(self.cfg, provider=self.provider)
+        pipe = Pipeline(self.cfg, provider=self.provider, cache=self.cache)
         started = time.perf_counter()
         ctx = pipe.build_context(question, documents=documents)
         report = audit_context(ctx, self.cfg)
@@ -278,7 +287,8 @@ class Visualiser:
 
         documents = split_into_documents(text, name) if text.strip() else ()
         cfg = self.cfg
-        pipe = Pipeline(cfg, provider=self.provider, capture_text=True)
+        pipe = Pipeline(cfg, provider=self.provider, cache=self.cache,
+                        capture_text=True)
         stages = self.plan(cfg)
         view = LiveTurn(question, [s["name"] for s in stages], cfg=cfg, cache=pipe.cache,
                         simulated=self.simulated)

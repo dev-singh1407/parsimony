@@ -414,6 +414,18 @@ function detailFor(name, ev, s, l) {
       return kv([["moved turn", ev.moved_from != null ? ev.moved_from + 1 : null],
                  ["its relevance", ev.relevance]]);
     case "m1_tier1": case "m1_tier2": case "m1_tier3": {
+      // A tier can end three ways, and they mean opposite things. Reverted is
+      // the gate refusing a saving; saying "nothing here" under it, as this
+      // panel first did, contradicts the line directly above it.
+      if (s && s.outcome === "reverted") {
+        const lost = (s.gate_events || []).join(", ") || "meaning";
+        return kv([["edit proposed", "yes"], ["committed", "no — the gate refused it"],
+                   ["invariants it would have lost", lost]])
+          + `<div class="note">The tier found a saving and the fidelity gate threw it `
+          + `away, because the cut would have taken a <b>${esc(lost)}</b> with it. This is `
+          + `the system declining tokens to stay correct — the one trade it is never `
+          + `allowed to make silently.</div>`;
+      }
       const base = kv([
         ["tier", ev.tier], ["candidate edits", ev.candidates],
         ["rejected for negative yield", ev.negative_yield_rejected],
@@ -466,6 +478,25 @@ $("pipe-sample").onclick = async () => {
     if (!$("pq").value.trim()) $("pq").value = s.question;
   } catch (e) { $("pipe-err").textContent = "no sample document on this machine"; }
 };
+/* Four scenarios worth showing, because the interesting behaviour is not all in
+   one request: a compression, a question the model never sees, an edit the gate
+   refuses, and an answer served from the cache. */
+document.querySelectorAll(".chip-b").forEach((b) => {
+  b.onclick = async () => {
+    document.querySelectorAll(".chip-b").forEach((o) =>
+      o.setAttribute("aria-pressed", String(o === b)));
+    $("pq").value = b.dataset.q;
+    $("chip-note").textContent = b.dataset.note.replace(/\s+/g, " ").trim();
+    if (b.dataset.doc) {
+      if (!$("pipe-text").value.trim()) await $("pipe-sample").onclick();
+    } else {
+      $("pipe-text").value = "";
+      $("pipe-ctx-size").textContent = "nothing yet";
+    }
+    $("run-pipe").click();
+  };
+});
+
 $("pipe-text").addEventListener("input", () => {
   const n = $("pipe-text").value.length;
   $("pipe-ctx-size").textContent = n ? Math.round(n / 1024) + " KB attached" : "nothing yet";

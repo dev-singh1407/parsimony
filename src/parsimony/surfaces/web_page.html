@@ -34,6 +34,27 @@
       <div class="narrow"><button class="go" id="run-pipe">Run</button></div>
       <div class="narrow"><button class="ghost" id="pipe-sample">Attach the handbook</button></div>
     </div>
+    <div class="chips" id="chips">
+      <span class="chiplab">Try:</span>
+      <button class="chip-b" data-q="What is the annual travel budget for the Tallinn office?"
+              data-doc="1" data-note="A 4 KB handbook, and one question. Watch the context tier
+              take 37 of its 49 sentences away — and check the answer is still right.">
+        compress a document</button>
+      <button class="chip-b" data-q="What is 17 * 4?"
+              data-note="The deterministic tier answers this itself. The model is never called:
+              zero tokens in, zero out. Watch the stack stop at the first layer.">
+        never call the model</button>
+      <button class="chip-b" data-q="Explain the deadline. The deadline is 15 March. The deadline is 16 March."
+              data-note="The repeat remover wants to delete the second date as a duplicate. The
+              fidelity gate refuses, because the two dates differ. A saving correctly declined.">
+        watch the gate refuse</button>
+      <button class="chip-b" data-q="What is the travel budget for Porto?"
+              data-note="Run this twice. The first is a miss; the second is served from the
+              cache, word for word, with the model never called. Then reword it slightly and
+              watch it verify a 99% match instead.">
+        reuse an answer</button>
+    </div>
+    <div class="note" id="chip-note"></div>
     <details id="pipe-ctx-wrap" style="margin-top:10px">
       <summary class="dimtext" style="cursor:pointer;font-size:13px">
         Context attached — <span id="pipe-ctx-size">nothing yet</span></summary>

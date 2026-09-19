@@ -46,6 +46,21 @@ def server(vis):
     srv.server_close()
 
 
+@pytest.fixture(autouse=True)
+def _fresh_cache(vis):
+    """A new cache per test.
+
+    The visualiser shares one cache across a session, which is the point -- ask
+    the same thing twice and the second is served without the model. That also
+    makes any test asking the same question twice depend on its neighbours, so
+    each starts from empty and the sharing gets its own test below.
+    """
+    from parsimony.modules.m2_cache import SemanticCache
+
+    vis.cache = SemanticCache(vis.cfg.cache.ttl_seconds,
+                              max_entries=vis.cfg.cache.max_entries)
+
+
 def get(base: str, path: str):
     with urllib.request.urlopen(base + path, timeout=30) as r:
         return r.status, r.read()
@@ -308,3 +323,33 @@ class TestTheTerminalParity:
             if layer.get("removed"):
                 assert layer["delta"] < 0, (
                     f"{layer['name']} removed sentences but reported no token drop")
+
+
+class TestTheCacheIsSharedAcrossRequests:
+    """One cache for the session, not one per request.
+
+    Every request built its own Pipeline, and a Pipeline builds its own cache
+    when it is not handed one -- so the Memory layer was given an empty cache
+    every time and reported the miss honestly, however often you asked. The
+    layer could never demonstrate itself in the page it exists to be shown in.
+    """
+
+    def test_asking_twice_serves_the_second_without_the_model(self, vis):
+        question = "What is the travel budget for Porto?"
+        first = vis.run_pipeline(question, "", lambda *a: None)
+        assert first["cache"]["hit"] is False
+        second = vis.run_pipeline(question, "", lambda *a: None)
+        assert second["cache"]["hit"] is True
+        assert second["route"]["tier"].startswith("CACHE")
+        assert second["tokens"]["final"] == 0, "a cache hit must not send a prompt"
+
+    def test_a_rewording_is_verified_rather_than_assumed(self, vis):
+        vis.run_pipeline("What is the travel budget for Porto?", "", lambda *a: None)
+        near = vis.run_pipeline("What is the Porto travel budget?", "", lambda *a: None)
+        if near["cache"]["hit"]:
+            assert near["cache"]["zone"] in ("verify", "accept")
+
+    def test_a_different_question_still_misses(self, vis):
+        vis.run_pipeline("What is the travel budget for Porto?", "", lambda *a: None)
+        other = vis.run_pipeline("How many people work in Leeds?", "", lambda *a: None)
+        assert other["cache"]["hit"] is False
