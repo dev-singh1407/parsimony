@@ -236,11 +236,25 @@ function show(which) {
 for (const k of Object.keys(TABS)) $("tab-" + k).onclick = () => show(k);
 
 /* ── session state ────────────────────────────────────────────────── */
-fetch("/api/state").then(r => r.json()).then(s => {
-  $("state").textContent = (s.simulated ? "simulated model" : s.model)
-    + "  ·  encoder " + s.encoder;
-  if (s.simulated) $("state").style.color = "var(--warn)";
-}).catch(() => { $("state").textContent = "offline"; });
+// A page stuck on "connecting…" tells you nothing. Anything that has not
+// answered in three seconds is a server that is not there — usually a tab left
+// open on a port the server has since moved off.
+(function connect() {
+  const give_up = setTimeout(() => {
+    $("state").textContent = "not connected — no server on port " + (location.port || "80");
+    $("state").style.color = "var(--drop)";
+  }, 3000);
+  fetch("/api/state").then(r => r.json()).then(s => {
+    clearTimeout(give_up);
+    $("state").textContent = (s.simulated ? "simulated model" : s.model)
+      + "  ·  encoder " + s.encoder;
+    $("state").style.color = s.simulated ? "var(--warn)" : "";
+  }).catch(() => {
+    clearTimeout(give_up);
+    $("state").textContent = "not connected — restart `parsimony web`";
+    $("state").style.color = "var(--drop)";
+  });
+})();
 
 async function refreshSession() {
   try {
