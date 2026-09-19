@@ -34,6 +34,27 @@ from parsimony.core.types import GenParams, TokenEvent
 #: high (ADR-041).
 DEFAULT_OLLAMA_HOST = "http://127.0.0.1:11434"
 
+def window_overflow(prompt_tokens: int | None, stats: dict | None) -> bool:
+    """Did this prompt need more room than the server gave it?
+
+    The runtime reserves the response budget out of the same window, so a
+    prompt only has to approach num_ctx to lose its head. Deterministic, and
+    deliberately not a heuristic over the reply: a short `prompt_eval_count`
+    means EITHER the runtime reused an identical prefix (a real saving) OR it
+    threw the front of the prompt away (a wrong answer waiting to happen), and
+    only the sender knows which by checking what it asked for.
+    """
+    window = (stats or {}).get("num_ctx")
+    return bool(prompt_tokens and window and prompt_tokens >= window)
+
+
+#: The window every request is served with unless told otherwise. Ollama's own
+#: default for this model is 2,048 and it truncates in silence; qwen2.5 is
+#: trained to 32,768, so this is a working compromise between "long enough for
+#: the long-context study" and the key-value cache a CPU can actually hold --
+#: at 28,672 bytes per token, 8,192 tokens is about 235 MB.
+DEFAULT_NUM_CTX = 8192
+
 
 def fast_host(host: str) -> str:
     """Swap a 'localhost' authority for 127.0.0.1 -- see DEFAULT_OLLAMA_HOST."""
@@ -198,7 +219,13 @@ class OllamaProvider:
         self.model = model
         self.host = fast_host(host.rstrip("/"))
         self.timeout = timeout
-        self.num_ctx = num_ctx
+        # Explicit, always. Left unset, Ollama serves this model with a 2,048
+        # token window and silently DROPS everything beyond it -- a 4,662-token
+        # prompt came back reporting prompt_eval_count=2050. Nothing errors and
+        # nothing warns: the run believes it measured a long context and
+        # actually measured the last two thousand tokens of one, which is the
+        # worst failure available to a long-context study (ADR-045).
+        self.num_ctx = DEFAULT_NUM_CTX if num_ctx is None else num_ctx
         self._info: dict | None = None
         # Server-reported timings from the most recent generate(). Ollama
         # separates prompt_eval (prefill) from eval (decode), which wall-clock
@@ -206,6 +233,22 @@ class OllamaProvider:
         # Research gap 2 is the prefill/decode split, so the authoritative
         # numbers are worth keeping rather than re-deriving.
         self.last_stats: dict = {}
+
+    def _check_window(self, stats: dict) -> dict:
+        """Record the window every reply was produced under.
+
+        Ollama never says it truncated. Measuring the signature from the reply
+        alone does not work either -- asked for 4,657 tokens inside a 2,048
+        window it reported reading 1,026, not 2,048, so "prompt_eval_count sits
+        on num_ctx" is not the tell. What IS deterministic is the comparison a
+        CALLER can make: it knows how many tokens it sent, and now it knows the
+        window they had to fit in. `window_overflow` does that check, and the
+        surfaces use it to tell truncation apart from prefix reuse, which
+        otherwise look identical and mean opposite things (ADR-045).
+        """
+        if self.num_ctx:
+            stats["num_ctx"] = self.num_ctx
+        return stats
 
     # -- identity ----------------------------------------------------------
 
@@ -322,6 +365,7 @@ class OllamaProvider:
             )
             if k in out
         }
+        self._check_window(self.last_stats)
         return self.last_stats
 
     def complete(self, prompt: str, params: GenParams) -> tuple[str, dict]:
@@ -345,6 +389,7 @@ class OllamaProvider:
         stats = {k: out[k] for k in ("prompt_eval_count", "prompt_eval_duration", "eval_count",
                                      "eval_duration", "load_duration", "total_duration",
                                      "done_reason") if k in out}
+        self._check_window(stats)
         self.last_stats = stats
         return out.get("response", ""), stats
 
@@ -402,6 +447,7 @@ class OllamaProvider:
                         )
                         if k in chunk
                     }
+                    self._check_window(self.last_stats)
                     break
         finally:
             resp.close()

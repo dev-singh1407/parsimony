@@ -190,9 +190,21 @@ class LiveTurn(PipelineObserver):
 
     @property
     def tokens_read(self) -> int | None:
-        """Tokens the runtime actually processed -- fewer than the prompt when it
-        reused the previous turn's work on an unchanged prefix."""
+        """Tokens the runtime actually processed.
+
+        Fewer than the prompt for two opposite reasons: it reused an identical
+        prefix from the previous turn (a real saving), or it truncated the
+        prompt to fit its window (a wrong answer waiting to happen). Check
+        `window_truncated` before reading this as the first one.
+        """
         return self.stats.get("prompt_eval_count")
+
+    @property
+    def window_truncated(self) -> bool:
+        """Was the prompt too long for the window it was served in?"""
+        from parsimony.infra.providers import window_overflow
+
+        return window_overflow(self.prompt_tokens, self.stats)
 
     #: Below this, the runtime cannot have read the prompt: it reused work it
     #: had already done for an identical prefix. Real prefill on this class of
@@ -687,7 +699,13 @@ def measured_lines(outcome, view: LiveTurn, *,
         else:
             lines.append(f"Reading took [bold]{_secs(read)}[/bold] ({source}), "
                          f"{rate:.1f} ms per token.")
-        if view.tokens_read is not None and view.tokens_read < after:
+        if view.window_truncated:
+            lines.append(f"[bold red]The prompt did not fit.[/bold red] It was served in a "
+                         f"{view.stats.get('num_ctx'):,}-token window and the runtime silently "
+                         f"dropped the front of it, reading {view.tokens_read:,}. The answer "
+                         f"below was produced from a PARTIAL prompt and this measurement is not "
+                         f"valid (ADR-045).")
+        elif view.tokens_read is not None and view.tokens_read < after:
             lines.append(f"The AI re-read only {view.tokens_read:,} of them: the first "
                          f"{after - view.tokens_read:,} were identical to last turn's prompt, so "
                          f"its earlier work was reused. The prompt arranger keeps that start "

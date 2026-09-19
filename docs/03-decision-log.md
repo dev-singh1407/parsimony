@@ -1934,3 +1934,58 @@ that says "worse".
 **What would settle it.** A corpus authored before any of this existed, asking its questions in paraphrase
 rather than in the documents' own vocabulary. `context_section_anchors=False` restores the previous
 behaviour exactly, and `parsimony_sections` is a standing arm of the long-context study.
+
+---
+
+### ADR-045 — The runtime was silently truncating any prompt over ~2,048 tokens
+
+**Status.** Accepted, 19 September 2026. Found while checking whether a standard long-context benchmark
+could be run on this laptop — that is, by asking a question of the setup rather than of the data.
+
+**Context.** `OllamaProvider` left `num_ctx` unset, so Ollama served this model with its own default window.
+Probing it directly:
+
+| `num_ctx` | prompt sent | `prompt_eval_count` the server reported |
+|---|---|---|
+| unset | 4,662 tokens | **2,050** |
+| 8,192 | 4,662 tokens | 4,657 |
+
+**Nothing errors and nothing warns.** The server drops the front of the prompt, answers from what is left,
+and reports the truncated count as though that were the whole prompt. A long-context study run this way
+measures its own window rather than its own compressor — and it would flatter compression, because the
+compressed arm fits and the full-context baseline is the one that gets cut.
+
+**The worse half of the bug.** A short `prompt_eval_count` was *already* being interpreted, in the terminal
+and on the web page, as key-value cache reuse:
+
+> The AI re-read only 1,026 of them: the first 7,974 were identical to last turn's prompt, so its earlier
+> work was reused.
+
+That sentence is produced by truncation as readily as by reuse. The two have the same symptom and opposite
+meanings, and the reading that was hard-coded is the one that claims a saving the system did not make.
+
+**Was anything already published wrong?** No, and this was checked rather than assumed. Across every
+recorded run in `figures/*.jsonl` — 858 rows in the long-context study, plus the followups, off-topic,
+sections and confirmation runs — **the largest prompt ever sent was 869 tokens and not one row exceeded
+2,040.** Every published figure stands. The bug was a landmine, not a crater: it would have fired on the
+first genuinely long input, which is exactly the direction the project was heading.
+
+**Decision.**
+
+1. `DEFAULT_NUM_CTX = 8192`, set explicitly on every request. qwen2.5 is trained to 32,768, but the
+   key-value cache is 28,672 bytes per token on this model, so 8,192 tokens is ~235 MB — the compromise
+   between "long enough to be worth studying" and "fits on the laptop the project is about".
+2. `window_overflow(prompt_tokens, stats)` decides overflow from **what the caller sent**, not from the
+   reply. The reply cannot tell you: asked for 4,662 tokens inside a 2,048 window, the server reported
+   1,026, so "the count lands on `num_ctx`" is not the signature. Only the sender knows what it asked for.
+3. The surfaces now say *"The prompt did not fit … the answer below was produced from a PARTIAL prompt and
+   this measurement is not valid"* instead of claiming reuse.
+4. `run_real` **refuses** a truncated row rather than recording it, in the same spirit as refusing to fall
+   back to a mock when the real model is unreachable (ADR-033).
+
+**Consequence.** The long-context study can now be extended past a thousand tokens, which the next section
+of work needs. It also adds a third entry to the list of silent-failure bugs this project has found by
+measurement rather than reasoning — after the `localhost` → `::1` resolution costing 2 s per call (ADR-041)
+and the mock provider's 120 ms TTFT understating prefill by an order of magnitude (ADR-034). All three
+shared one shape: a number that looked plausible, and was produced by something other than what the reader
+would assume.

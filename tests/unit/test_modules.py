@@ -493,3 +493,67 @@ class TestTheDateIsAnsweredByTheProcessNotTheModel:
         assert outcome.row.route_tier == "DETERMINISTIC"
         assert outcome.row.tokens_in_final == 0
         assert outcome.generated is False
+
+
+class TestThePromptMustFitTheWindow:
+    """A prompt the runtime had to cut is a wrong answer waiting to happen.
+
+    Ollama serves this model with a 2,048-token window unless told otherwise,
+    and truncates in silence: a 4,662-token prompt came back reporting
+    prompt_eval_count=2050. Nothing errors, nothing warns, and the run believes
+    it measured a long context (ADR-045). Worse, a short prompt_eval_count was
+    already being REPORTED as key-value cache reuse -- the same symptom, the
+    opposite meaning, and the wrong one flatters the system.
+    """
+
+    def test_the_window_is_set_explicitly_and_is_not_the_default(self):
+        from parsimony.infra.providers import DEFAULT_NUM_CTX, OllamaProvider
+
+        assert DEFAULT_NUM_CTX >= 8192
+        assert OllamaProvider().num_ctx == DEFAULT_NUM_CTX
+        assert OllamaProvider(num_ctx=4096).num_ctx == 4096
+
+    def test_overflow_is_decided_by_what_was_sent_not_by_the_reply(self):
+        """The reply cannot tell you: asked for 4,662 tokens in a 2,048 window
+        the server reported reading 1,026, so 'the count sits on num_ctx' is
+        not the signature. Only the sender knows what it asked for."""
+        from parsimony.infra.providers import window_overflow
+
+        assert window_overflow(9000, {"num_ctx": 8192}) is True
+        assert window_overflow(8192, {"num_ctx": 8192}) is True
+        assert window_overflow(500, {"num_ctx": 8192}) is False
+        assert window_overflow(None, {"num_ctx": 8192}) is False
+        assert window_overflow(9000, {}) is False, "no window reported, no claim made"
+
+    def test_truncation_is_not_reported_as_cache_reuse(self):
+        from parsimony.surfaces.cli.live import LiveTurn
+
+        view = LiveTurn("q", [])
+        view.prompt_tokens = 9000
+        view.stats = {"prompt_eval_count": 1026, "num_ctx": 8192}
+        assert view.window_truncated is True
+
+        reuse = LiveTurn("q", [])
+        reuse.prompt_tokens = 400
+        reuse.stats = {"prompt_eval_count": 120, "num_ctx": 8192}
+        assert reuse.window_truncated is False, "a short read inside the window is reuse"
+
+    def test_the_measured_panel_says_the_measurement_is_invalid(self):
+        from parsimony.core.ledger import LedgerRow
+        from parsimony.surfaces.cli.live import LiveTurn, measured_lines
+
+        view = LiveTurn("q", [])
+        view.prompt_tokens = 9000
+        view.stats = {"prompt_eval_count": 1026, "num_ctx": 8192,
+                      "prompt_eval_duration": 2_000_000_000}
+
+        class _Outcome:
+            generated = True
+            row = LedgerRow(request_id="r", conversation_id="c", turn_index=0,
+                            config_hash="h", run_id="run",
+                            tokens_in_original=9000, tokens_in_final=9000)
+
+        text = " ".join(measured_lines(_Outcome(), view))
+        assert "did not fit" in text
+        assert "not" in text and "valid" in text
+        assert "earlier work was reused" not in text

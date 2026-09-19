@@ -334,6 +334,7 @@ def run_real(methods: Methods, items, provider, out_path: Path, *,
     the second arm's prefill would be measured as nearly free (ADR-034).
     """
     from parsimony.core.types import GenParams
+    from parsimony.infra.providers import ProviderError, window_overflow
     from parsimony.eval.metrics import grade
     import secrets
     import time
@@ -372,6 +373,16 @@ def run_real(methods: Methods, items, provider, out_path: Path, *,
                 start = time.perf_counter()
                 text, stats = provider.complete(prompt, params)
                 wall_ms = (time.perf_counter() - start) * 1000
+                # A prompt the runtime had to cut did not measure what this row
+                # claims to measure, and a long-context study that silently
+                # records those rows is measuring its own window (ADR-045).
+                sent = methods.count(prompt)
+                if window_overflow(sent, stats):
+                    raise ProviderError(
+                        f"{item.item_id}/{arm}: {sent:,} prompt tokens do not fit the "
+                        f"{stats.get('num_ctx'):,}-token window the server used, so the front "
+                        f"of the prompt was dropped. Raise num_ctx on the provider rather than "
+                        f"recording this row.")
                 found, spans = evidence_kept(item, got.documents)
                 row = {
                     "item_id": item.item_id, "collection": item.collection,
