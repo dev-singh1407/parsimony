@@ -1,9 +1,9 @@
 # Parsimony — Findings to date
 
-**Status:** all eight modules built · **1,089 tests passing** · every number below regenerates with
+**Status:** all eight modules built · **1,110 tests passing** · every number below regenerates with
 `python reproduce.py`
 
-This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (45 ADRs);
+This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (46 ADRs);
 this document is what those decisions *found*.
 
 **Which numbers came from where.** Sections 1–7 and 9 run against `MockProvider`, a deterministic stand-in:
@@ -168,10 +168,12 @@ recalibrated to τ_lo = 0.70 for MiniLM, because two genuine rephrasings sit bel
 
 **And it recovers the long-context answers the lexical score lost.** M1's context selector uses the same
 encoder, so the swap applies there too. On the 45 held-out long-context questions the neural selector scores
-**40/45 - exactly what sending the whole document scores** - at 25.5% of the context and 4.1 s of prefill
-against 8.4 s, where the lexical selector scored 36/45. On the 30-question confirmation split both score
-27/30. Across both splits it wins five of the six questions the two encoders disagree on, including the
-"daily dose" against "once a day" miss that prompted the swap.
+**40/45 against 41/45 for the whole document** - one item, p = 1.000 - at 26.1% of the context and 3.45 s
+of prefill against 11.05 s, where the lexical selector scores 38/45 at 22.1%. On the 30-question
+confirmation split the neural selector scores 26/30 and the lexical 25/30. So the encoder buys two items on
+test and one on test2, for about 4% more context: a real but small effect, and smaller than the earlier
+edition of this section claimed before the arms were pinned by name (ADR-046). It still wins the "daily
+dose" against "once a day" miss that prompted the swap.
 
 **And `localhost` was costing two seconds a call.** The first embedding measurement showed a flat ~2,040 ms
 per request that scaled with nothing; `curl` to the same endpoint took 0.23 s. `localhost` resolves to `::1`
@@ -623,24 +625,40 @@ verbatim, in order, and that anything the question names is still present.
 
 `corpus/longctx_*.jsonl`: 102 documents in 17 fictional collections, 85 questions, six documents (~1,000
 tokens) per question, with deliberate distractors. Fictional, so the model cannot answer from memory:
-**the closed-book arm scores 1/45**, which is what makes every other row mean something. Splits are by
+**the closed-book arm scores 0/45**, which is what makes every other row mean something. Splits are by
 collection — dev (10) for tuning, test (45) reported, test2 (30) authored later and left untouched. Every
 baseline gets the same token budget Parsimony used on that question.
 
 | method | correct | 95% CI | context kept | prompt tokens | prefill | vs full |
 |---|---|---|---|---|---|---|
-| full context | 40/45 — 88.9% | 76.5–95.2 | 100% | 727 | 8.39 s | — |
-| **Parsimony** | **36/45 — 80.0%** | 66.2–89.1 | **21.2%** | **219** | **2.38 s** | p = 0.125 |
-| BM25 top sentences | 32/45 — 71.1% | 56.6–82.3 | 21.0% | 216 | 2.34 s | p = 0.039 |
-| stopword removal | 29/45 — 64.4% | 49.8–76.8 | 63.7% | 509 | 5.62 s | p = 0.003 |
-| truncate to budget | 14/45 — 31.1% | 19.5–45.7 | 19.7% | 197 | 2.07 s | p < 0.001 |
-| random sentences | 6/45 — 13.3% | 6.3–26.2 | 20.8% | 227 | 2.38 s | p < 0.001 |
-| no context | 1/45 — 2.2% | 0.4–11.6 | 0% | 61 | 0.46 s | p < 0.001 |
+| full context | 41/45 — 91.1% | 79.3–96.2 | 100% | 618 | 11.05 s | — |
+| **Parsimony** | **40/45 — 88.9%** | 76.5–95.2 | **26.1%** | **161** | **3.45 s** | **p = 1.000** |
+| Parsimony, lexical encoder | 38/45 — 84.4% | 71.2–92.2 | 22.1% | 137 | 1.91 s | p = 0.250 |
+| BM25 top sentences | 34/45 — 75.6% | 61.3–85.8 | 25.8% | 159 | 3.43 s | p = 0.065 |
+| stopword removal | 31/45 — 68.9% | 54.3–80.5 | 63.7% | 393 | 7.67 s | p = 0.013 |
+| truncate to budget | 16/45 — 35.6% | 23.0–50.2 | 24.5% | 151 | 3.10 s | p < 0.001 |
+| random sentences | 9/45 — 20.0% | 10.9–33.8 | 25.5% | 157 | 3.59 s | p < 0.001 |
+| no context | 0/45 — 0.0% | 0.0–7.9 | 0% | 61 | 0.63 s | p < 0.001 |
 
-**A fifth of the context, 3.5× less prefill, and no significant difference from sending everything** (exact
-McNemar on 4 discordant pairs). Every obvious method at the same budget *does* lose significantly. The claim
-stops there: "not significantly worse" is not "as good", and 45 items cannot detect a difference below
-roughly ten points.
+**A quarter of the context, 3.2× less prefill, and one item between it and sending everything** — exact
+McNemar gives p = 1.000, the flattest result the test can return. Every obvious method at the same budget
+*does* lose significantly. The claim still stops there: "not significantly worse" is not "as good", and 45
+items cannot detect a difference below roughly ten points.
+
+**Read the encoder rows as one comparison, not two systems.** The default arm resolves through
+`best_config`, which upgrades to a neural encoder wherever one is reachable — so on this machine
+"Parsimony" *is* the neural arm, and the lexical row is the one that has to be asked for by name. Running
+both under one name produced two rows differing by a single item and by nothing else, because they were the
+same configuration twice and the gap was the per-prompt nonce (ADR-046). Every row now records the encoder
+it ran with.
+
+**These numbers moved when the configuration did.** The previous edition of this table reported 36/45 for
+Parsimony against 40/45 for full context, measured before ADR-044 and on a machine where the default arm
+was lexical. The whole table was regenerated rather than patched, and the arms that do not depend on the
+compressor moved too — the per-prompt nonce means two runs of one configuration differ by about an item in
+45. That is this instrument's resolution, and it is why the findings that matter are carried by paired
+tests over the same items rather than by comparing totals.
+
 
 **The failure modes separate cleanly by question kind.** Truncation answers **0 of 9** questions whose answer
 sentence opens with a pronoun — that sentence is in the back half of a document truncation never reaches —
@@ -664,17 +682,19 @@ collections authored beforehand and never looked at during tuning.
 
 | method | correct | context kept | prefill | vs full |
 |---|---|---|---|---|
-| full context | 29/30 — 96.7% | 100% | 5.94 s | — |
-| **Parsimony, as first frozen** | **27/30 — 90.0%** | **21.0%** | **1.70 s** | p = 0.500 |
-| Parsimony + the two "fixes" | 26/30 — 86.7% | 22.6% | 1.81 s | p = 0.250 |
-| stopword removal | 22/30 — 73.3% | 64.9% | 4.18 s | p = 0.016 |
-| BM25 top sentences | 20/30 — 66.7% | 22.3% | 1.82 s | p = 0.004 |
-| random sentences | 9/30 — 30.0% | 22.0% | 1.82 s | p < 0.001 |
-| truncate to budget | 4/30 — 13.3% | 20.6% | 1.62 s | p < 0.001 |
-| no context | 1/30 — 3.3% | 0% | 0.41 s | p < 0.001 |
+| full context | 28/30 — 93.3% | 100% | 6.45 s | — |
+| **Parsimony, as shipped** | **26/30 — 86.7%** | **27.6%** | **2.22 s** | p = 0.500 |
+| Parsimony, lexical encoder | 25/30 — 83.3% | 20.8% | 1.60 s | — |
+| Parsimony + the two "fixes" | 26/30 — 86.7% | 29.4% | 2.35 s | p = 1.000 |
+| stopword removal | 23/30 — 76.7% | 64.9% | 4.45 s | p = 0.070 |
+| BM25 top sentences | 19/30 — 63.3% | 27.1% | 2.17 s | p = 0.006 |
+| random sentences | 11/30 — 36.7% | 27.0% | 2.22 s | p < 0.001 |
+| truncate to budget | 7/30 — 23.3% | 25.3% | 1.92 s | p < 0.001 |
+| no context | 3/30 — 10.0% | 0% | 0.46 s | p < 0.001 |
 
-**The method replicates. The improvement does not** — it scores one item worse and sends 5% more tokens, so
-it was not adopted. One item is noise in both directions; that is precisely why a change that cannot be
+**The method replicates. The improvement does not** — regenerated under the shipped configuration it now
+ties on accuracy while sending 7% more tokens, and on the split it was first judged on it scored one item
+worse. Either way it buys nothing, and it was not adopted. One item is noise in both directions; that is precisely why a change that cannot be
 shown to help does not ship. It stays available as `context_v2()` for re-measurement against a neural
 encoder, where a title carries meaning word overlap cannot see.
 

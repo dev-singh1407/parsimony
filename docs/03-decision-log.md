@@ -1989,3 +1989,52 @@ measurement rather than reasoning — after the `localhost` → `::1` resolution
 and the mock provider's 120 ms TTFT understating prefill by an order of magnitude (ADR-034). All three
 shared one shape: a number that looked plausible, and was produced by something other than what the reader
 would assume.
+
+---
+
+### ADR-046 — Two arm names, one configuration, and a result that was only a nonce
+
+**Status.** Accepted, 20 September 2026. Second occurrence of the failure ADR-041 recorded; this time the
+mechanism was different and the guard is now general.
+
+**Context.** Regenerating the long-context study under ADR-044's default produced this, on the 45 held-out
+test items:
+
+| arm | correct | context kept |
+|---|---|---|
+| `parsimony` | 40/45 | 26.1% |
+| `parsimony_neural` | 39/45 | 26.1% |
+
+Identical context kept, one item apart. The obvious reading is a small encoder effect. The actual reading
+is that **they are the same configuration**:
+
+```
+default arm encoder      : ollama:all-minilm
+parsimony_neural encoder : ollama:all-minilm
+same configuration?      : True
+```
+
+`Methods.__init__` resolves its config through `best_config`, which upgrades to a neural encoder wherever
+one is reachable. So on any machine with an embedding model served, the arm labelled `parsimony` *is* the
+neural arm, and the published lexical-versus-neural comparison collapses into neural against neural. The
+one-item gap is the per-prompt nonce — each prompt opens with fresh random hex to defeat key-value reuse
+(ADR-034), so two runs of the same configuration do not have to agree item for item.
+
+**Which machine ran the sweep decided what "parsimony" meant.** The earlier 36/45-versus-40/45 figures were
+produced when no embedder was reachable and the default really was lexical.
+
+**Decision.**
+
+1. An explicit `parsimony_lexical` arm, pinned to `content-v1`. A contrast has to be a contrast.
+2. Every row records the `embedder_id` the arm actually ran with, so no future reader has to infer it from
+   the machine's configuration at the time.
+3. `run_real` **refuses** a set of arms in which two resolve to the same configuration, naming both. The
+   first occurrence of this failure (ADR-041) was caught by noticing byte-identical output and fixed with a
+   per-encoder pipeline; that fix was specific to the cause. This guard is about the symptom, and would
+   have caught both.
+
+**Consequence, and the honest reading of the nonce.** Two runs of one configuration differ by about an item
+in 45 here. That is the resolution of this instrument, and no single-item difference in this study should
+be read as an effect — which is why the findings that matter are carried by paired McNemar tests over the
+same items rather than by comparing two accuracy totals. The nonce is still right: without it the arms
+share prefixes and every prefill measurement is wrong instead.

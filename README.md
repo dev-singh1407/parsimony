@@ -21,7 +21,7 @@ VIT University · B.Tech BCSE497J Project I · Guide: Dr Sathya K
 python reproduce.py --out figures
 ```
 
-**1,089 tests passing.** Every table below regenerates from a live run in ~40 s. Setup and commands:
+**1,110 tests passing.** Every table below regenerates from a live run in ~40 s. Setup and commands:
 [`docs/08-setup.md`](docs/08-setup.md).
 
 | Module | State |
@@ -124,25 +124,33 @@ Every baseline gets the token budget Parsimony used on that question:
 
 | method | correct | context kept | prompt tokens | prefill | vs full context |
 |---|---|---|---|---|---|
-| full context | 40/45 — 88.9% | 100% | 727 | 8.39 s | — |
-| **Parsimony** | **36/45 — 80.0%** | **21.2%** | **219** | **2.38 s** | p = 0.125 |
-| BM25 top sentences | 32/45 — 71.1% | 21.0% | 216 | 2.34 s | p = 0.039 |
-| stopword removal | 29/45 — 64.4% | 63.7% | 509 | 5.62 s | p = 0.003 |
-| truncate to budget | 14/45 — 31.1% | 19.7% | 197 | 2.07 s | p < 0.001 |
-| random sentences | 6/45 — 13.3% | 20.8% | 227 | 2.38 s | p < 0.001 |
-| no context at all | 1/45 — 2.2% | 0% | 61 | 0.46 s | p < 0.001 |
+| full context | 41/45 — 91.1% | 100% | 618 | 11.05 s | — |
+| **Parsimony** | **40/45 — 88.9%** | **26.1%** | **161** | **3.45 s** | **p = 1.000** |
+| Parsimony, lexical encoder | 38/45 — 84.4% | 22.1% | 137 | 1.91 s | p = 0.250 |
+| BM25 top sentences | 34/45 — 75.6% | 25.8% | 159 | 3.43 s | p = 0.065 |
+| stopword removal | 31/45 — 68.9% | 63.7% | 393 | 7.67 s | p = 0.013 |
+| truncate to budget | 16/45 — 35.6% | 24.5% | 151 | 3.10 s | p < 0.001 |
+| random sentences | 9/45 — 20.0% | 25.5% | 157 | 3.59 s | p < 0.001 |
+| no context at all | 0/45 — 0.0% | 0% | 61 | 0.63 s | p < 0.001 |
 
-A fifth of the context, 3.5× less prefill, and no significant difference from sending everything — while
-every obvious method at the same budget loses significantly. The closed-book row is the control that makes
-the rest meaningful: these documents are fictional, so nothing here can be answered from memory.
+A quarter of the context, 3.2× less prefill, and **one item between it and sending everything** — p = 1.000,
+which is as close to "no difference" as a paired test on 45 items can report. Every obvious method at the
+same budget loses significantly. The closed-book row is the control that makes the rest meaningful: these
+documents are fictional, so nothing here can be answered from memory, and 0/45 is what that should look like.
+
+The lexical row is there because the default arm is not a fixed thing: `best_config` upgrades to a neural
+encoder wherever one is reachable, so on a machine with an embedding model served, "Parsimony" *is* the
+neural arm. Running both under one name once produced two rows that differed by a single item and by
+nothing else — the same configuration, twice, with the difference coming from the per-prompt nonce
+(ADR-046). The encoder each arm ran with is now recorded on every row.
+
 
 The difference is sharpest where the answer sentence begins with a pronoun. Truncation answers **0 of 9**
 such questions and Parsimony **9 of 9**, because a sentence inherits the name from the sentence before it,
 and that sentence is then kept so "It" still refers to something.
 
 It replicates: on 30 further questions authored afterwards and never tuned against, Parsimony scores
-**27/30** where sending the whole document scores 29/30 (p = 0.50), BM25 top-k scores 20/30 and truncation
-4/30. Two changes made after reading the first run's failures were measured there and **not adopted** — they
+**26/30** where sending the whole document scores 28/30, BM25 top-k scores 19/30 and truncation 7/30. Two changes made after reading the first run's failures were measured there and **not adopted** — they
 scored one item worse and sent 5% more tokens, which is what a held-out split is for.
 
 **Irrelevant context is not inert.** Ask an attached handbook something it says nothing about and the
@@ -221,9 +229,10 @@ smaller edit than a rephrasing in any embedding space, so a better space makes i
 safe only because the encoder was weak. Verification now runs on every candidate, costs microseconds, holds
 the false-answer rate at 0.0% for both encoders, and lifts answer reuse from 26.7% to 37.8%.
 
-In M1's context selector the same encoder recovers the answers a lexical score loses: **40/45 on the
-long-context test set, exactly matching full context**, at 25.5% of the tokens and 4.1 s of prefill against
-8.4 s (the lexical selector scores 36/45).
+In M1's context selector the same encoder recovers answers a lexical score loses: **40/45 on the
+long-context test set against 41/45 for full context** — one item, p = 1.000 — at 26.1% of the tokens and
+3.45 s of prefill against 11.05 s. The lexical selector scores 38/45 at 22.1%, so the encoder buys two
+items for 4% more context.
 
 **`localhost` was also costing two seconds per call.** A flat ~2,040 ms per Ollama request that `curl` did
 not pay: `localhost` resolves to `::1` first, Ollama listens on IPv4, and the attempt has to time out. At
@@ -272,13 +281,13 @@ module — the same distinction as ADR-028.
 | [`docs/00-architecture.md`](docs/00-architecture.md) | Layering, core data model, orchestrator, stage ordering, repo layout, cross-cutting concerns |
 | [`docs/01-pipeline-stages.md`](docs/01-pipeline-stages.md) | The eight processing stages, each with objective / inputs / outputs / techniques / libraries / pros / cons / alternatives / recommendation / integration |
 | [`docs/02-module-specs.md`](docs/02-module-specs.md) | M1–M8 internals and ablation wiring |
-| [`docs/03-decision-log.md`](docs/03-decision-log.md) | 45 ADRs with justification and consequences. **The intellectual core** — several record where measurement contradicted the plan |
+| [`docs/03-decision-log.md`](docs/03-decision-log.md) | 46 ADRs with justification and consequences. **The intellectual core** — several record where measurement contradicted the plan |
 | [`docs/04-roadmap.md`](docs/04-roadmap.md) | Re-planned 12-week schedule, sprint plan, milestone gates, scope-cut order, risks |
 | [`docs/05-evaluation-harness.md`](docs/05-evaluation-harness.md) | The compute budget problem and its fix; sweep runner; four quality measures; statistics; validity threats |
 | [`docs/06-contracts.md`](docs/06-contracts.md) | Complete L0 type and protocol definitions + the ledger schema. **Review this first** |
 | [`docs/07-corpus-spec.md`](docs/07-corpus-spec.md) | Authoring guide for the 150 conversations, 50 adversarial pairs and 40 gold answers. Actionable today, no code required |
 | [`docs/08-setup.md`](docs/08-setup.md) | Environment, install, and how to run each command |
-| [`docs/10-literature-survey.md`](docs/10-literature-survey.md) | **Literature survey.** 52 papers across eight strands, the six research gaps they leave open, and what this project does differently — with the measurement backing each claim |
+| [`docs/10-literature-survey.md`](docs/10-literature-survey.md) | **Literature survey.** 54 papers across eight strands, the six research gaps they leave open, and what this project does differently — with the measurement backing each claim |
 | [`docs/11-demo-runbook.md`](docs/11-demo-runbook.md) | **Demo runbook.** A five-act, twelve-minute walkthrough with the exact commands, their measured run times, what to say at each, and the failure modes that actually happen |
 | [`docs/12-demo-questions.md`](docs/12-demo-questions.md) | **Demo questions.** One per tier plus five that fire several at once, each with the modules it actually triggers measured rather than assumed |
 | [`docs/13-review2-dossier.md`](docs/13-review2-dossier.md) | **Review-2 dossier.** The 40-paper limitations table, the six gaps it exposes, research questions, four contributions, the pipeline tier by tier with a figure, and every result. Renders to PDF |

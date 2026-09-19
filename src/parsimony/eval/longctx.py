@@ -251,6 +251,13 @@ def ablations(cfg: ParsimonyConfig) -> dict[str, ParsimonyConfig]:
         # The same selector, scoring sentences with MiniLM instead of a lexical
         # encoder. Needs Ollama; costs ~9 ms per sentence (ADR-041).
         "neural": neural(cfg),
+        # Named explicitly, because the DEFAULT arm is whatever `best_config`
+        # resolves to on the machine running the sweep -- which is the neural
+        # encoder wherever one is reachable. Without this arm the lexical/neural
+        # comparison silently becomes neural against neural, which is what
+        # happened: two arms, one configuration, and a one-item gap that was
+        # nothing but the per-prompt nonce (ADR-046).
+        "lexical": replace(cfg, embedder_id="content-v1"),
         "no_anchors": replace(cfg, compression=replace(
             c, context_anchor_guarantee=False, context_anchor_bonus=0.0)),
         # Anchors inherited from the section heading (ADR-044). The visualiser
@@ -279,12 +286,48 @@ class ArmResult:
         return self.evidence_found == self.evidence_total
 
 
+def check_arms_differ(arms, default_cfg, variants) -> None:
+    """Refuse a set of arms in which two names mean the same configuration.
+
+    It has happened twice. Once through a shared derived cache: the neural arm
+    scored sentences with the lexical encoder's vectors and produced output
+    identical to the lexical arm, token for token (ADR-041). Once through
+    `best_config` upgrading the DEFAULT arm wherever an embedding model is
+    reachable, so `parsimony` and `parsimony_neural` were one configuration run
+    twice, and the single item between them was the per-prompt nonce (ADR-046).
+
+    Both times the duplicate looked like a small finding. The first fix was
+    specific to its cause; this one is about the symptom, and catches either.
+    """
+    seen: dict[str, str] = {}
+    for arm in arms:
+        if arm == "parsimony":
+            cfg = default_cfg
+        elif arm.startswith("parsimony_") and arm.removeprefix("parsimony_") in variants:
+            cfg = variants[arm.removeprefix("parsimony_")]
+        else:
+            continue
+        fingerprint = f"{cfg.embedder_id}|{cfg.compression}"
+        if fingerprint in seen:
+            raise ValueError(
+                f"arms {seen[fingerprint]!r} and {arm!r} are the same configuration "
+                f"({cfg.embedder_id}); running both measures one arm twice and reports the "
+                f"difference between two nonces as a result")
+        seen[fingerprint] = arm
+
+
 def run_offline(methods: Methods, items, arms: tuple[str, ...] | None = None
                 ) -> list[ArmResult]:
     """Every arm on every item, without a model. Deterministic."""
     variants = ablations(methods.cfg)
     wanted = arms or ("full", "parsimony", *[f"parsimony_{k}" for k in variants],
                       "bm25_topk", "truncate", "random", "stopwords", "closed_book")
+    # The default list above deliberately names every ablation, and some of them
+    # resolve to the same configuration as the default arm -- that sweep is a
+    # catalogue, not a comparison. The guard is for an explicitly requested set,
+    # where two names meaning one thing is a mistake rather than a convenience.
+    if arms:
+        check_arms_differ(arms, methods.cfg, variants)
     out: list[ArmResult] = []
     for item in items:
         full_tokens = methods.context_tokens(item.documents)
@@ -307,7 +350,8 @@ def run_offline(methods: Methods, items, arms: tuple[str, ...] | None = None
 # ------------------------------------------------------------- real model --
 
 #: Every arm the real-model study runs, in the order it runs them.
-REAL_ARMS = ("closed_book", "full", "parsimony", "parsimony_neural", "bm25_topk",
+REAL_ARMS = ("closed_book", "full", "parsimony", "parsimony_lexical",
+             "parsimony_neural", "bm25_topk",
              "truncate", "random",
              "stopwords", "parsimony_no_anchors", "parsimony_no_closure",
              "parsimony_no_doc_prior", "parsimony_no_floor")
@@ -351,6 +395,7 @@ def run_real(methods: Methods, items, provider, out_path: Path, *,
                     done.add((row["item_id"], row["arm"]))
 
     variants = ablations(methods.cfg)
+    check_arms_differ(arms, methods.cfg, variants)
     params = GenParams(num_predict=num_predict, temperature=0.0, seed=0)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     total = len(items) * len(arms)
@@ -386,6 +431,9 @@ def run_real(methods: Methods, items, provider, out_path: Path, *,
                 found, spans = evidence_kept(item, got.documents)
                 row = {
                     "item_id": item.item_id, "collection": item.collection,
+                    "embedder_id": (methods.cfg if arm == "parsimony" else
+                                    variants.get(arm.removeprefix("parsimony_"), methods.cfg)
+                                    ).embedder_id if arm.startswith("parsimony") else "",
                     "split": item.split, "kind": item.kind, "arm": arm,
                     "model": provider.model_name, "model_digest": digest,
                     "correct": grade(text, item.gold), "response": text.strip(),

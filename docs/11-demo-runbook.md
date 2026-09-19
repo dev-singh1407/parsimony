@@ -150,7 +150,7 @@ Runs in ~2 seconds.
 If they want the three checks: **operative modifiers** (min/max — changes no number, entity or negation),
 **morphological negation** (possible/impossible), and **alphanumeric identifiers** (pandas vs Panda3D).
 
-> "As far as our survey of 52 papers found, no published semantic cache performs those three."
+> "As far as our survey of 54 papers found, no published semantic cache performs those three."
 
 ---
 
@@ -292,21 +292,64 @@ instead, or run them beforehand and show the scrollback.
 > recorded run.
 
 **"What's novel here? These techniques all exist."**
-> Individually, yes — and our survey covers 52 papers on them. What doesn't exist is a measurement of what
+> Individually, yes - our survey covers 54 papers on them. What does not exist is a measurement of what
 > happens when you **compose** them. Every paper measures one technique against an uncompressed baseline.
-> We measured all four together and found the savings don't add. We also found a direct conflict between two
-> well-cited results: *Lost in the Middle* says put relevant content at the prompt edges; prefix caching
-> needs a stable prompt head. Doing the first destroys the second — 212 milliseconds against 18,914 for the
-> same content.
+> We measured four together and found the savings do not add: the additivity shortfall is 15.13 pp
+> [11.15, 18.27]. We also found a direct conflict between two well-cited results: *Lost in the Middle* says
+> put relevant content at the prompt edges; prefix caching needs a stable prompt head. Doing the first
+> destroys the second - 212 milliseconds against 18,914 for the same content.
+
+**"Isn't your compressor just EXIT? Or Provence?"** - *expect this, and raise it yourself rather than be
+caught by it.*
+> Architecturally our context tier is the same idea as EXIT, and the survey says so: sentence-level,
+> query-aware, threshold, recombined in original order. EXIT published it independently at ACL 2025. We do
+> not claim that design.
+>
+> What differs is the cost. EXIT fine-tunes Gemma-2B with LoRA - about 90 GPU-hours on an A100-80GB - and
+> Provence trains a DeBERTa model. Ours is BM25 plus a 45 MB embedder with **no fitted parameters**, which
+> is why it runs inside a laptop CPU budget at all. That is an engineering position, not a scientific
+> contribution, and we report it as one.
+>
+> The scientific claim is compositional. EXIT, Provence and LLMLingua are each measured alone. None is
+> measured beside a semantic cache, a history manager and an output budgeter paid out of the same tokens -
+> and when we did that, the savings stopped adding. None carries a component that can *refuse* a saving
+> either: the strand documents compression-induced hallucination as a finding to report, where we built a
+> gate against it and measured what it costs us.
+
+**"Your corpus is your own. Did you only do well because you set the exam?"**
+> A fair challenge, and why `eval/longbench.py` exists. It runs the shipped configuration, unchanged, on
+> **LongBench** - the benchmark the compression literature actually reports - with LongBench's own prompt
+> and its own F1 metric, transcribed and unit-tested against worked examples. Items are taken in file
+> order, never sampled, because choosing them by length would be setting the exam again.
+>
+> Two caveats, stated before anyone asks. The absolute scores are not comparable to published LongBench
+> tables: those come from 7B-70B models and ours is a 1.5B on a laptop CPU, which scores lower before
+> compression is involved at all. And the full-context arm is the only baseline that means anything here,
+> which is why it runs on every item.
+>
+> Our own corpus still earns its place: it asks things LongBench cannot, such as whether the tier stays
+> quiet on a question the documents cannot answer at all.
+
+**"How do you know your measurements are real?"**
+> Because three times they were not, and each was found by measuring rather than reasoning. `localhost`
+> resolving to IPv6 first added 2 seconds to every call (ADR-041). The mock provider's 120 ms TTFT
+> understated prefill by an order of magnitude, in the direction that flattered us (ADR-034). And the model
+> server was silently truncating any prompt over ~2,048 tokens and reporting the truncated count as if it
+> were the whole prompt - which the display was reading as *cache reuse*, a saving that never happened
+> (ADR-045). We checked every recorded row: the largest prompt ever sent was 869 tokens, so nothing
+> published was affected. The guard now refuses the measurement rather than recording it.
 
 **"What's left to do?"**
-> Four things, in priority order, in the roadmap. The largest is replacing our lexical encoder with a neural
-> one — we've quantified exactly what that would buy, so it's a costed decision rather than a wish.
+> The roadmap, in priority order. The neural encoder is done and measured (ADR-041) - and it broke the
+> safety design, which is itself one of the findings. What remains is a full sweep on the real model, a
+> calibrated judge, and escalation to a second model, currently reported as a negative result.
 
 **"How much of this is your own work?"**
-> The corpus is ours — 151 conversations, 45 adversarial pairs, 40 gold answers, authored and hashed. The
-> architecture, all eight modules, the evaluation harness and 700 tests are ours. The techniques are from the
-> literature; the composition, the measurement instrument, and every finding are ours.
+> The corpus is ours - 151 conversations, 45 adversarial pairs, 40 gold answers, authored and hashed. The
+> architecture, all eight modules, the evaluation harness and over 1,110 tests are ours. The techniques come
+> from the literature, and where a design of ours matches a published one we name it. The composition, the
+> measurement instrument and every finding are ours.
+
 
 ---
 
@@ -335,4 +378,4 @@ deterministic"* and move to the token column. Never guess at an explanation in t
 > savings **don't add up** — techniques that each save 10% don't save 40% together, and we measured by how
 > much they fail to. Nobody had, because nobody runs them in one pipeline.
 >
-> Everything regenerates from raw logs with one command, and there are 700 tests."
+> Everything regenerates from raw logs with one command, and there are over 1,110 tests."

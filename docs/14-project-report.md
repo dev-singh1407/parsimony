@@ -581,7 +581,7 @@ entities, negations, operative modifiers and payload emptiness on every proposal
 | **Generation memoisation** | Bit-exact at temperature 0, so repeated sweep cells do not re-pay for identical generations. |
 | **Stage-order validator** | Checks the configured order against a reads/writes dependency graph before the pipeline runs. |
 | **Corpus** | 151 conversations, 45 adversarial pairs, 45 controls, 40 gold items, CC BY 4.0. |
-| **Test suite** | 1,089 tests, including `test_architecture.py`, which fails the build if a layer imports upward. |
+| **Test suite** | 1,110 tests, including `test_architecture.py`, which fails the build if a layer imports upward. |
 
 ## 6.5 Technology stack
 
@@ -592,7 +592,7 @@ entities, negations, operative modifiers and payload emptiness on every proposal
 | Tokenisation | `tokenizers` (Qwen2.5 vocabulary) | The counts must come from the model's own vocabulary |
 | Numerics | `numpy` | Embeddings and statistics |
 | CLI | `typer` + `rich` | The demo surface |
-| Testing | `pytest` | 1,089 tests |
+| Testing | `pytest` | 1,110 tests |
 | Deliberately absent | PyTorch, any GPU dependency, any paid API | The target machine is a CPU-only laptop |
 
 <div class="pagebreak"></div>
