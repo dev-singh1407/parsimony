@@ -98,6 +98,114 @@
              infinite; vertical-align: -1px; margin-right: 7px; }
   @keyframes spin { to { transform: rotate(360deg); } }
   @media (max-width: 720px) { main { padding: 14px; } .stats { gap: 16px; } }
+
+  /* ── pipeline view ────────────────────────────────────────────── */
+  .hint { font-family: var(--mono); font-size: 11.5px; color: var(--dim);
+          text-transform: none; letter-spacing: 0; margin-left: 10px; }
+  .dim { color: var(--dim); }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 960px) { .two-col { grid-template-columns: 1fr; } }
+
+  .metrics { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+             background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+             padding: 14px 18px; margin-bottom: 16px; }
+  .metric { flex: 1 1 110px; text-align: center; }
+  .metric.arrow { flex: 0 0 26px; color: var(--dim); font-size: 22px; }
+  .metric .mv { font-family: var(--mono); font-size: 30px; font-weight: 650;
+                line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .metric .mv.keep { color: var(--keep); } .metric .mv.drop { color: var(--drop); }
+  .metric .mv.time { color: var(--accent); }
+  .metric .mk { font-size: 11px; color: var(--dim); text-transform: uppercase;
+                letter-spacing: .08em; margin-top: 5px; }
+  .ring { position: relative; width: 84px; height: 84px; margin: 0 auto; }
+  .ring svg { transform: rotate(-90deg); }
+  .ring circle { fill: none; stroke-width: 8; }
+  .ring .ring-bg { stroke: #222a35; }
+  .ring .ring-fg { stroke: var(--keep); stroke-linecap: round;
+                   stroke-dasharray: 213.6; stroke-dashoffset: 213.6;
+                   transition: stroke-dashoffset .9s cubic-bezier(.2,.8,.2,1); }
+  .ring-label { position: absolute; inset: 0; display: flex; align-items: center;
+                justify-content: center; font-family: var(--mono); font-size: 16px;
+                font-weight: 650; }
+
+  .flowwrap { overflow-x: auto; padding: 6px 2px 14px; }
+  .flowscale { transform-origin: 0 0; will-change: transform; }
+  .river { min-width: min-content; }
+  .river svg { display: block; }
+  .river path { transition: d .45s ease; }
+  .river text { font-family: var(--mono); font-size: 10.5px; fill: var(--dim); }
+  .river text.big { font-size: 12px; fill: var(--ink); font-weight: 600; }
+  .flow { display: flex; align-items: stretch; gap: 0; min-width: min-content; }
+  .node { position: relative; flex: 0 0 auto; width: 132px; border: 1px solid var(--line);
+          background: #12161d; border-radius: 9px; padding: 9px 10px; opacity: .40;
+          transition: opacity .3s, border-color .3s, transform .3s, box-shadow .3s; }
+  .node .mod { font-family: var(--mono); font-size: 10px; color: var(--dim);
+               letter-spacing: .08em; }
+  .node .nm { font-size: 12.5px; font-weight: 600; margin-top: 2px; line-height: 1.25; }
+  .node .st { font-family: var(--mono); font-size: 11px; margin-top: 7px; color: var(--dim);
+              min-height: 15px; }
+  .node .delta { font-family: var(--mono); font-size: 13px; font-weight: 650; }
+  .node.live { opacity: 1; border-color: var(--accent);
+               box-shadow: 0 0 0 1px var(--accent), 0 0 22px -6px var(--accent);
+               transform: translateY(-3px); }
+  .node.done { opacity: 1; }
+  .node.applied { border-color: var(--keep); }
+  .node.applied .delta { color: var(--keep); }
+  .node.noop { opacity: .72; }
+  .node.skipped { opacity: .38; }
+  .node.reverted { border-color: var(--drop); }
+  .node.reverted .delta { color: var(--drop); }
+  .node.short_circuit { border-color: var(--warn); }
+  .edge { flex: 0 0 26px; align-self: center; height: 2px; background: #232b36;
+          position: relative; }
+  .edge::after { content: ""; position: absolute; inset: 0; width: 0;
+                 background: linear-gradient(90deg, var(--accent), var(--keep));
+                 transition: width .28s linear; }
+  .edge.lit::after { width: 100%; }
+  .group-label { font-family: var(--mono); font-size: 10px; color: var(--dim);
+                 letter-spacing: .1em; text-transform: uppercase; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px;
+         margin-right: 6px; vertical-align: 0; background: #2a323d; }
+  .dot.applied { background: var(--keep); } .dot.noop { background: #4b5563; }
+  .dot.skipped { background: #2a323d; } .dot.reverted { background: var(--drop); }
+
+  .ladder { display: flex; flex-direction: column; gap: 8px; }
+  .rung { display: flex; align-items: center; gap: 12px; border: 1px solid var(--line);
+          border-left: 3px solid #2a323d; border-radius: 8px; padding: 9px 12px;
+          background: #12161d; opacity: .5; transition: opacity .35s, border-color .35s; }
+  .rung.fired { opacity: 1; border-left-color: var(--keep); }
+  .rung.declined { opacity: .78; border-left-color: #4b5563; }
+  .rung .rn { font-size: 13px; font-weight: 600; flex: 0 0 148px; }
+  .rung .rr { font-family: var(--mono); font-size: 11.5px; color: var(--dim); flex: 1 1 auto; }
+  .rung .rd { font-family: var(--mono); font-size: 14px; font-weight: 650; flex: 0 0 auto; }
+  .rung.fired .rd { color: var(--keep); }
+
+  .decisions { display: flex; flex-direction: column; gap: 9px; }
+  .dcard { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+           background: #12161d; }
+  .dcard .dh { display: flex; justify-content: space-between; align-items: baseline;
+               gap: 10px; }
+  .dcard .dt { font-size: 12px; color: var(--dim); text-transform: uppercase;
+               letter-spacing: .07em; }
+  .dcard .dv { font-family: var(--mono); font-size: 14px; font-weight: 650; }
+  .dcard .dv.ok { color: var(--keep); } .dcard .dv.no { color: var(--dim); }
+  .dcard .dv.warn { color: var(--warn); }
+  .dcard .dw { font-family: var(--mono); font-size: 11.5px; color: var(--dim);
+               margin-top: 5px; }
+  .meter { height: 6px; background: #222a35; border-radius: 3px; margin-top: 8px;
+           position: relative; overflow: hidden; }
+  .meter > i { position: absolute; inset: 0 auto 0 0; background: var(--accent);
+               width: 0; transition: width .7s cubic-bezier(.2,.8,.2,1); }
+  .meter > b { position: absolute; top: -3px; bottom: -3px; width: 2px;
+               background: var(--warn); }
+
+  .prompt { font-family: var(--mono); font-size: 12px; line-height: 1.55;
+            background: #0c0e12; border: 1px solid var(--line); border-radius: 7px;
+            padding: 11px 13px; max-height: 300px; overflow: auto; white-space: pre-wrap;
+            color: #c3ccda; margin: 0; }
+  .cursor { display: inline-block; width: 7px; height: 14px; background: var(--accent);
+            vertical-align: -2px; animation: blink 1s step-end infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
 </style>
 </head>
 <body>
@@ -105,15 +213,130 @@
   <h1>Parsimony</h1>
   <span class="sub" id="state">connecting…</span>
   <nav>
-    <button id="tab-map" aria-selected="true">Heatmap</button>
+    <button id="tab-pipe" aria-selected="true">Pipeline</button>
+    <button id="tab-map" aria-selected="false">Heatmap</button>
     <button id="tab-ab" aria-selected="false">A/B</button>
     <button id="tab-demo" aria-selected="false">Demo</button>
   </nav>
 </header>
 
 <main>
+  <!-- ─────────────────────────── pipeline ────────────────────────── -->
+  <section class="view" id="view-pipe">
+    <div class="panel">
+      <div class="row">
+        <div style="flex:3 1 400px">
+          <label for="pq">Ask the system something</label>
+          <input type="text" id="pq"
+                 placeholder="What is the annual travel budget for the Tallinn office?">
+        </div>
+        <div class="narrow" style="align-self:flex-end"><button class="go" id="run-pipe">Run</button></div>
+        <div class="narrow" style="align-self:flex-end"><button class="ghost" id="pipe-sample">Attach the handbook</button></div>
+        <div class="narrow">
+          <label for="pace">Pace</label>
+          <select id="pace">
+            <option value="420">Presentation</option>
+            <option value="200" selected>Normal</option>
+            <option value="0">Raw</option>
+          </select>
+        </div>
+      </div>
+      <details id="pipe-ctx-wrap" style="margin-top:10px">
+        <summary>Context attached — <span id="pipe-ctx-size">nothing yet</span></summary>
+        <textarea id="pipe-text" style="margin-top:8px"
+                  placeholder="Paste documents here, or attach the handbook."></textarea>
+      </details>
+      <div id="pipe-err" class="err"></div>
+    </div>
+
+    <div class="metrics" id="pipe-metrics">
+      <div class="metric"><div class="mv" id="m-before">0</div>
+        <div class="mk">tokens written</div></div>
+      <div class="metric arrow">→</div>
+      <div class="metric"><div class="mv keep" id="m-after">0</div>
+        <div class="mk">tokens sent</div></div>
+      <div class="metric"><div class="mv drop" id="m-removed">0</div>
+        <div class="mk">never read</div></div>
+      <div class="metric">
+        <div class="ring">
+          <svg viewBox="0 0 84 84" width="84" height="84" aria-hidden="true">
+            <circle cx="42" cy="42" r="34" class="ring-bg"></circle>
+            <circle cx="42" cy="42" r="34" class="ring-fg" id="ring-fg"></circle>
+          </svg>
+          <div class="ring-label" id="m-ratio">—</div>
+        </div>
+        <div class="mk">of the prompt sent</div>
+      </div>
+      <div class="metric"><div class="mv time" id="m-saved">0.0s</div>
+        <div class="mk" id="m-saved-k">prefill not spent</div></div>
+    </div>
+
+    <div class="panel">
+      <h2>The request, moving through the stack
+        <span class="hint" id="pipe-phase">idle</span></h2>
+      <div class="flowwrap" id="flowwrap">
+        <div class="flowscale" id="flowscale">
+        <div class="river" id="river-wrap">
+          <svg id="river" height="132" preserveAspectRatio="none" aria-hidden="true">
+            <defs>
+              <linearGradient id="riverfill" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stop-color="#6aa9ff" stop-opacity=".55"/>
+                <stop offset="100%" stop-color="#4ec9a8" stop-opacity=".85"/>
+              </linearGradient>
+              <pattern id="gone" width="7" height="7" patternUnits="userSpaceOnUse"
+                       patternTransform="rotate(45)">
+                <line x1="0" y1="0" x2="0" y2="7" stroke="#e06c75" stroke-opacity=".30"
+                      stroke-width="2"/>
+              </pattern>
+            </defs>
+            <path id="river-gone" fill="url(#gone)"></path>
+            <path id="river-band" fill="url(#riverfill)"></path>
+            <g id="river-marks"></g>
+          </svg>
+        </div>
+        <div class="flow" id="flow"></div>
+        </div>
+      </div>
+      <div class="legend">
+        <span><i class="dot applied"></i>fired — changed the request</span>
+        <span><i class="dot noop"></i>ran, chose to do nothing</span>
+        <span><i class="dot skipped"></i>not applicable here</span>
+        <span><i class="dot reverted"></i>blocked by the gate</span>
+        <span id="pace-note" class="dim"></span>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="panel">
+        <h2>Which compression tier did the work</h2>
+        <div class="ladder" id="ladder"></div>
+        <div class="note">
+          Tiers are tried in order and each may decline. Declining is not failing: Tier 3
+          rejects any rewrite costing more tokens than it saves, which on a short prompt is
+          all of them.
+        </div>
+      </div>
+      <div class="panel">
+        <h2>The decisions behind it</h2>
+        <div class="decisions" id="decisions"></div>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="panel">
+        <h2>What the model was sent <span class="hint" id="prompt-tok"></span></h2>
+        <pre class="prompt" id="pipe-prompt">—</pre>
+      </div>
+      <div class="panel">
+        <h2>What it answered <span class="hint" id="answer-tok"></span></h2>
+        <div class="answer" id="pipe-answer"></div>
+        <div class="note" id="pipe-timing"></div>
+      </div>
+    </div>
+  </section>
+
   <!-- ─────────────────────────── heatmap ─────────────────────────── -->
-  <section class="view" id="view-map">
+  <section class="view" id="view-map" hidden
     <div class="panel">
       <h2>Ask something of a document</h2>
       <div class="row">
@@ -224,7 +447,7 @@ const fmt = (n) => n.toLocaleString("en-US");
 const secs = (s) => s >= 1 ? s.toFixed(1) + "s" : Math.round(s * 1000) + "ms";
 
 /* ── tabs ─────────────────────────────────────────────────────────── */
-const TABS = { map: "view-map", ab: "view-ab", demo: "view-demo" };
+const TABS = { pipe: "view-pipe", map: "view-map", ab: "view-ab", demo: "view-demo" };
 function show(which) {
   for (const [k, v] of Object.entries(TABS)) {
     $("tab-" + k).setAttribute("aria-selected", String(k === which));
@@ -277,6 +500,343 @@ async function refreshSession() {
       : "nothing run yet — use the Heatmap or A/B tab";
   } catch (e) { /* the server went away; leave the last honest figure up */ }
 }
+
+/* ── pipeline ─────────────────────────────────────────────────────────
+   Every node, rung and number below is filled from an event the orchestrator
+   emitted while it ran. The ONLY thing invented on this page is the delay
+   between events: the whole middleware takes ~100 ms, which is too fast to
+   watch, so stages are held on screen for a beat each. The duration printed on
+   a node is its own measured one, never the pacing.                        */
+
+const PIPE = {
+  stages: [], byName: {}, queue: [], draining: false, done: null, answer: "",
+};
+
+function nodeHTML(s, i) {
+  return `<div class="node" id="node-${s.name}" title="${esc(s.does)}">`
+       + `<div class="mod">${esc(s.module)}</div>`
+       + `<div class="nm">${esc(s.label)}</div>`
+       + `<div class="st" id="st-${s.name}">—</div></div>`
+       + (i < PIPE.stages.length - 1 ? `<div class="edge" id="edge-${i}"></div>` : "");
+}
+
+function drawFlow(stages) {
+  PIPE.stages = stages;
+  PIPE.byName = {};
+  stages.forEach((s, i) => { PIPE.byName[s.name] = i; });
+  $("flow").innerHTML = stages.map(nodeHTML).join("");
+  RIVER.pts = [];
+  drawRiver();
+  $("ladder").innerHTML = stages.filter(s => s.role === "compress").map(s =>
+    `<div class="rung" id="rung-${s.name}">`
+    + `<div class="rn">${esc(s.label)}</div>`
+    + `<div class="rr" id="rr-${s.name}">${esc(s.does)}</div>`
+    + `<div class="rd" id="rd-${s.name}"></div></div>`).join("");
+}
+
+fetch("/api/plan").then(r => r.json()).then(p => drawFlow(p.stages)).catch(() => {});
+
+const OUTCOME_WORD = {
+  applied: "fired", noop: "no change", skipped: "n/a", reverted: "gate blocked",
+  short_circuit: "answered here", error: "error", not_implemented: "not built",
+};
+
+function paintStage(ev) {
+  const node = $("node-" + ev.name);
+  if (!node) return;
+  node.classList.remove("live");
+  node.classList.add("done", ev.outcome);
+  const d = ev.after - ev.before;
+  const delta = d < 0 ? `<span class="delta">−${fmt(-d)}</span> tok` : OUTCOME_WORD[ev.outcome];
+  $("st-" + ev.name).innerHTML = `${delta} · ${ev.ms.toFixed(1)}ms`;
+  node.title = ev.rationale || ev.name;
+  riverPush(PIPE.byName[ev.name], ev.after, ev.name);
+  const rung = $("rung-" + ev.name);
+  if (rung) {
+    rung.classList.add(d < 0 ? "fired" : "declined");
+    $("rr-" + ev.name).textContent = ev.rationale || "";
+    $("rd-" + ev.name).textContent = d < 0 ? `−${fmt(-d)}` : "0";
+  }
+}
+
+/* The token river. Band thickness IS the token count at that point in the
+   pipeline, to one linear scale across the whole picture — so the step down at
+   whichever stage did the work is the compression, drawn to scale rather than
+   illustrated. Hatched area above and below is what was removed. */
+const RIVER = { pts: [], max: 1 };
+const NODE_W = 132, GAP = 26, PITCH = NODE_W + GAP;
+
+function riverReset(tokens) {
+  RIVER.pts = [{ x: 0, n: tokens, label: "written" }];
+  RIVER.max = Math.max(1, tokens);
+  drawRiver();
+}
+
+function riverPush(i, tokens, label) {
+  RIVER.pts.push({ x: NODE_W / 2 + i * PITCH, n: tokens, label });
+  drawRiver();
+}
+
+function drawRiver() {
+  const svg = $("river");
+  if (!PIPE.stages.length) return;
+  const W = PIPE.stages.length * NODE_W + (PIPE.stages.length - 1) * GAP;
+  const H = 132, mid = H / 2, maxHalf = 52;
+  svg.setAttribute("width", W);
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const pts = RIVER.pts.length ? RIVER.pts : [{ x: 0, n: 0 }];
+  const last = { x: W, n: pts[pts.length - 1].n };
+  const all = pts.concat([last]);
+  const half = (n) => (n / RIVER.max) * maxHalf;
+
+  // A stepped band: the token count is constant through a stage and changes at
+  // it, so steps are the truth and a smooth curve would not be.
+  let top = `M 0 ${mid - half(all[0].n)}`, bot = "";
+  for (let i = 1; i < all.length; i++) {
+    top += ` L ${all[i].x} ${mid - half(all[i - 1].n)} L ${all[i].x} ${mid - half(all[i].n)}`;
+  }
+  for (let i = all.length - 1; i > 0; i--) {
+    bot += ` L ${all[i].x} ${mid + half(all[i].n)} L ${all[i].x} ${mid + half(all[i - 1].n)}`;
+  }
+  bot += ` L 0 ${mid + half(all[0].n)} Z`;
+  $("river-band").setAttribute("d", top + bot);
+
+  const full = half(RIVER.max);
+  $("river-gone").setAttribute("d",
+    `M 0 ${mid - full} L ${W} ${mid - full} L ${W} ${mid + full} L 0 ${mid + full} Z`);
+
+  // Label the start, every point where the count actually changed, and the end.
+  // Twelve identical numbers in a row is noise; the two or three that differ are
+  // the whole story.
+  const marks = pts.map((p, i) => {
+    const changed = i === 0 || p.n !== pts[i - 1].n;
+    const isLast = i === pts.length - 1;
+    if (!changed && !isLast) return "";
+    const y = mid - half(p.n) - 8;
+    const drop = i > 0 && p.n < pts[i - 1].n ? pts[i - 1].n - p.n : 0;
+    const tag = drop
+      ? `<text x="${p.x}" y="${mid + half(p.n) + 16}" text-anchor="middle"`
+        + ` fill="#e06c75">−${fmt(drop)}</text>` : "";
+    return `<text x="${Math.max(2, p.x)}" y="${y}" class="${isLast ? "big" : ""}"`
+         + ` text-anchor="${i === 0 ? "start" : "middle"}">${fmt(p.n)}</text>` + tag;
+  }).join("");
+  $("river-marks").innerHTML = marks;
+  fitFlow();
+}
+
+/* Fit the whole stack into the panel. A pipeline that runs off the right edge
+   is a pipeline nobody in the back row can see. */
+function fitFlow() {
+  const wrap = $("flowwrap"), scale = $("flowscale");
+  if (!wrap || !scale || !PIPE.stages.length) return;
+  const total = PIPE.stages.length * NODE_W + (PIPE.stages.length - 1) * GAP;
+  const avail = wrap.clientWidth - 6;
+  // A hidden tab, or a layout pass before the page has been given a width,
+  // reports 0 here. Scaling by that produced a NEGATIVE factor, which flips the
+  // whole diagram inside out; leave it alone and fit on the next resize.
+  if (avail < 80) return;
+  // Shrink to fit, but never past legibility: below 0.55 the stage names stop
+  // being readable, and a diagram nobody can read is worse than one that
+  // scrolls.
+  const k = Math.max(0.55, Math.min(1, avail / total));
+  scale.style.transform = k < 1 ? `scale(${k})` : "";
+  scale.style.height = k < 1 ? (scale.scrollHeight * k) + "px" : "";
+  wrap.style.overflowX = total * k <= avail ? "hidden" : "auto";
+}
+addEventListener("resize", fitFlow);
+
+function markLive(name) {
+  const node = $("node-" + name);
+  if (node) node.classList.add("live");
+  const i = PIPE.byName[name];
+  if (i > 0) { const e = $("edge-" + (i - 1)); if (e) e.classList.add("lit"); }
+  $("pipe-phase").textContent = "running · " + name;
+}
+
+function countTo(el, target, suffix) {
+  const show = (v) => { el.textContent = suffix === "s" ? v.toFixed(1) + "s"
+                                                        : fmt(Math.round(v)); };
+  const from = parseFloat((el.textContent || "0").replace(/[^\d.]/g, "")) || 0;
+  const dur = 650;
+  // requestAnimationFrame does not run while the tab is hidden, which would
+  // leave every counter reading 0 for anyone who opened the page in a
+  // background tab and came back. The number is the point; the animation is
+  // decoration, so the number is guaranteed and the decoration is attempted.
+  if (document.hidden) { show(target); return; }
+  clearTimeout(el._safety);
+  el._safety = setTimeout(() => show(target), dur + 150);
+  const t0 = performance.now();
+  (function step(now) {
+    const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+    show(from + (target - from) * e);
+    if (k < 1) requestAnimationFrame(step);
+  })(performance.now());
+}
+
+function setRing(ratio) {
+  const C = 2 * Math.PI * 34;
+  $("ring-fg").style.strokeDashoffset = String(C * (1 - Math.max(0, Math.min(1, ratio))));
+  $("m-ratio").textContent = Math.round(ratio * 100) + "%";
+}
+
+function decisionCards(d) {
+  const cards = [];
+  const cache = d.cache.hit ? ["ok", "HIT"]
+              : d.cache.consulted ? ["no", "MISS"] : ["no", "not consulted"];
+  cards.push(card("Semantic cache", cache[1], cache[0],
+    d.cache.zone ? `zone: ${d.cache.zone}` + (d.cache.top_k.length
+      ? ` · nearest ${d.cache.top_k[0][1]}` : " · nothing similar stored yet")
+      : "nothing stored yet"));
+  cards.push(card("Route", d.route.tier, d.route.tier === "MODEL_SMALL" ? "no" : "ok",
+    d.route.tier === "DETERMINISTIC"
+      ? "answered without the model — 0 model tokens"
+      : "sent to the small model"));
+  cards.push(card("Fidelity gate", d.gate.fired ? "BLOCKED AN EDIT" : "all edits passed",
+    d.gate.fired ? "warn" : "ok",
+    d.gate.fired ? "reverted: " + d.gate.events.join(", ")
+                 : "every committed edit kept the question, the numbers and the names"));
+  if (d.tokens.budget) {
+    cards.push(card("Answer budget", d.tokens.budget + " tokens", "no",
+      `it wrote ${d.tokens.out}` + (d.timing.early_stopped ? " and stopped early" : "")));
+  }
+  if (d.kv) {
+    cards.push(card("KV cache never allocated", (d.kv.bytes_saved / 1048576).toFixed(1) + " MB",
+      "ok", d.kv.how));
+  }
+  $("decisions").innerHTML = cards.join("");
+  // The router meter needs its width set after the node exists, so it animates.
+  const comp = (d.stages.find(s => s.name === "m6b_router") || {}).evidence;
+  if (comp && comp.complexity != null) {
+    const el = document.getElementById("router-meter");
+    if (el) requestAnimationFrame(() => {
+      el.querySelector("i").style.width = Math.min(100, comp.complexity * 100 / 0.5) + "%";
+      el.querySelector("b").style.left = Math.min(100, comp.threshold * 100 / 0.5) + "%";
+    });
+  }
+}
+
+function card(title, value, cls, why) {
+  const meter = title === "Route"
+    ? '<div class="meter" id="router-meter"><i></i><b></b></div>' : "";
+  return `<div class="dcard"><div class="dh"><span class="dt">${esc(title)}</span>`
+       + `<span class="dv ${cls}">${esc(String(value))}</span></div>`
+       + `<div class="dw">${esc(why)}</div>${meter}</div>`;
+}
+
+function drain() {
+  if (PIPE.draining) return;
+  PIPE.draining = true;
+  const pace = parseInt($("pace").value, 10);
+  (function next() {
+    if (!PIPE.queue.length) {
+      PIPE.draining = false;
+      if (PIPE.done) finishPipe(PIPE.done);
+      return;
+    }
+    const ev = PIPE.queue.shift();
+    markLive(ev.name);
+    if (pace === 0) { paintStage(ev); next(); return; }
+    setTimeout(() => { paintStage(ev); setTimeout(next, pace * 0.25); }, pace * 0.75);
+  })();
+}
+
+function finishPipe(d) {
+  PIPE.done = null;
+  $("pipe-phase").textContent = "done";
+  const last = $("edge-" + (PIPE.stages.length - 2));
+  if (last) last.classList.add("lit");
+  countTo($("m-before"), d.tokens.original);
+  countTo($("m-after"), d.tokens.final);
+  countTo($("m-removed"), d.tokens.removed);
+  setRing(d.tokens.ratio);
+  countTo($("m-saved"), d.timing.saved_s, "s");
+  $("m-saved-k").textContent = d.timing.timed_here
+    ? "prefill not spent (measured here)" : "prefill not spent (estimated rate)";
+  decisionCards(d);
+  $("answer-tok").textContent = `${d.tokens.out} tokens`;
+  const t = d.timing;
+  $("pipe-timing").textContent =
+    `Middleware took ${t.middleware_ms.toFixed(0)} ms and saved `
+    + `${t.saved_s.toFixed(1)} s of prefill at ${t.ms_per_token.toFixed(1)} ms/token`
+    + (t.timed_here ? ", measured on this machine."
+       : t.reused ? " — but the runtime reused an earlier prompt, so that rate is not cold."
+       : " — the model is simulated, so that rate is the project's recorded figure.");
+  refreshSession();
+}
+
+$("pipe-sample").onclick = async () => {
+  try {
+    const s = await (await fetch("/api/sample")).json();
+    $("pipe-text").value = s.text;
+    $("pipe-ctx-size").textContent = Math.round(s.text.length / 1024) + " KB attached";
+    $("pipe-ctx-wrap").open = false;
+    if (!$("pq").value.trim()) $("pq").value = s.question;
+  } catch (e) { $("pipe-err").textContent = "no sample document on this machine"; }
+};
+$("pipe-text").addEventListener("input", () => {
+  const n = $("pipe-text").value.length;
+  $("pipe-ctx-size").textContent = n ? Math.round(n / 1024) + " KB attached" : "nothing yet";
+});
+
+$("run-pipe").onclick = () => {
+  const question = $("pq").value.trim();
+  $("pipe-err").textContent = "";
+  if (!question) { $("pipe-err").textContent = "ask something first"; return; }
+  PIPE.queue = []; PIPE.done = null; PIPE.answer = "";
+  $("pipe-answer").innerHTML = '<span class="cursor"></span>';
+  $("pipe-prompt").textContent = "—";
+  $("prompt-tok").textContent = ""; $("answer-tok").textContent = "";
+  $("pipe-timing").textContent = "";
+  $("decisions").innerHTML = "";
+  drawFlow(PIPE.stages);
+  $("pipe-phase").textContent = "starting";
+  $("run-pipe").disabled = true;
+  $("run-pipe").innerHTML = '<span class="spinner"></span>running';
+  const pace = parseInt($("pace").value, 10);
+  $("pace-note").textContent = pace
+    ? "stages held " + pace + "ms each so they can be read — the ms on each node is its own measured time"
+    : "unpaced: the whole middleware really is this fast";
+
+  const url = "/api/pipeline?question=" + encodeURIComponent(question)
+            + "&text=" + encodeURIComponent($("pipe-text").value);
+  const es = new EventSource(url);
+
+  es.addEventListener("plan", e => drawFlow(JSON.parse(e.data).stages));
+  es.addEventListener("begin", e => {
+    const d = JSON.parse(e.data);
+    countTo($("m-before"), d.tokens);
+    riverReset(d.tokens);
+    $("pipe-phase").textContent = `${fmt(d.tokens)} tokens in, `
+      + `${d.documents} document${d.documents === 1 ? "" : "s"}`;
+  });
+  es.addEventListener("stage", e => { PIPE.queue.push(JSON.parse(e.data)); drain(); });
+  es.addEventListener("prompt", e => {
+    const d = JSON.parse(e.data);
+    $("pipe-prompt").textContent = d.text;
+    $("prompt-tok").textContent = fmt(d.tokens) + " tokens";
+  });
+  es.addEventListener("token", e => {
+    PIPE.answer += JSON.parse(e.data).text;
+    $("pipe-answer").innerHTML = esc(PIPE.answer) + '<span class="cursor"></span>';
+  });
+  es.addEventListener("done", e => {
+    const d = JSON.parse(e.data);
+    $("pipe-answer").textContent = d.answer || PIPE.answer;
+    PIPE.done = d;
+    if (!PIPE.draining) finishPipe(d);
+    stop();
+  });
+  es.addEventListener("failed", e => {
+    $("pipe-err").textContent = JSON.parse(e.data).error;
+    $("pipe-phase").textContent = "failed"; stop();
+  });
+  es.onerror = () => stop();
+
+  function stop() {
+    es.close();
+    $("run-pipe").disabled = false; $("run-pipe").textContent = "Run";
+  }
+};
 
 /* ── heatmap ──────────────────────────────────────────────────────── */
 const SAMPLE_Q = "What is the annual travel budget for the Tallinn office?";

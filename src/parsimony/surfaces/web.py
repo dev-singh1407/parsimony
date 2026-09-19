@@ -3,9 +3,18 @@
 Served from the standard library, deliberately. A dashboard framework would
 add a hundred megabytes of dependencies to a project whose whole claim is that
 it runs on an ordinary laptop with no GPU and no network, and this page has to
-work in a room with the wifi off. Three views, all reading the same pipeline
+work in a room with the wifi off. Four views, all reading the same pipeline
 the terminal uses:
 
+  Pipeline  the request crossing all eleven stages, drawn as the orchestrator
+            commits each one: a token river whose thickness IS the prompt size,
+            so the step down at whichever stage did the work is the compression
+            drawn to scale; the M1 tier ladder showing which tier fired and why
+            the others declined; and the routing, cache and gate decisions with
+            the numbers that produced them. The only invented thing on it is the
+            pacing -- the middleware takes ~100 ms, which is too fast to watch,
+            so stages are held on screen for a beat. Every duration printed is
+            the stage's own measured one.
   Heatmap   paste or upload a document, ask a question, and see every sentence
             shaded by the score the encoder gave it, with the decision beside
             it. This is the encoder's judgement made visible -- including where
@@ -142,6 +151,156 @@ class Visualiser:
             ],
         }
 
+    # -- the pipeline, stage by stage ------------------------------------
+
+    #: What each stage is, in words a reader who has never seen the code can use.
+    #: `role` groups them on the graph; `does` is the one-line claim the node makes
+    #: before it has run, so the picture is legible while it is still empty.
+    STAGE_LABELS = {
+        "m6a_deterministic": ("Deterministic router", "route",
+                              "Answer without the model where arithmetic or a lookup will do"),
+        "m2_cache": ("Semantic cache", "reuse",
+                     "Has this been asked before, closely enough to reuse the answer?"),
+        "m3_history": ("History selector", "history",
+                       "Which earlier turns does this question actually need?"),
+        "m3_arrange": ("History arranger", "history",
+                       "Order the surviving turns so the prompt prefix stays stable"),
+        "m1_context": ("Context compressor", "compress",
+                       "Keep only the sentences of the documents this question needs"),
+        "m1_tier1": ("Tier 1 — normalise", "compress",
+                     "Lossless: collapse whitespace, strip boilerplate"),
+        "m1_tier2": ("Tier 2 — deduplicate", "compress",
+                     "Drop sentences that restate one already kept"),
+        "m1_tier3": ("Tier 3 — rewrite", "compress",
+                     "Shorten phrasing, and reject any edit that costs more than it saves"),
+        "m4_assembler": ("Prefix-stable assembler", "assemble",
+                         "Pin invariants to the prompt head so the KV cache survives"),
+        "m5_budgeter": ("Output budgeter", "budget",
+                        "Classify the answer and cap how long it may run"),
+        "m6b_router": ("Escalation router", "route",
+                       "Is this complex enough to deserve a larger model?"),
+    }
+
+    def plan(self, cfg: ParsimonyConfig) -> list[dict]:
+        from parsimony.pipeline.orchestrator import Pipeline
+
+        pipe = Pipeline(cfg, provider=self.provider)
+        out = []
+        for planned in pipe.registry.ordered(cfg):
+            stage = getattr(planned, "stage", planned)
+            name = getattr(stage, "name", "")
+            label, role, does = self.STAGE_LABELS.get(
+                name, (name.replace("_", " "), "other", ""))
+            out.append({"name": name, "module": getattr(stage, "module_id", ""),
+                        "label": label, "role": role, "does": does})
+        return out
+
+    @staticmethod
+    def _trim(evidence) -> dict:
+        """Evidence is for reading, so keep it small and JSON-safe."""
+        small = {}
+        for key, value in dict(evidence or {}).items():
+            if isinstance(value, (int, float, bool)) or value is None:
+                small[key] = value
+            elif isinstance(value, str):
+                small[key] = value[:200]
+            elif isinstance(value, (list, tuple)):
+                small[key] = [str(v)[:80] for v in list(value)[:6]]
+            else:
+                small[key] = str(value)[:120]
+        return small
+
+    def run_pipeline(self, question: str, text: str, emit, *, name: str = "pasted text",
+                     history=()) -> dict:
+        """One request, reported stage by stage as the orchestrator commits each."""
+        from parsimony.infra.providers import kv_bytes_per_token
+        from parsimony.pipeline.orchestrator import Pipeline
+        from parsimony.surfaces.cli.live import LiveTurn
+
+        documents = split_into_documents(text, name) if text.strip() else ()
+        cfg = self.cfg
+        pipe = Pipeline(cfg, provider=self.provider, capture_text=True)
+        stages = self.plan(cfg)
+        view = LiveTurn(question, [s["name"] for s in stages], cfg=cfg, cache=pipe.cache,
+                        simulated=self.simulated)
+        emit("plan", {"stages": stages, "question": question,
+                      "model": self.provider.model_name, "simulated": self.simulated,
+                      "encoder": cfg.embedder_id})
+        started = time.perf_counter()
+        seen: list[dict] = []
+
+        class _Observer:
+            def begin(self, ctx, tokens_original):
+                view.begin(ctx, tokens_original)
+                emit("begin", {"tokens": tokens_original,
+                               "documents": len(getattr(ctx, "documents", ()) or ()),
+                               "history_turns": len(getattr(ctx, "history", ()) or ())})
+
+            def stage(self, trace):
+                view.stage(trace)
+                payload = {
+                    "name": trace.name, "module": trace.module_id,
+                    "outcome": trace.outcome.value,
+                    "before": trace.tokens_before, "after": trace.tokens_after,
+                    "ms": trace.duration_ns / 1e6, "rationale": trace.rationale,
+                    "evidence": Visualiser._trim(trace.evidence),
+                    "gate_events": [g.invariant_class for g in trace.gate_events],
+                }
+                seen.append(payload)
+                emit("stage", payload)
+
+            def prompt(self, text_, tokens):
+                view.prompt(text_, tokens)
+                emit("prompt", {"tokens": tokens, "text": text_[:4000]})
+
+            def token(self, event):
+                view.token(event)
+                emit("token", {"n": len(view.pieces), "text": event.text,
+                               "t": time.perf_counter() - started})
+
+            def stopped(self, reason):
+                view.stopped(reason)
+                emit("stopped", {"reason": str(reason)})
+
+            def generated(self, stats):
+                view.generated(stats)
+
+        outcome = pipe.run(question, history, documents=documents, observer=_Observer())
+        row = outcome.row
+        prefill = view.reading_seconds or 0.0
+        rate = view.ms_per_token
+        timed_here = not (self.simulated or view.reused_earlier_work) and bool(prefill)
+        self.totals.record(written=row.tokens_in_original, sent=row.tokens_in_final,
+                           prefill_s=prefill, rate_ms=rate, timed_here=timed_here)
+        kv = kv_bytes_per_token(self.provider)
+        removed = max(0, row.tokens_in_original - row.tokens_in_final)
+        summary = {
+            "answer": outcome.response.strip(),
+            "tokens": {"original": row.tokens_in_original, "final": row.tokens_in_final,
+                       "removed": removed, "out": len(view.pieces),
+                       "budget": row.tokens_out_budget,
+                       "ratio": (row.tokens_in_final / row.tokens_in_original)
+                       if row.tokens_in_original else 1.0},
+            "route": {"tier": row.route_tier, "served_by": outcome.served_by},
+            "cache": {"consulted": row.cache_consulted, "hit": row.cache_hit,
+                      "zone": row.cache_zone,
+                      "top_k": [[k, round(v, 3)] for k, v in (row.cache_top_k or ())][:3]},
+            "gate": {"fired": row.gate_fired,
+                     "events": [g.invariant_class for g in (row.gate_events or ())]},
+            "timing": {"middleware_ms": row.middleware_ns / 1e6,
+                       "prefill_s": prefill, "ms_per_token": rate,
+                       "timed_here": timed_here,
+                       "reused": view.reused_earlier_work,
+                       "saved_s": removed * rate / 1000.0,
+                       "early_stopped": row.early_stopped},
+            "kv": ({"per_token": kv[0], "how": kv[1],
+                    "bytes_saved": kv[0] * removed} if kv else None),
+            "session": self.totals.snapshot(),
+            "stages": seen,
+        }
+        emit("done", summary)
+        return summary
+
     # -- A/B -------------------------------------------------------------
 
     def warm_up(self) -> bool:
@@ -272,6 +431,10 @@ def make_handler(vis: Visualiser):
             elif route.path == "/api/state":
                 self._json({"model": vis.provider.model_name, "simulated": vis.simulated,
                             "encoder": vis.cfg.embedder_id})
+            elif route.path == "/api/plan":
+                self._json({"stages": vis.plan(vis.cfg)})
+            elif route.path == "/api/pipeline":
+                self._stream(parse_qs(route.query), vis.run_pipeline)
             elif route.path == "/api/race":
                 self._race(parse_qs(route.query))
             else:
@@ -292,6 +455,34 @@ def make_handler(vis: Visualiser):
                     self._json({"error": f"{type(exc).__name__}: {exc}"}, 500)
             else:
                 self._json({"error": "not found"}, 404)
+
+        def _sse_open(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Connection", "close")
+            self.end_headers()
+
+            def emit(event: str, data: dict) -> None:
+                self.wfile.write(
+                    f"event: {event}\ndata: {json.dumps(data)}\n\n".encode("utf-8"))
+                self.wfile.flush()
+
+            return emit
+
+        def _stream(self, query: dict, fn) -> None:
+            """Run one streaming job, reporting a failure to the page rather than
+            dropping the connection and leaving a graph frozen mid-animation."""
+            question = (query.get("question", [""])[0]).strip()
+            text = query.get("text", [""])[0]
+            if not question:
+                self._json({"error": "a question is required"}, 400)
+                return
+            emit = self._sse_open()
+            try:
+                fn(question, text, emit)
+            except Exception as exc:
+                emit("failed", {"error": f"{type(exc).__name__}: {exc}"})
 
         def _race(self, query: dict) -> None:
             question = (query.get("question", [""])[0]).strip()
