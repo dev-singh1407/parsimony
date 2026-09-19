@@ -24,7 +24,9 @@ from parsimony.eval.longctx import (
     run_offline,
 )
 from parsimony.eval.stats import mcnemar_exact, wilson_interval
+from parsimony.infra.providers import MockProvider
 from parsimony.modules.m1_context import ContextCompressor, ranking_terms
+from parsimony.pipeline.orchestrator import Pipeline
 from parsimony.modules.m8_fidelity import is_sentence_extract
 
 ITEMS = {i.item_id: i for i in load_longctx()}
@@ -243,7 +245,7 @@ class TestDocumentsThroughThePipeline:
 class TestLongContextBenchmark:
     def test_corpus_shape(self):
         items = list(ITEMS.values())
-        assert len(items) == 105
+        assert len(items) == 124
         assert sum(i.split == "test" for i in items) == 45
         # A second held-out split, authored before any change made in response
         # to the first real-model run, so a later improvement can be confirmed
@@ -252,8 +254,13 @@ class TestLongContextBenchmark:
         # And questions the documents cannot answer at all (ADR-042).
         assert sum(i.split == "offtopic" for i in items) == 12
         assert sum(i.split == "offtopic_dev" for i in items) == 8
+        # Questions whose answer sentence never names the entity its heading
+        # names, and the same facts asked in paraphrase (ADR-044). Both are
+        # probes: reported on their own, never added to a headline.
+        assert sum(i.split == "sections" for i in items) == 13
+        assert sum(i.split == "sections2" for i in items) == 6
         assert {i.kind for i in items} == {"lookup", "distractor", "anaphora", "negation",
-                                           "two_hop", "off_topic"}
+                                           "two_hop", "off_topic", "section", "paraphrase"}
         for i in items:
             assert len(i.documents) == 6
             assert evidence_kept(i, i.documents) == (len(i.evidence), len(i.evidence))
@@ -280,15 +287,24 @@ class TestLongContextBenchmark:
         by_split: dict[str, set[str]] = {}
         for item in ITEMS.values():
             by_split.setdefault(item.split, set()).add(item.collection)
-        assert set(by_split) == {"dev", "test", "test2", "offtopic", "offtopic_dev"}
+        assert set(by_split) == {"dev", "test", "test2", "offtopic", "offtopic_dev",
+                                 "sections", "sections2"}
         answerable = [c for split in ("dev", "test", "test2") for c in by_split[split]]
         assert len(answerable) == len(set(answerable))
-        # The two off-topic splits do share collections -- what is tuned there
-        # is a property of the QUESTION (how much of it the context contains),
-        # so the documents carry no signal to leak. The questions themselves
-        # are all distinct.
-        questions = [i.question for i in ITEMS.values() if i.split.startswith("offtopic")]
+        # The phenomenon splits deliberately reuse those collections. What each
+        # measures is a property of the QUESTION -- how much of it the context
+        # contains (offtopic), or whether it uses the documents' own vocabulary
+        # (sections, sections2) -- so the documents carry no signal to leak.
+        # They are reported separately and never folded into a headline, because
+        # a split authored to contain a phenomenon can only demonstrate it.
+        probes = [i for i in ITEMS.values()
+                  if i.split.startswith(("offtopic", "sections"))]
+        questions = [i.question for i in probes]
         assert len(questions) == len(set(questions))
+        # No probe may restate a question the reported splits already ask.
+        reported = {i.question for i in ITEMS.values()
+                    if i.split in ("dev", "test", "test2")}
+        assert not (set(questions) & reported)
 
     def test_baselines_respect_the_matched_budget(self, tok):
         m = Methods(tokenizer=tok)
@@ -432,3 +448,68 @@ class TestNothingRelevantIsNotKeptAnyway:
             complete = sum(evidence_kept(i, methods.parsimony(i).documents)[0]
                            == len(i.evidence) for i in items)
             assert complete / len(items) > 0.85
+
+
+class TestSectionAnchors:
+    """A sentence under "Porto office" is about Porto whether or not it says so.
+
+    The failure this pins was a confident wrong answer, not a refusal: asked who
+    manages the Porto office, the model named the LEEDS manager, because the
+    sentence introducing her is the one that spells "Porto" (ADR-044).
+    """
+
+    HANDBOOK = "examples/staff-handbook.md"
+
+    def _audit(self, question, *, sections, tok):
+        from dataclasses import replace
+        from pathlib import Path
+
+        from parsimony.core.types import split_into_documents
+        from parsimony.modules.m1_context import audit
+
+        text = (Path(__file__).resolve().parents[2] / self.HANDBOOK).read_text(encoding="utf-8")
+        docs = split_into_documents(text, "staff-handbook.md")
+        cfg = full_stack()
+        cfg = replace(cfg, compression=replace(cfg.compression,
+                                               context_section_anchors=sections))
+        pipe = Pipeline(cfg, provider=MockProvider(), tokenizer=tok)
+        return audit(pipe.build_context(question, documents=docs), cfg)
+
+    def test_a_paraphrased_question_still_reaches_the_answer(self, tok):
+        report = self._audit("Who manages the Porto office?", sections=True, tok=tok)
+        answer = next(u for u in report.units if "Aguiar" in u.text)
+        assert answer.kept, "the sentence naming the Porto manager must survive"
+
+    def test_without_it_the_distractor_outranks_the_answer(self, tok):
+        """The bug, pinned. If this ever passes, the flag has stopped mattering."""
+        report = self._audit("Who manages the Porto office?", sections=False, tok=tok)
+        answer = next(u for u in report.units if "Aguiar" in u.text)
+        leeds = next(u for u in report.units if "Priya" in u.text)
+        assert not answer.kept and leeds.kept
+        assert leeds.score > answer.score
+
+    def test_an_anchor_is_inherited_only_inside_its_own_section(self, tok):
+        report = self._audit("Who manages the Porto office?", sections=True, tok=tok)
+        porto = [u for u in report.units if u.source_label == "Porto office"]
+        assert porto, "the handbook must still be split into titled sections"
+        # Sections the question does not name must not all become anchored.
+        tallinn = [u for u in report.units if u.source_label == "Tallinn office"]
+        assert not all(u.tag == "ANCHOR" for u in tallinn)
+
+    def test_it_changes_nothing_when_no_heading_names_an_anchor(self, tok):
+        from parsimony.core.types import split_into_documents
+
+        text = ("# Notes\n\nThe deadline is 15 March. Tallinn is cold in winter. "
+                "The team is small. Coffee is provided.\n")
+        docs = split_into_documents(text, "notes.md")
+        from parsimony.modules.m1_context import audit
+
+        seen = []
+        for on in (False, True):
+            cfg = full_stack()
+            cfg = replace(cfg, compression=replace(cfg.compression,
+                                                   context_section_anchors=on))
+            pipe = Pipeline(cfg, provider=MockProvider(), tokenizer=tok)
+            report = audit(pipe.build_context("When is the deadline?", documents=docs), cfg)
+            seen.append([(u.text, u.kept) for u in report.units])
+        assert seen[0] == seen[1]

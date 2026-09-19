@@ -1847,3 +1847,90 @@ project's own thesis, arriving as a bug.
 - `parsimony followups` runs it; the model-free half (does the fact survive) regenerates in `reproduce.py`
   and needs no model.
 - The context tier now applies to conversations as well as documents, with the caveat above.
+
+---
+
+### ADR-044 — The visualiser found a confabulation the benchmark could not see
+
+**Status.** Accepted, 19 September 2026. Amends M1's context tier (ADR-040). Found by looking at the
+heatmap built the same day, which is the whole argument for having built it.
+
+**Context — the failure, exactly as it appeared.** Asked *"Who manages the Porto office?"* of the staff
+handbook, the compressed prompt kept
+
+> The **Leeds** site manager is Priya Raman, who joined from the **Porto** office in 2021.  *(0.674, kept)*
+
+and dropped
+
+> The site manager is Tomás Aguiar.  *(0.080, below the relevance floor)*
+
+The second sentence is the answer. It sits under the heading **Porto office** and never says "Porto", so
+BM25 sees a short sentence with no query terms in it; the first says "Porto" while being about Leeds. The
+model answered **"The Porto office is managed by Priya Raman"** — fluent, confident, wrong. That is the
+failure mode that matters: not a refusal, a confabulation, and one a user cannot detect without the
+document in front of them. The heatmap showed the wrong sentence lit and the right one struck through.
+
+**Hypothesis.** A section heading names its sentences' subject once, for all of them. The tier already
+inherits anchors by adjacency, but only for sentences that *open* dependently ("It employs 58 people");
+"The site manager is Tomás Aguiar" reads as dependent to a person and as unrelated to BM25. So: let a
+sentence inherit any anchor named in its own section's title. One flag, `context_section_anchors`, default
+off until measured.
+
+**Measured on every split, `qwen2.5:1.5b-instruct`, each arm with its own nonce.**
+
+| split | authored | shipped | + section anchors | discordant | ctx tokens |
+|---|---|---|---|---|---|
+| dev (10) | before any result | 10/10 | 10/10 | 0 – 0 | +5.4% |
+| test (45) | before any result | 39/45 — 86.7% | 39/45 — 86.7% | 0 – 0 | +2.3% |
+| **test2 (30)** | **before any of this** | **25/30 — 83.3%** | **26/30 — 86.7%** | **1 – 0** | **−0.4%** |
+| sections (13) | for this ADR | 13/13 | 13/13 | 0 – 0 | +12% |
+| sections2 (6) | for this ADR, after diagnosis | 4/6 | 6/6 | 2 – 0 | +7% |
+
+**Across 85 items nothing was authored for, one answer changed, and it changed the right way.** On
+`ashgrove_q3` — *"Which club is not free?"* — the shipped selector produced *"The robotics club is not
+free. It charges £120 per term to cover coaching and boat hire."* The boat hire gives it away: the
+sentences were about rowing and the attribution was lost. With section anchors, at the **same 119 context
+tokens**, the answer is "The rowing club". Nothing regressed on any split.
+
+**Two things this study got wrong, recorded because they were nearly missed.**
+
+*The phenomenon split I authored first was too easy, by accident.* Thirteen items whose answer sentence
+never names its own heading's entity — and the shipped selector scored 13/13 on them. The reason is that I
+had phrased the questions with the documents' own nouns:
+
+| question | "The site manager is Tomás Aguiar" scores | kept |
+|---|---|---|
+| Who is the **site manager** of the Porto office? | 0.46 | yes |
+| Who **manages** the Porto office? | 0.10 | no |
+
+The vocabulary decides it, not the structure. The hypothesis as stated — *section attribution* — was
+falsified by the split written to demonstrate it; what actually breaks is **paraphrase**. `sections2` asks
+the same facts in the words a person would use, and there the shipped selector loses 2 of 6 to
+confabulation: *"managed by Priya Raman"*, and *"approximately 100 miles"* for a van the corpus only ever
+describes as 205.
+
+*One apparent win on test2 was the grader being fooled, and is excluded above.* On `lumen_q2` both arms
+answered *"Yes… and it does cost extra"* — both wrong — but the shipped arm hit the 64-token cap
+mid-sentence while the other ran on to contradict itself with "at no additional cost", which the
+substring rule accepted. Counting it would have made the headline 2 – 0 instead of 1 – 0. **A grader that
+scores on a substring can be satisfied by a sentence that the rest of the answer contradicts, and a
+generation cap makes the two arms unequal in how much rope they get.** Recorded as a limitation of the
+metric, not fixed here.
+
+**Decision.** Ship it on: `context_section_anchors = True`.
+
+- It never loses: 0 regressions across 104 items on five splits.
+- It gains one answer on `test2`, which nothing here was tuned or authored against, and two on the probe.
+- It costs +2.3% context tokens on test and −0.4% on test2, against a tier that removes ~79%.
+
+**The evidence is thinner than ADR-040's and is stated as such.** One discordant pair is p = 1.00 by exact
+McNemar; this ships on a demonstrated confabulation, a measured absence of harm across five splits, and a
+single independent gain — not on statistical significance, which 30 items and one flipped answer cannot
+provide. The contrast with ADR-040 is the point: there, two equally plausible improvements *lost* a point
+on untouched data and were switched off. The rule is not "ship what sounds right", it is "measure, then
+let the measurement decide" — and a measurement that says "no harm, one gain" decides differently from one
+that says "worse".
+
+**What would settle it.** A corpus authored before any of this existed, asking its questions in paraphrase
+rather than in the documents' own vocabulary. `context_section_anchors=False` restores the previous
+behaviour exactly, and `parsimony_sections` is a standing arm of the long-context study.

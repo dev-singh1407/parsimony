@@ -288,9 +288,20 @@ def select(query: str, units: list[Unit], cfg: ParsimonyConfig,
     # inherits its predecessor's mentions -- lets "How many people does the
     # Tallinn office employ?" find it, where string matching never could.
     anchors = anchor_values(query)
+    # A section heading names its sentences' subject once, for all of them.
+    # Adjacency inheritance below only rescues sentences that OPEN dependently
+    # ("It employs 58 people"); a plain "The site manager is Tomas Aguiar" under
+    # "Porto office" reads as dependent to a person and as unrelated to BM25.
+    by_title: dict[tuple[str, int], list[str]] = {}
+    if c.context_section_anchors and titles:
+        for source, title in titles.items():
+            if title:
+                by_title[source] = [a for a in anchors if _mentions(a, title)]
     mentions: list[list[str]] = []
     for i, u in enumerate(units):
         hits = [a for a in anchors if _mentions(a, u.text)]
+        if not hits:
+            hits = list(by_title.get(u.source, ()))
         if (not hits and i > 0 and _DEPENDENT_OPENING.match(u.text)
                 and units[i - 1].source == u.source):
             hits = list(mentions[i - 1])

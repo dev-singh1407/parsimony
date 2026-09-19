@@ -253,6 +253,10 @@ def ablations(cfg: ParsimonyConfig) -> dict[str, ParsimonyConfig]:
         "neural": neural(cfg),
         "no_anchors": replace(cfg, compression=replace(
             c, context_anchor_guarantee=False, context_anchor_bonus=0.0)),
+        # Anchors inherited from the section heading (ADR-044). The visualiser
+        # showed the selector keeping "The LEEDS site manager ... from the PORTO
+        # office" over "The site manager is Tomas Aguiar" under "Porto office".
+        "sections": replace(cfg, compression=replace(c, context_section_anchors=True)),
         "no_closure": replace(cfg, compression=replace(c, context_closure_depth=0)),
         "no_doc_prior": replace(cfg, compression=replace(c, context_doc_weight=0.0)),
         "no_mmr": replace(cfg, compression=replace(c, context_mmr_lambda=1.0)),

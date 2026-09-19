@@ -115,6 +115,20 @@ class CompressionConfig:
     context_topic_floor: float = 0.5        # fraction of the question's terms present
     context_topic_cosine: float = 0.35      # best sentence cosine, when an encoder is used
     context_anchor_bonus: float = 0.5
+    # A sentence under the heading "Porto office" is about Porto whether or not
+    # it says so. Without this, "Who manages the Porto office?" keeps "The LEEDS
+    # site manager is Priya Raman, who joined from the PORTO office" at 0.67 --
+    # it spells the anchor -- and drops "The site manager is Tomas Aguiar" at
+    # 0.08, which is the answer. The model then names the wrong person, fluently.
+    # Found by the visualiser's heatmap, which showed the wrong sentence lit.
+    # ON by measurement, not by the plausibility of that story -- the title
+    # weight above it was just as plausible and lost a point. Across 104 items
+    # on five splits this regresses nothing, gains one answer on test2 (which
+    # nothing was tuned or authored against) and two on a paraphrase probe, for
+    # +2.3% context tokens on test and -0.4% on test2. ADR-044 has the tables,
+    # including the apparent third gain that turned out to be the grader being
+    # fooled. False restores the previous behaviour exactly.
+    context_section_anchors: bool = True
     # Keep the best sentence for every name the question mentions. A switch
     # only so the ablation can measure what the guarantee is worth.
     context_anchor_guarantee: bool = True

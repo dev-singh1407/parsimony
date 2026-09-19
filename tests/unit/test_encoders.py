@@ -181,24 +181,50 @@ class TestTheBenchmarkHarnessHonoursTheEncoder:
     """
 
     def test_the_two_encoders_select_different_sentences(self):
+        """Asserted over the corpus, not one item.
+
+        It was one item, until section anchors (ADR-044) made the two encoders
+        agree on exactly that item. A regression test that can be satisfied by
+        a single question is a test of that question.
+        """
         from parsimony.eval.longctx import Methods, load_longctx
 
-        items = {i.item_id: i for i in load_longctx()}
         methods = Methods()
-        item = items["orrin_q1"]
-        lexical = methods.parsimony(item, full_stack())
-        neural_pick = methods.parsimony(item, neural())
-        assert lexical.documents != neural_pick.documents
+        items = list(load_longctx())
+        differ = sum(methods.parsimony(i, full_stack()).documents
+                     != methods.parsimony(i, neural()).documents for i in items)
+        assert differ > len(items) // 2, (
+            f"only {differ}/{len(items)} items differ between encoders -- the neural arm "
+            "is probably scoring with the lexical encoder's cached vectors again")
 
     def test_the_neural_arm_keeps_the_answer_sentence_the_lexical_one_loses(self):
-        """'daily dose' against 'once a day' -- ADR-040's named failure."""
+        """'daily dose' against 'once a day' -- ADR-040's named failure.
+
+        Section anchors now rescue this item for the lexical encoder too: the
+        question names OB-114, and the sentence sits under the heading "Trial
+        OB-114: velastrin", so it inherits the anchor it never spells. The
+        encoder gap ADR-040 measured is therefore pinned in the configuration
+        ADR-040 measured it in, and the rescue is pinned beside it -- both are
+        facts, and dropping either would let a real regression through.
+        """
+        from dataclasses import replace
+
         from parsimony.eval.longctx import Methods, evidence_kept, load_longctx
 
         items = {i.item_id: i for i in load_longctx()}
         methods = Methods()
         item = items["orrin_q1"]
-        assert evidence_kept(item, methods.parsimony(item, full_stack()).documents)[0] == 0
-        assert evidence_kept(item, methods.parsimony(item, neural()).documents)[0] == 1
+
+        def without_sections(cfg):
+            return replace(cfg, compression=replace(cfg.compression,
+                                                    context_section_anchors=False))
+
+        assert evidence_kept(
+            item, methods.parsimony(item, without_sections(full_stack())).documents)[0] == 0
+        assert evidence_kept(
+            item, methods.parsimony(item, without_sections(neural())).documents)[0] == 1
+        # And with section anchors on, the lexical encoder no longer loses it.
+        assert evidence_kept(item, methods.parsimony(item, full_stack()).documents)[0] == 1
 
 
 class TestTheChoiceIsGlobal:

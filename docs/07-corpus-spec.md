@@ -168,3 +168,28 @@ re-run affected cells, and report both. Never edit in place.
 | 31 Aug → 13 Sep | Scale to 150; write the 40 gold answers; cross-review; **freeze** |
 
 The gold answers land before Sprint 4, which is before any results exist to be tempted by.
+
+---
+
+## 7. `longctx_items.jsonl` — the splits, and what each may be used for
+
+Added after the long-context corpus was built (ADR-040), and listed here because the rule attached to each
+split matters more than its contents.
+
+| split | n | authored | may be used to |
+|---|---|---|---|
+| `dev` | 10 | before any result | tune thresholds |
+| `test` | 45 | before any result | report |
+| `test2` | 30 | after the first run, before the changes it judges | confirm, once |
+| `offtopic` / `offtopic_dev` | 12 / 8 | for ADR-042, to contain a named phenomenon | measure that phenomenon only |
+| `sections` | 13 | for ADR-044, to contain a named phenomenon | measure that phenomenon only |
+| `sections2` | 6 | for ADR-044, **after** diagnosing the mechanism | demonstrate it; never confirm |
+
+The last row carries the weakest evidence in the project and is labelled so wherever it appears. Items
+written after you know what mechanism you are looking for can show that a change does what you designed it
+to do; they cannot tell you whether that was worth doing. Only `test` and `test2` can, and only once each.
+
+**Authoring rule for a phenomenon split.** Build it from documents already in `longctx_docs.jsonl` and lift
+the evidence strings out of them verbatim — a retyped sentence that no longer matches scores as a loss and
+looks like a finding. `sections` asserts, per item, that the answer sentence does not contain the entity
+its own heading names; without that assertion the split does not test what its name claims.
