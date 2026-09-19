@@ -425,3 +425,71 @@ class TestPii:
     def test_leaves_ordinary_text_untouched(self):
         text = "the capital of France is Paris"
         assert RegexPiiDetector().redact(text) == text
+
+
+class TestTheDateIsAnsweredByTheProcessNotTheModel:
+    """qwen2.5-1.5b has no clock, and does not say so.
+
+    Asked "What is the date today?" it answers "Today's date is [insert current
+    date here]." -- not a refusal a reader can spot at a glance, but a sentence
+    shaped like an answer with a hole in it. The host knows the date exactly, so
+    tier 0 answers it and the model is never asked (ADR-016 puts this tier
+    before the cache, which matters twice here: a cached date is wrong the next
+    morning).
+    """
+
+    @pytest.mark.parametrize("question", [
+        "What is the date today?",
+        "What's today's date?",
+        "whats todays date",
+        "What is the date?",
+        "What day is it?",
+        "What day is it today?",
+        "what is the current date",
+        "what day of the week is it",
+        "Tell me the date",
+    ])
+    def test_it_answers_exactly(self, question):
+        from datetime import date
+
+        from parsimony.modules.m6_router import solve
+
+        result = solve(question)
+        assert result is not None, f"{question!r} still goes to the model"
+        answer, handler = result
+        assert handler == "today"
+        assert date.today().isoformat() in answer
+        assert date.today().strftime("%A") in answer
+
+    @pytest.mark.parametrize("question", [
+        "What is the deadline date?",
+        "When was the Porto office founded?",
+        "What date was it?",
+        "What is the date of the Porto acquisition?",
+        "What day does the festival start?",
+        "Will the date change?",
+        "What is the date of birth on the form?",
+    ])
+    def test_it_leaves_alone_anything_that_is_not_about_today(self, question):
+        """A question mentioning a date is not a question asking for today's."""
+        from parsimony.modules.m6_router import solve
+
+        result = solve(question)
+        assert result is None or result[1] != "today", f"{question!r} was hijacked"
+
+    def test_date_arithmetic_still_goes_to_its_own_handler(self):
+        from parsimony.modules.m6_router import solve
+
+        assert solve("How many days between 2026-01-01 and 2026-03-01?") == ("59", "date_diff")
+        assert solve("30 days after 2026-01-01")[1] == "date_add"
+
+    def test_the_model_is_never_called_for_it(self, tok):
+        from parsimony.core.config import full_stack
+        from parsimony.infra.providers import MockProvider
+        from parsimony.pipeline.orchestrator import Pipeline
+
+        pipe = Pipeline(full_stack(), provider=MockProvider(), tokenizer=tok)
+        outcome = pipe.run("What is the date today?")
+        assert outcome.row.route_tier == "DETERMINISTIC"
+        assert outcome.row.tokens_in_final == 0
+        assert outcome.generated is False

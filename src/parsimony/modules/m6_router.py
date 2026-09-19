@@ -168,6 +168,32 @@ _DATE_ADD_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: "What is the date today?" is the question a small model answers worst and a
+#: process answers perfectly. qwen2.5-1.5b has no clock, so it fills the gap
+#: with a placeholder -- "Today's date is [insert current date here]." -- which
+#: is not a refusal a reader can spot at a glance, it is a sentence shaped like
+#: an answer. The host knows the date exactly, so tier 0 answers it and the
+#: model is never asked. Running before the cache (ADR-016) matters twice here:
+#: a cached date would be wrong the next morning.
+_TODAY_RE = re.compile(
+    # "What day is it?" keeps its "what": the shared lead-stripper only removes
+    # "what is"/"what's", so the pattern allows a leading "what" of its own.
+    r"^(?:what\s+)?(?:the\s+)?"
+    r"(?:"
+    r"(?:current|todays|today's)\s+(?:date|day)"
+    r"|date(?:\s+(?:today|now|is\s+it))?"
+    r"|day(?:\s+of\s+the\s+week)?(?:\s+(?:is\s+it(?:\s+today)?|it\s+is|today))?"
+    r")"
+    r"\s*$",
+    re.IGNORECASE,
+)
+#: Belt and braces. The pattern above is anchored to the end of the question, so
+#: "the date of the Porto acquisition" and "what date was it" already fall
+#: through to the model; this only catches a phrasing that slips past the anchor.
+#: It deliberately does NOT list "of the" -- that matched "day of the week",
+#: which is exactly a question about today.
+_NOT_TODAY_RE = re.compile(r"\b(was|were|will|deadline|due|born|founded)\b", re.IGNORECASE)
+
 
 def _strip_lead(text: str) -> str:
     return _LEAD_RE.sub("", text.strip()).strip().rstrip("?").strip()
@@ -200,6 +226,10 @@ def solve(query: str) -> tuple[str, str] | None:
         if src_dim == dst_dim:
             out = Fraction(m.group("val")) * src_factor / dst_factor
             return f"{format_number(out)} {m.group('to')}", "unit_conversion"
+
+    if _TODAY_RE.match(body) and not _NOT_TODAY_RE.search(body):
+        today = date.today()
+        return f"{today.strftime('%A, %d %B %Y')} ({today.isoformat()})", "today"
 
     m = _DATE_DIFF_RE.search(body)
     if m:

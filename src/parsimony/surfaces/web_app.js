@@ -116,28 +116,97 @@ const OUTCOME_WORD = {
   error: "errored", not_implemented: "not built", not_reached: "never reached",
 };
 
-/* ── the stack ────────────────────────────────────────────────────── */
+/* ── the stack, drawn downward ───────────────────────────────────── */
 function drawStack() {
-  const byModule = [];
+  const rows = [];
+  let prevModule = null;
+  RUN.plan.forEach((s, i) => {
+    const firstOfModule = s.module !== prevModule;
+    prevModule = s.module;
+    rows.push(
+      `<div class="vrail${firstOfModule ? " first" : ""}">`
+      + `${firstOfModule ? esc(s.module) : ""}</div>`
+      + `<div class="vstage" id="vs-${s.name}" data-stage="${esc(s.name)}">`
+      + `<div class="vs-head"><span class="vs-mod">${esc(s.module)}</span>`
+      + `<span class="vs-name">${esc(s.label)}</span>`
+      + `<span class="vs-time" id="vt-${s.name}"></span></div>`
+      + `<div class="vs-job">${esc(s.does)}</div>`
+      + `<div class="vs-out"><span id="vk-${s.name}">—</span>`
+      + `<span class="vs-delta" id="vd-${s.name}"></span></div>`
+      + `<div class="vs-why" id="vw-${s.name}"></div></div>`);
+    if (i < RUN.plan.length - 1) {
+      rows.push(`<div class="vrail"></div>`
+        + `<div class="vflow" id="vf-${i}"><div class="vband"></div>`
+        + `<div class="vline"></div><div class="vhead"></div></div>`);
+    }
+  });
+  $("stack").className = "vstack";
+  $("stack").innerHTML = rows.join("");
   for (const s of RUN.plan) {
-    const last = byModule[byModule.length - 1];
-    if (last && last.module === s.module) last.items.push(s);
-    else byModule.push({ module: s.module, items: [s] });
+    const el = $("vs-" + s.name);
+    if (el) el.onclick = () => { RUN.selected = s.name; paintAll(); };
   }
-  $("stack").innerHTML = byModule.map((lane) =>
-    `<div class="lane"><div class="mid">${esc(lane.module)}</div>`
-    + `<div class="cells">`
-    + lane.items.map((s) =>
-      `<div class="cell" id="cell-${s.name}" data-stage="${esc(s.name)}">`
-      + `<div class="cn">${esc(s.label)}</div>`
-      + `<div class="cj">${esc(s.does)}</div>`
-      + `<div class="cs"><span class="w" id="cw-${s.name}">—</span>`
-      + `<span class="d" id="cd-${s.name}"></span></div>`
-      + `<span class="carry" id="cc-${s.name}"></span></div>`).join("")
-    + `</div></div>`).join("");
-  for (const s of RUN.plan) {
-    $("cell-" + s.name).onclick = () => { RUN.selected = s.name; paintAll(); };
+}
+
+/* Words for the channels, taken from the reader's own text. A stream of dots
+   would show that something moves without showing what. */
+function wordPool() {
+  const alive = [], cut = {};
+  for (const u of RUN.units) {
+    const words = u.text.split(/\s+/).filter((w) => w.length > 3 && /[A-Za-z]/.test(w))
+      .map((w) => w.replace(/^[^\w£€$]+|[^\w%]+$/g, "")).filter(Boolean);
+    if (!words.length) continue;
+    if (u.removed_at) (cut[u.removed_at] ||= []).push(...words);
+    else alive.push(...words);
   }
+  return { alive, cut };
+}
+
+const MAX_WORDS = 11;
+function fillChannels() {
+  const pool = wordPool();
+  const start = RUN.stages.length ? RUN.stages[0].before : 1;
+  RUN.plan.forEach((p, i) => {
+    const flow = $("vf-" + i);
+    if (!flow) return;
+    flow.querySelectorAll(".vword").forEach((w) => w.remove());
+    const si = RUN.stages.findIndex((s) => s.name === p.name);
+    if (si < 0) return;
+    const carried = RUN.stages[si].after;
+    // How many words in flight is how much prompt is still being carried.
+    const n = Math.max(2, Math.round(MAX_WORDS * Math.min(1, carried / (start || 1))));
+    flow.querySelector(".vband").style.width =
+      Math.max(8, 78 * Math.min(1, carried / (start || 1))).toFixed(0) + "px";
+    const kept = pool.alive.length ? pool.alive : ["your", "question"];
+    const frag = document.createDocumentFragment();
+    const spread = Math.max(30, parseFloat(flow.querySelector(".vband").style.width) || 60);
+    for (let k = 0; k < n; k++) {
+      const el = document.createElement("span");
+      el.className = "vword";
+      el.textContent = kept[(k * 7 + i * 3) % kept.length];
+      // Spread across the channel and vary the speed, so it reads as a stream
+      // rather than a single file queue of words landing on each other.
+      const across = ((k * 37 + i * 13) % 100) / 100 - 0.5;
+      el.style.setProperty("--x", (across * spread * 1.7).toFixed(0) + "px");
+      const dur = 2.1 + ((k * 29 + i * 7) % 10) / 10;
+      el.style.setProperty("--dur", dur.toFixed(2) + "s");
+      el.style.animationDelay = (k * (dur / n)).toFixed(2) + "s";
+      frag.appendChild(el);
+    }
+    // Whatever this stage removed leaves here, in red, sideways.
+    const removed = pool.cut[p.name] || [];
+    removed.slice(0, 5).forEach((w, k) => {
+      const el = document.createElement("span");
+      el.className = "vword cutword";
+      el.textContent = w;
+      el.style.animationDelay = (k * 0.45).toFixed(2) + "s";
+      el.style.setProperty("--dur", "2.0s");
+      el.style.setProperty("--x", ((k % 3) - 1) * 22 + "px");
+      el.style.setProperty("--side", (k % 2 ? -1 : 1) * (86 + k * 20) + "px");
+      frag.appendChild(el);
+    });
+    flow.appendChild(frag);
+  });
 }
 
 /* ── the transport ────────────────────────────────────────────────── */
@@ -211,20 +280,25 @@ function paintAll() {
   });
   // stack
   for (const p of RUN.plan) {
-    const cell = $("cell-" + p.name);
-    if (!cell) continue;
+    const node = $("vs-" + p.name);
+    if (!node) continue;
     const i = RUN.stages.findIndex((s) => s.name === p.name);
     const ran = i >= 0 && i <= at;
     const s = i >= 0 ? RUN.stages[i] : null;
-    cell.className = "cell"
+    node.className = "vstage"
       + (ran ? " past " + s.outcome : "")
       + (i === at ? " at" : "")
       + (RUN.selected === p.name ? " sel" : "");
-    $("cw-" + p.name).textContent = ran ? `${fmt(s.after)} tok` : "—";
+    $("vk-" + p.name).textContent = ran ? `${fmt(s.after)} tokens carried on` : "—";
+    $("vt-" + p.name).textContent = ran ? s.ms.toFixed(1) + " ms" : "";
     const d = ran ? s.after - s.before : 0;
-    $("cd-" + p.name).textContent = ran && d < 0 ? `−${fmt(-d)}` : "";
+    $("vd-" + p.name).textContent = ran && d < 0 ? `−${fmt(-d)}` : "";
+    const layer = RUN.layers.find((l) => l.name === p.name);
+    $("vw-" + p.name).textContent = ran && layer ? layer.why : "";
+    // Only the channels the request has actually reached are in motion.
+    const flow = $("vf-" + RUN.plan.indexOf(p));
+    if (flow) flow.classList.toggle("running", ran);
   }
-  drawCarry();
   // the now-line
   const s = at >= 0 ? RUN.stages[at] : null;
   $("t-now").innerHTML = s
@@ -236,20 +310,6 @@ function paintAll() {
   paintDoc();
   paintInspector();
   paintLayers();
-}
-
-/* The width of each bar is that layer's outgoing token count as a fraction of
-   what arrived at the top, so the staircase down the stack is the compression. */
-function drawCarry() {
-  const start = RUN.stages.length ? RUN.stages[0].before : 0;
-  for (const p of RUN.plan) {
-    const bar = $("cc-" + p.name);
-    if (!bar) continue;
-    const i = RUN.stages.findIndex((s) => s.name === p.name);
-    const ran = i >= 0 && i <= RUN.at;
-    bar.style.width = ran && start
-      ? (Math.max(0.03, RUN.stages[i].after / start) * 100).toFixed(1) + "%" : "0";
-  }
 }
 
 /* ── the document, losing sentences as the stages run ─────────────── */
@@ -617,7 +677,7 @@ $("run-pipe").onclick = () => {
           : t.reused ? " — but the runtime reused an earlier prompt, so that rate is not cold."
           : " — the model is simulated, so that rate is the project's recorded figure.");
     paintTokenBar(d.tokens); paintReceived(d.received); paintMeasured(d.measured);
-    buildDoc(); drawTrack(); goTo(-1);
+    buildDoc(); fillChannels(); drawTrack(); goTo(-1);
     refreshSession();
     stop();
     // Walk it automatically the first time: the point is to be watched.

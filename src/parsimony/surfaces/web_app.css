@@ -141,50 +141,90 @@ button.ghost:disabled { opacity: .35; cursor: default; }
 .ticks { display: flex; justify-content: space-between; font-family: var(--mono);
          font-size: 10px; color: var(--faint); margin-top: 5px; }
 
-/* ── the stack ───────────────────────────────────────────────────── */
-.stackwrap { overflow-x: auto; }
-.stack { display: flex; flex-direction: column; gap: 4px; min-width: 460px; }
-.lane { display: grid; grid-template-columns: 54px 1fr; gap: 10px; align-items: stretch; }
-.lane .mid { font-family: var(--mono); font-size: 11px; color: var(--faint);
-             display: flex; align-items: center; justify-content: flex-end;
-             padding-right: 2px; letter-spacing: .06em; }
-.lane .cells { display: flex; gap: 6px; flex-wrap: wrap; position: relative; }
-.cell { flex: 1 1 158px; border: 1px solid var(--line); background: var(--panel2);
-        border-radius: 8px; padding: 8px 10px; opacity: .45; position: relative;
-        transition: opacity .25s, border-color .25s, background .25s, transform .25s;
-        cursor: pointer; min-width: 0; }
-.cell:hover { border-color: var(--faint); }
-.cell .cn { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden;
-            text-overflow: ellipsis; }
-.cell .cj { font-size: 11px; color: var(--dim); margin-top: 1px; line-height: 1.35;
-            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-            overflow: hidden; }
-.cell .cs { font-family: var(--mono); font-size: 11px; margin-top: 6px; color: var(--dim);
-            display: flex; justify-content: space-between; gap: 6px; }
-.cell .cs .d { font-weight: 650; }
-.cell .cs .w { font-variant-numeric: tabular-nums; }
-.cell.past, .cell.at { opacity: 1; }
-.cell.applied { border-color: var(--keep); background: #12211e; }
-.cell.applied .cs .d { color: var(--keep); }
-.cell.reverted { border-color: var(--drop); background: #221417; }
-.cell.reverted .cs .d { color: var(--drop); }
-.cell.short_circuit { border-color: var(--warn); background: #201d14; }
-.cell.error { border-color: var(--stop); background: #241518; }
-.cell.error .cs .d { color: var(--stop); }
-.cell.not_implemented, .cell.not_reached { border-style: dashed; }
-.cell.at { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent),
-           0 0 24px -8px var(--accent); transform: translateY(-2px); }
-.cell.sel { outline: 2px solid var(--violet); outline-offset: 1px; }
+/* ── the stack, vertically, with the text flowing down it ───────────
+   The request goes downward through eleven stages, so the picture goes
+   downward too. Between each pair of stages is a channel carrying words
+   sampled from the text that is still alive at that point: the stream visibly
+   thins where a stage removed something, and the words that were removed peel
+   off sideways at the stage that removed them. The words are real -- taken
+   from the document the reader attached -- because a stream of abstract dots
+   would show motion without showing what moved. */
+.stackwrap { padding: 2px 0; }
+.vstack { display: grid; grid-template-columns: 46px 1fr; align-items: stretch; }
+.vrail { grid-column: 1; display: flex; align-items: center; justify-content: center;
+         font-family: var(--mono); font-size: 11px; color: var(--faint);
+         letter-spacing: .08em; border-right: 1px solid var(--line); margin-right: 14px;
+         position: relative; }
+.vrail.first::after { content: ""; position: absolute; right: -1px; top: 0; bottom: 0;
+                      width: 1px; background: var(--line); }
 
-/* How much of the prompt is still being carried when this layer hands it on.
-   A bar inside each cell rather than a packet floating between them: it cannot
-   collide with the lane above, and it makes the whole descent visible at once
-   instead of only at the stage the playhead happens to be on. */
-.cell .carry { position: absolute; left: 0; bottom: 0; height: 3px; width: 0;
-               border-bottom-left-radius: 8px;
-               background: linear-gradient(90deg, var(--accent), var(--keep));
-               transition: width .55s cubic-bezier(.2,.8,.2,1); }
-.cell.at .carry { box-shadow: 0 0 14px -2px var(--accent); }
+.vstage { grid-column: 2; border: 1px solid var(--line); background: var(--panel2);
+          border-radius: 9px; padding: 9px 13px; opacity: .45; cursor: pointer;
+          transition: opacity .3s, border-color .3s, background .3s, transform .3s,
+                      box-shadow .3s; }
+.vstage:hover { border-color: var(--faint); }
+.vs-head { display: flex; align-items: baseline; gap: 10px; }
+.vs-name { font-size: 13.5px; font-weight: 600; }
+.vs-mod { font-family: var(--mono); font-size: 10px; color: var(--faint);
+          border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }
+.vs-time { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--dim);
+           font-variant-numeric: tabular-nums; }
+.vs-job { font-size: 11.5px; color: var(--dim); margin-top: 2px; }
+.vs-out { display: flex; align-items: baseline; gap: 10px; margin-top: 6px;
+          font-family: var(--mono); font-size: 11.5px; color: var(--dim); }
+.vs-delta { font-weight: 650; }
+.vs-why { font-family: var(--mono); font-size: 11px; color: var(--dim); margin-top: 5px;
+          display: none; }
+.vstage.past .vs-why, .vstage.at .vs-why { display: block; }
+.vstage.past, .vstage.at { opacity: 1; }
+.vstage.applied { border-color: var(--keep); background: #12211e; }
+.vstage.applied .vs-delta { color: var(--keep); }
+.vstage.reverted { border-color: var(--drop); background: #221417; }
+.vstage.reverted .vs-delta { color: var(--drop); }
+.vstage.short_circuit { border-color: var(--warn); background: #201d14; }
+.vstage.error { border-color: var(--stop); background: #241518; }
+.vstage.not_implemented, .vstage.not_reached { border-style: dashed; }
+.vstage.at { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent),
+             0 0 26px -8px var(--accent); transform: translateY(-1px); }
+.vstage.sel { outline: 2px solid var(--violet); outline-offset: 1px; }
+
+/* the channel between two stages */
+.vflow { grid-column: 2; position: relative; height: 74px; overflow: hidden; }
+.vflow .vline { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px;
+                margin-left: -1px; background: linear-gradient(180deg, #202836,
+                var(--accent), #202836); opacity: .5; }
+.vflow .vhead { position: absolute; left: 50%; bottom: 2px; margin-left: -5px; width: 0;
+                height: 0; border-left: 5px solid transparent; border-right: 5px solid
+                transparent; border-top: 7px solid var(--accent); opacity: .65; }
+.vflow .vband { position: absolute; left: 50%; top: 0; bottom: 0; transform: translateX(-50%);
+                background: linear-gradient(180deg, rgba(106,169,255,.10),
+                rgba(78,201,168,.14)); border-radius: 4px; width: 0;
+                transition: width .6s cubic-bezier(.2,.8,.2,1); }
+.vword { position: absolute; left: 50%; top: 0; font-family: var(--mono); font-size: 10.5px;
+         color: #9fb3cc; white-space: nowrap; padding: 1px 6px; border-radius: 4px;
+         background: #141d28; border: 1px solid #22303f; opacity: 0;
+         will-change: transform, opacity; }
+.vflow.running .vword { animation: fall var(--dur, 2.4s) linear infinite; }
+@keyframes fall {
+  /* Opaque only in the middle of the channel: a chip caught half-clipped by the
+     channel edge should read as fading, not as a broken word. */
+  0%   { transform: translate(calc(-50% + var(--x, 0px)), -26px); opacity: 0; }
+  26%  { opacity: 1; }
+  74%  { opacity: 1; }
+  100% { transform: translate(calc(-50% + var(--x, 0px)), 78px); opacity: 0; }
+}
+/* what this stage removed: peels off to one side and fades */
+.vword.cutword { color: var(--drop); border-color: #3a2026; background: #1d1417; }
+.vflow.running .vword.cutword { animation: peel var(--dur, 2.4s) ease-in infinite; }
+@keyframes peel {
+  0%   { transform: translate(calc(-50% + var(--x, 0px)), -24px) rotate(0deg); opacity: 0; }
+  18%  { opacity: 1; }
+  100% { transform: translate(calc(-50% + var(--side, 90px)), 54px) rotate(10deg);
+         opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vflow.running .vword, .vflow.running .vword.cutword { animation: none; opacity: .85; }
+}
 
 /* ── the document, losing sentences ──────────────────────────────── */
 .docwrap { max-height: 460px; overflow: auto; padding-right: 6px; }
