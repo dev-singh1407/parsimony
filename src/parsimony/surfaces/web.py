@@ -6,15 +6,21 @@ it runs on an ordinary laptop with no GPU and no network, and this page has to
 work in a room with the wifi off. Four views, all reading the same pipeline
 the terminal uses:
 
-  Pipeline  the request crossing all eleven stages, drawn as the orchestrator
-            commits each one: a token river whose thickness IS the prompt size,
-            so the step down at whichever stage did the work is the compression
-            drawn to scale; the M1 tier ladder showing which tier fired and why
-            the others declined; and the routing, cache and gate decisions with
-            the numbers that produced them. The only invented thing on it is the
-            pacing -- the middleware takes ~100 ms, which is too fast to watch,
-            so stages are held on screen for a beat. Every duration printed is
-            the stage's own measured one.
+  Pipeline  the request crossing all eleven stages, with a transport you can
+            scrub: step or play through the run and watch YOUR OWN text lose
+            the sentences each stage decided it did not need, with the score
+            and the reason on every one. The stack shows which layer is acting
+            and how much of the prompt it hands on; the inspector shows what
+            that particular layer reasoned about -- relevance bars for the
+            context tier, similarity for the cache, complexity against its
+            threshold for the router -- rather than one generic dump for all
+            eleven. The table underneath is the terminal's own, same labels and
+            same sentences, from the same `_reason()`.
+
+            The pacing is the one invented thing and is labelled: the
+            middleware takes ~100 ms, too fast to watch, so the transport holds
+            each stage for a beat. Every duration shown is the stage's own
+            measured one, and the segment widths are its real share of the time.
   Heatmap   paste or upload a document, ask a question, and see every sentence
             shaded by the score the encoder gave it, with the decision beside
             it. This is the encoder's judgement made visible -- including where
@@ -47,6 +53,15 @@ from parsimony.core.types import split_into_documents
 
 PAGE = Path(__file__).parent / "web_page.html"
 SAMPLE = "examples/staff-handbook.md"
+
+#: Served beside the page. Split out because a single-file page big enough to
+#: hold a scrubbable pipeline view stops being reviewable, and these are still
+#: local files -- the page loads nothing from a network, which is the property
+#: that matters.
+ASSETS = {
+    "/app.css": ("web_app.css", "text/css; charset=utf-8"),
+    "/app.js": ("web_app.js", "text/javascript; charset=utf-8"),
+}
 
 
 def sample_document() -> Path | None:
@@ -181,6 +196,50 @@ class Visualiser:
                        "Is this complex enough to deserve a larger model?"),
     }
 
+    @staticmethod
+    def _split(text: str) -> list[str]:
+        """Sentences, in order, as the compressor's own splitter sees them."""
+        from parsimony.infra.nlp import split_sentences
+
+        out: list[str] = []
+        for line in (text or "").splitlines():
+            out.extend(s.strip() for s in split_sentences(line) if s.strip())
+        return out
+
+    @classmethod
+    def _life_of_every_sentence(cls, states: list[tuple[str, str]],
+                                question: str = "") -> list[dict]:
+        """Every sentence the request arrived with, and the stage that removed it.
+
+        This is what makes the page show the tiers WORKING rather than reporting
+        that they ran: the reader watches their own document lose sentences, one
+        stage at a time, with the stage that took each one named. Matching is by
+        normalised content because M1 regroups documents and M4 moves blocks, so
+        a sentence that merely moved must not read as a sentence that was cut.
+        """
+        from collections import Counter
+
+        def key(s: str) -> str:
+            return " ".join(s.split()).casefold()
+
+        # The payload carries the question too. This panel is about the text the
+        # reader attached, and showing their own question inside it as a
+        # sentence that "survived compression" is just confusing.
+        asked = {key(q) for q in cls._split(question)} if question else set()
+        original = [s for s in cls._split(states[0][1]) if key(s) not in asked]
+        units = [{"text": s, "removed_at": None, "order": i} for i, s in enumerate(original)]
+        for stage_name, text in states[1:]:
+            present = Counter(key(s) for s in cls._split(text))
+            for unit in units:
+                if unit["removed_at"] is not None:
+                    continue
+                k = key(unit["text"])
+                if present[k] > 0:
+                    present[k] -= 1
+                else:
+                    unit["removed_at"] = stage_name
+        return units
+
     def plan(self, cfg: ParsimonyConfig) -> list[dict]:
         from parsimony.pipeline.orchestrator import Pipeline
 
@@ -267,6 +326,65 @@ class Visualiser:
 
         outcome = pipe.run(question, history, documents=documents, observer=_Observer())
         row = outcome.row
+
+        # -- what each stage did to the text, after the fact --------------
+        #
+        # TextDelta carries before/after for every stage that PROPOSED something;
+        # a stage that did nothing leaves the text where it was, so the state is
+        # carried forward. The result is the payload at every stage boundary,
+        # which is what the document view scrubs through.
+        from parsimony.surfaces.cli.explain import _NAME, _reason
+
+        deltas = {d.stage: d for d in outcome.text_deltas}
+        first = next((d.before for d in outcome.text_deltas), "")
+        states: list[tuple[str, str]] = [("__start__", first)]
+        current = first
+        for stage in seen:
+            delta = deltas.get(stage["name"])
+            if delta is not None and not delta.reverted:
+                current = delta.after
+            states.append((stage["name"], current))
+        units = self._life_of_every_sentence(states, question) if first else []
+
+        # The compressor's own scores, joined onto the sentences by content, so
+        # each block can say why it went as well as when.
+        scored: dict[str, dict] = {}
+        if documents:
+            try:
+                from parsimony.modules.m1_context import audit as audit_context
+
+                report = audit_context(
+                    pipe.build_context(question, history, documents=documents), cfg)
+                for unit in report.units:
+                    scored[" ".join(unit.text.split()).casefold()] = {
+                        "score": round(unit.score, 4), "tag": unit.tag,
+                        "detail": unit.detail, "source": unit.source_label,
+                    }
+            except Exception:
+                scored = {}
+        for unit in units:
+            unit.update(scored.get(" ".join(unit["text"].split()).casefold(), {}))
+
+        # -- the terminal's own table, same labels and same sentences ------
+        by_name = {t.name: t for t in outcome.traces}
+        layers = []
+        for stage in stages:
+            trace = by_name.get(stage["name"])
+            label, job = _NAME.get(stage["name"], (stage["name"], ""))
+            if trace is None:
+                layers.append({"name": stage["name"], "label": label, "job": job,
+                               "outcome": "not_reached", "why": "never reached",
+                               "ms": None, "delta": None, "module": stage["module"]})
+                continue
+            change = trace.tokens_after - trace.tokens_before
+            layers.append({
+                "name": stage["name"], "label": label, "job": job,
+                "module": trace.module_id, "outcome": trace.outcome.value,
+                "ms": trace.duration_ns / 1e6,
+                "delta": change,
+                "why": _reason(trace, deltas.get(stage["name"]), pipe.cache, cfg),
+                "removed": sum(1 for u in units if u["removed_at"] == stage["name"]),
+            })
         prefill = view.reading_seconds or 0.0
         rate = view.ms_per_token
         timed_here = not (self.simulated or view.reused_earlier_work) and bool(prefill)
@@ -297,6 +415,9 @@ class Visualiser:
                     "bytes_saved": kv[0] * removed} if kv else None),
             "session": self.totals.snapshot(),
             "stages": seen,
+            "layers": layers,
+            "units": units,
+            "prompt": getattr(outcome, "prompt_text", "") or "",
         }
         emit("done", summary)
         return summary
@@ -418,6 +539,9 @@ def make_handler(vis: Visualiser):
             route = urlparse(self.path)
             if route.path in ("/", "/index.html"):
                 self._send(PAGE.read_bytes(), "text/html; charset=utf-8")
+            elif route.path in ASSETS:
+                name, kind = ASSETS[route.path]
+                self._send((Path(__file__).parent / name).read_bytes(), kind)
             elif route.path == "/api/session":
                 self._json(vis.totals.snapshot())
             elif route.path == "/api/sample":

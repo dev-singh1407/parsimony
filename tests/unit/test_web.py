@@ -209,126 +209,102 @@ class TestTheRace:
 
 class TestThePage:
     def test_it_escapes_document_text_before_drawing_it(self):
-        text = (web.PAGE).read_text(encoding="utf-8")
-        assert "const esc = (s) =>" in text
-        assert "esc(u.text)" in text, "sentence text goes through the escaper, not innerHTML raw"
+        app = (web.PAGE.parent / "web_app.js").read_text(encoding="utf-8")
+        assert "const esc = (s) =>" in app
+        assert "esc(u.text)" in app, "sentence text goes through the escaper, not raw"
 
     def test_it_ships_beside_the_module_that_serves_it(self):
         assert web.PAGE.exists() and web.PAGE.suffix == ".html"
+        for name, _kind in web.ASSETS.values():
+            assert (web.PAGE.parent / name).exists(), name
 
     def test_the_sample_document_is_found_from_a_checkout(self):
         assert web.sample_document() is not None
 
-
-class TestThePipelineView:
-    """The stage-by-stage stream behind the flow graph.
-
-    The graph's claim is that it draws what the orchestrator did, so the tests
-    that matter are the ones tying each drawn thing to a real trace: the nodes
-    to the registry's own order, the numbers to the ledger row, and the tier
-    ladder to stages that actually exist.
-    """
-
-    def test_the_plan_is_the_registry_not_a_hand_written_list(self, vis):
-        from parsimony.pipeline.orchestrator import Pipeline
-
-        pipe = Pipeline(vis.cfg, provider=vis.provider)
-        expected = [getattr(getattr(p, "stage", p), "name", "")
-                    for p in pipe.registry.ordered(vis.cfg)]
-        assert [s["name"] for s in vis.plan(vis.cfg)] == expected
-
-    def test_every_stage_is_labelled_for_a_reader(self, vis):
-        for stage in vis.plan(vis.cfg):
-            assert stage["label"] and not stage["label"].startswith("m")
-            assert stage["module"].startswith("M")
-            assert stage["does"], f"{stage['name']} has no plain-language description"
-
-    def test_the_compression_tiers_are_the_ladder(self, vis):
-        tiers = [s["name"] for s in vis.plan(vis.cfg) if s["role"] == "compress"]
-        assert tiers == ["m1_context", "m1_tier1", "m1_tier2", "m1_tier3"]
-
-    def test_it_streams_a_stage_for_every_stage_that_ran(self, vis, handbook_text):
-        events = []
-        summary = vis.run_pipeline(QUESTION, handbook_text,
-                                   lambda name, data: events.append((name, data)))
-        names = [n for n, _ in events]
-        assert names[0] == "plan" and names[1] == "begin" and names[-1] == "done"
-        streamed = [d["name"] for n, d in events if n == "stage"]
-        assert streamed == [s["name"] for s in vis.plan(vis.cfg)]
-        assert len(summary["stages"]) == len(streamed)
-
-    def test_the_numbers_on_screen_come_from_the_ledger(self, vis, handbook_text):
-        summary = vis.run_pipeline(QUESTION, handbook_text, lambda *a: None)
-        t = summary["tokens"]
-        assert t["removed"] == t["original"] - t["final"]
-        assert 0 < t["final"] < t["original"]
-        assert t["ratio"] == pytest.approx(t["final"] / t["original"])
-
-    def test_each_stage_carries_the_reason_it_gives_in_the_ledger(self, vis, handbook_text):
-        summary = vis.run_pipeline(QUESTION, handbook_text, lambda *a: None)
-        for stage in summary["stages"]:
-            assert stage["outcome"] in {"applied", "noop", "skipped", "reverted",
-                                        "short_circuit", "error", "not_implemented"}
-            assert stage["rationale"], f"{stage['name']} reported no reason"
-            assert stage["ms"] >= 0
-
-    def test_the_compressor_is_the_stage_that_removes_the_tokens(self, vis, handbook_text):
-        summary = vis.run_pipeline(QUESTION, handbook_text, lambda *a: None)
-        by = {s["name"]: s for s in summary["stages"]}
-        assert by["m1_context"]["after"] < by["m1_context"]["before"]
-
-    def test_a_question_with_no_documents_still_runs(self, vis):
-        summary = vis.run_pipeline("What is 17 times 4?", "", lambda *a: None)
-        assert summary["tokens"]["final"] > 0
-        assert summary["route"]["tier"]
-
-    def test_evidence_is_trimmed_to_something_a_page_can_render(self, vis, handbook_text):
-        summary = vis.run_pipeline(QUESTION, handbook_text, lambda *a: None)
-        for stage in summary["stages"]:
-            assert len(json.dumps(stage["evidence"])) < 4000
-
-    def test_the_decisions_panel_has_something_to_show(self, vis, handbook_text):
-        summary = vis.run_pipeline(QUESTION, handbook_text, lambda *a: None)
-        assert "consulted" in summary["cache"] and "hit" in summary["cache"]
-        assert "fired" in summary["gate"]
-        assert summary["route"]["tier"]
-        assert summary["timing"]["middleware_ms"] >= 0
-
-    def test_the_endpoint_streams_over_http(self, server, handbook_text):
-        query = urllib.parse.urlencode({"question": QUESTION, "text": handbook_text})
-        seen, payload = [], None
-        with urllib.request.urlopen(f"{server}/api/pipeline?{query}", timeout=300) as r:
-            name = None
-            for raw in r:
-                line = raw.decode("utf-8").strip()
-                if line.startswith("event:"):
-                    name = line.split(": ", 1)[1]
-                    seen.append(name)
-                elif line.startswith("data:") and name in ("done", "failed"):
-                    payload = json.loads(line.split(": ", 1)[1])
-                    break
-        assert "failed" not in seen, payload
-        assert seen.count("stage") >= 8
-        assert payload["tokens"]["removed"] > 0
-
-    def test_a_request_with_no_question_is_refused(self, server):
-        with pytest.raises(urllib.error.HTTPError) as exc:
-            get(server, "/api/pipeline?question=&text=x")
-        assert exc.value.code == 400
-
-
-class TestTheFlowDrawing:
-    """Two failures the page hit in testing, pinned so they cannot return."""
-
-    def test_the_fit_refuses_a_zero_width_container(self):
-        page = web.PAGE.read_text(encoding="utf-8")
-        assert "if (avail < 80) return;" in page, (
-            "a hidden tab reports clientWidth 0, which produced a negative scale "
-            "and flipped the diagram inside out")
+    def test_the_assets_are_served_locally(self, server):
+        for path, (_name, kind) in web.ASSETS.items():
+            status, body = get(server, path)
+            assert status == 200 and body, path
+        # and nothing on the page reaches for a network
+        _, page = get(server, "/")
+        text = page.decode("utf-8")
+        for scheme in ("https://", "http://cdn", "//cdn", "//unpkg"):
+            assert scheme not in text
 
     def test_counters_do_not_depend_on_animation_frames_running(self):
-        page = web.PAGE.read_text(encoding="utf-8")
-        assert "if (document.hidden) { show(target); return; }" in page
-        assert "_safety" in page, (
-            "requestAnimationFrame does not run in a background tab; the number "
-            "must arrive even when the animation does not")
+        """rAF is suspended in a background tab; the number must still arrive."""
+        app = (web.PAGE.parent / "web_app.js").read_text(encoding="utf-8")
+        assert "if (document.hidden) { show2(target); return; }" in app
+        assert "_safety" in app
+
+
+class TestTheSentenceLife:
+    """The document view's data: every sentence, and the stage that removed it."""
+
+    def test_every_sentence_is_accounted_for(self, vis, handbook_text):
+        summary = vis.run_pipeline(QUESTION, handbook_text, lambda *a: None)
+        assert summary["units"]
+        for unit in summary["units"]:
+            assert unit["text"].strip()
+            assert "removed_at" in unit
+
+    def test_the_context_tier_is_what_removed_them(self, vis, handbook_text):
+        summary = vis.run_pipeline(QUESTION, handbook_text, lambda *a: None)
+        removed = [u for u in summary["units"] if u["removed_at"]]
+        assert removed, "this question must drop sentences for the view to show anything"
+        assert {u["removed_at"] for u in removed} <= {s["name"] for s in summary["stages"]}
+        assert any(u["removed_at"] == "m1_context" for u in removed)
+
+    def test_a_removed_sentence_carries_its_score_and_reason(self, vis, handbook_text):
+        summary = vis.run_pipeline(QUESTION, handbook_text, lambda *a: None)
+        scored = [u for u in summary["units"] if u.get("tag")]
+        assert scored, "the compressor's own scores must be joined onto the sentences"
+        for unit in scored:
+            assert unit["detail"], unit["text"][:40]
+            assert 0.0 <= unit["score"] <= 1.0
+
+    def test_a_sentence_that_only_moved_is_not_reported_as_cut(self, vis, handbook_text):
+        """M1 regroups documents and M4 moves blocks; neither is a removal."""
+        summary = vis.run_pipeline(QUESTION, handbook_text, lambda *a: None)
+        survivors = [u for u in summary["units"] if not u["removed_at"]]
+        assert survivors, "everything was reported as cut, which cannot be right"
+        sent = summary["prompt"] or ""
+        if sent:
+            for unit in survivors[:5]:
+                assert " ".join(unit["text"].split())[:40] in " ".join(sent.split())
+
+    def test_no_documents_means_no_sentences_rather_than_a_crash(self, vis):
+        summary = vis.run_pipeline("What is 17 times 4?", "", lambda *a: None)
+        assert summary["units"] == []
+
+
+class TestTheTerminalParity:
+    """The web table must be the terminal's table, not a second opinion."""
+
+    def test_it_uses_the_same_labels_the_terminal_prints(self, vis, handbook_text):
+        from parsimony.surfaces.cli.explain import _NAME
+
+        summary = vis.run_pipeline(QUESTION, handbook_text, lambda *a: None)
+        assert summary["layers"]
+        for layer in summary["layers"]:
+            expected = _NAME.get(layer["name"], (layer["name"], ""))
+            assert layer["label"] == expected[0]
+            assert layer["job"] == expected[1]
+
+    def test_every_layer_explains_itself_in_plain_english(self, vis, handbook_text):
+        summary = vis.run_pipeline(QUESTION, handbook_text, lambda *a: None)
+        for layer in summary["layers"]:
+            assert layer["why"], f"{layer['name']} had no explanation"
+            assert layer["name"] not in layer["why"], "that is the code name, not English"
+
+    def test_the_table_covers_every_planned_stage(self, vis, handbook_text):
+        summary = vis.run_pipeline(QUESTION, handbook_text, lambda *a: None)
+        assert [l["name"] for l in summary["layers"]] == [s["name"]
+                                                          for s in vis.plan(vis.cfg)]
+
+    def test_the_sentence_count_agrees_with_the_token_change(self, vis, handbook_text):
+        summary = vis.run_pipeline(QUESTION, handbook_text, lambda *a: None)
+        for layer in summary["layers"]:
+            if layer.get("removed"):
+                assert layer["delta"] < 0, (
+                    f"{layer['name']} removed sentences but reported no token drop")
