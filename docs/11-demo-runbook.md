@@ -218,6 +218,17 @@ Counter-intuitive, and it is what separates a project from a report. Pick **one*
 | `.\demo.ps1 tokenprobe` | 3 s | When shortening text fails to reduce tokens |
 | `.\demo.ps1 corpus` | 1 s | Corpus composition and its freeze hash |
 | `.\demo.ps1 demo` | 19 s | The older scripted walkthrough, six sections |
+| `.\demo.ps1 web` | live | The visualiser in a browser: sentence heatmap, A/B against the real model, demo counters |
+| `.\demo.ps1 proof` | 10 s | A PDF of the compressed prompt, every removal struck through and labelled |
+
+**The visualiser, if the room has a projector.** `.\demo.ps1 web` opens a local page — no install, no
+network. Paste or load a document, ask a question, and every sentence is shaded by the score the encoder
+gave it, with the branch that decided it on hover: `[KEEP: ANCHOR]`, `[DROP: FLOOR]`. The A/B tab runs the
+same question with the layers off and on against the real model and plots both as they generate; say out
+loud that they run **one after the other**, because two generations on one CPU would measure contention
+rather than compression, and that the model is warmed first so neither arm pays the weight load. The Demo
+tab is two counters large enough to read from the back — and the seconds counter says *estimated* unless
+this machine timed the rate itself, which is worth pointing at rather than hiding.
 
 **Do not run live:** `latency` (3–4 min) and `judge` (5–10 min). Quote their numbers from §8 of the findings
 instead, or run them beforehand and show the scrollback.

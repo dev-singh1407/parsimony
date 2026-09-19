@@ -27,7 +27,8 @@ sentences from documents and from older long turns, keeping the ones the current
 units      = sentences of every document and every eligible older turn
 relevance  = BM25 over these units (IDF from this request)  ⊕  embedder cosine
 anchors    = numbers, names, codes, quoted strings the question names;
-             a sentence opening "It/This/They…" inherits its predecessor's
+             a sentence opening "It/This/They…" inherits its predecessor's,
+             and any sentence inherits what its own heading names (ADR-044)
 doc prior  = scale by the source's best sentence or its title
 select     = anchor guarantee, then MMR under budget, stop at a relevance floor
 closure    = keep the sentence before any kept sentence that opens dependently
@@ -37,6 +38,14 @@ emit       = kept sentences in original order; empty documents dropped
 The fidelity gate checks an EXTRACT independently of the module: the question is untouched, every kept
 unit is its source with whole sentences deleted, nothing is added or reordered, and anything the question
 names that the context contained is still in it.
+
+Heading inheritance is the newest of these and the one with the thinnest evidence. "The site manager is
+Tomás Aguiar" under the heading **Porto office** shares no word with *"Who manages the Porto office?"*,
+while "The **Leeds** site manager is Priya Raman, who joined from the **Porto** office" shares one — so
+without it the selector keeps the distractor, drops the answer, and the model names the wrong person
+fluently. It regresses nothing across 104 items on five splits and gains one answer on `test2`, for +2.3%
+context tokens on `test`; ADR-044 states plainly why that is weaker evidence than the rest of this tier
+rests on, and `context_section_anchors=False` restores the previous behaviour exactly.
 
 *Measured:* on the long-context benchmark (`corpus/longctx_*.jsonl`, `parsimony longctx`) against
 truncation, BM25 top-k, random sentences and stopword removal at a matched token budget — see
