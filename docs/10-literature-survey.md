@@ -13,10 +13,16 @@ around reducing that cost — prompt compression, semantic caching, KV-cache reu
 budgeting — but it has grown in **isolated strands**. Each technique is proposed, measured against an
 uncompressed baseline, and published alone. Almost nothing measures what happens when they are composed.
 
-This survey covers **48 works** across eight strands. It identifies six gaps, of which the central one is
+This survey covers **54 works** across eight strands. It identifies six gaps, of which the central one is
 compositional: the field reports per-technique savings that are implicitly assumed to add, and we find they
 do not. We then state precisely what this project does differently, and give the measurements that support
 each claim.
+
+A note on what this survey does *not* claim. The 2025-26 extractive literature (S2) arrived at the same
+sentence-level, query-aware, original-order design our context tier uses, and training-free compression for
+edge devices now exists on its own account. Neither the architecture nor CPU-only operation is ours to
+claim, and this survey says so in the place where it would be easiest not to. What is left is the
+compositional question, and a fidelity gate that can refuse a saving.
 
 The recurring theme of our findings is that **published operating points do not survive contact with a
 different configuration.** A cache similarity threshold quoted as safe in the literature serves the opposite
@@ -69,6 +75,39 @@ QuAC and arXiv-summarisation. A financial-analysis study [14] found compressed c
 and factually plausible while changing downstream decisions. Most strikingly for our purposes, [15] reports
 a *compression paradox*: prompt compression's energy effects are provider-dependent, and compression does
 not uniformly reduce energy.
+
+**The extractive turn (2025-2026), and where it puts us.** The strand has since moved decisively away from
+token-level deletion towards *sentence-level extraction* -- which is the shape of our own context tier, and
+we should say so plainly rather than claim the design as ours. EXIT [53] splits retrieved documents into
+sentences, classifies each against the query, and recombines those above a threshold **in their original
+order**, reporting a 31.2% token ratio with accuracy above the uncompressed baseline on HotpotQA. That is,
+step for step, the algorithm in `m1_context`. Provence [54] (ICLR 2025) unifies pruning and reranking in one
+DeBERTa-sized model and removes 50-80% of input with little quality drop. LooComp [55] scores each sentence
+by the change in answerability when it is left out. EXIT's criticism of the earlier work is the one we
+independently ran into: token-level methods fragment key phrases, and RECOMP-style extractors apply "rigid
+selection criteria that do not adapt well to variations in query complexity".
+
+**So what is left that is ours?** Two things, and not the ones it would be flattering to claim.
+
+*Not the architecture.* Query-aware sentence extraction in original order is now the consensus design, and
+EXIT published it independently of us. Our contribution at the tier level is narrower: it is
+**training-free**. EXIT fine-tunes Gemma-2B with LoRA -- about 90 GPU-hours on an A100-80GB -- and Provence
+trains a DeBERTa model; ours is BM25 plus a 45 MB embedding model with no fitted parameters, which is why it
+fits inside a laptop CPU budget at all. That is an engineering position, not a scientific one, and it is
+reported as such.
+
+*Not CPU-only operation either.* Training-free compression for edge devices now exists in its own right
+[56], and BEAVER [57] and Perception Compressor [58] are both training-free. Running without a GPU was the
+premise of this project; as of 2026 it is no longer a distinguishing claim, and this survey would be
+dishonest to imply otherwise.
+
+What remains genuinely unattempted is **composition**. Every method above is measured alone, against an
+uncompressed baseline. None measures what happens when compression runs beside a semantic cache, a history
+manager and an output budgeter that are all paid out of the same tokens -- our Gap 1, and where the
+additivity shortfall of 15.13 pp [11.15, 18.27] comes from. And none carries a component that can *refuse* a
+saving: [12] and [13] document compression-induced hallucination as a finding, where we treat it as
+something to build a gate against and then measure (SS11.9).
+
 
 > **What this strand assumes and does not check.** Compression is measured against an uncompressed baseline,
 > in isolation. We found no work in this strand that measures compression **in the presence of a semantic
@@ -429,6 +468,12 @@ All URLs verified September 2026.
 50. *From Prompts to Power: Measuring the Energy Footprint of LLM Inference.* arXiv:2511.05597
 51. *Quantifying the Energy Consumption and Carbon Emissions of LLM Inference via Simulations.* arXiv:2507.11417
 52. *How Hungry is AI? Benchmarking Energy, Water, and Carbon Footprint of LLM Inference.* arXiv:2505.09598
+53. Hwang, T. et al. *EXIT: Context-Aware Extractive Compression for Enhancing Retrieval-Augmented Generation.* Findings of ACL 2025. arXiv:2412.12559
+54. Chirkova, N. et al. *Provence: Efficient and Robust Context Pruning for Retrieval-Augmented Generation.* ICLR 2025. arXiv:2501.16214
+55. *LooComp: Leave-One-Out Strategy with an Encoder-only Transformer for Efficient Query-aware Context Compression.* arXiv:2603.09222
+56. *Less is More: Lightweight Prompt Compression for Question Answering Applications on Edge Devices.* arXiv:2606.20571
+57. *BEAVER: A Training-Free Hierarchical Prompt Compression Method via Structure-Aware Page Selection.* arXiv:2603.19635
+58. *Perception Compressor: A Training-Free Prompt Compression Framework in Long Context Scenarios.* arXiv:2409.19272
 
 ---
 
