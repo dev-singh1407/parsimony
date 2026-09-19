@@ -1,4 +1,4 @@
-# Parsimony demo launcher.
+﻿# Parsimony demo launcher.
 #
 # Removes the two ways a live demo goes wrong before it starts: being in the
 # wrong folder, and using the wrong Python. Both happened in rehearsal.
@@ -7,6 +7,8 @@
 #   .\demo.ps1 warmup           load the model (run this BEFORE the guide arrives)
 #   .\demo.ps1 doc              a document, live, with and without the layers
 #   .\demo.ps1 sentences        which sentences of the documents survived
+#   .\demo.ps1 web              the visualiser in a browser: heatmap, A/B, counters
+#   .\demo.ps1 proof            the proof PDF: every removal struck through and labelled
 #   .\demo.ps1 followups        which history strategy keeps the needed fact
 #   .\demo.ps1 1                Act 1 - what the system does
 #   .\demo.ps1 2                Act 2 - the gate blocking a bad edit
@@ -57,6 +59,8 @@ switch ($act) {
         Write-Host ""
         Write-Host "  .\demo.ps1 doc       a document, live, with and without   ~30 s" -ForegroundColor Cyan
         Write-Host "  .\demo.ps1 sentences which sentences survived, and why    instant" -ForegroundColor Cyan
+        Write-Host "  .\demo.ps1 web       the visualiser in a browser           live" -ForegroundColor Cyan
+        Write-Host "  .\demo.ps1 proof     the proof PDF, every removal labelled  ~10 s" -ForegroundColor Cyan
         Write-Host "  .\demo.ps1 tour      every module, one at a time, before/after" -ForegroundColor Cyan
         Write-Host "  .\demo.ps1 ask       type questions freely, no quotes" -ForegroundColor Cyan
         Write-Host ""
@@ -138,6 +142,22 @@ switch ($act) {
             "Watch each layer run on an attached handbook, then the same question with every layer off. Both timings are the runtime's own."
         Run-Cli chat "What is the annual travel budget for the Tallinn office?" `
             --file examples/staff-handbook.md --provider ollama --compare
+    }
+
+    "web" {
+        # Opens a browser on a page served by the standard library. Nothing to
+        # install, nothing leaves the laptop, and it works with the wifi off --
+        # which is the same claim the middleware makes for itself.
+        Show-Banner "W" "The visualiser" `
+            "Heatmap: every sentence shaded by its score, hover for the decision. A/B: the same question with the layers off and on, against the real model. Demo: the counters."
+        Run-Cli web @rest
+    }
+
+    "proof" {
+        # The artefact to hand someone who was not in the room.
+        Show-Banner "P" "The proof document" `
+            "The compressed prompt with every removal struck through and labelled with the branch that removed it."
+        Run-Cli export --proof kestrel_q2 --out proof-kestrel.pdf
     }
 
     "sentences" {

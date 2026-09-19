@@ -1248,6 +1248,104 @@ def generalise(corpus_path: Path = typer.Option(None, "--corpus")) -> None:
 
 
 @app.command()
+def web(
+    port: int = typer.Option(8501, "--port", help="Where to serve it."),
+    host: str = typer.Option("127.0.0.1", "--host",
+                             help="Loopback by default; nothing leaves this machine."),
+    provider: str = typer.Option("auto", "--provider",
+                                 help="auto uses Ollama when it answers, else the mock."),
+    open_browser: bool = typer.Option(True, "--open/--no-open",
+                                      help="Open a browser window when the server starts."),
+) -> None:
+    """Serve the visualiser: sentence heatmap, A/B against the real model, demo counters.
+
+    The server is the standard library and the page is one file, so this starts
+    instantly, adds no dependency, and works with the network off -- which is the
+    same claim the middleware itself makes.
+    """
+    from parsimony.surfaces.web import serve
+
+    console.print("[dim]Local only. The page reads the same pipeline the terminal does; "
+                  "no figure on it is precomputed.[/dim]")
+    serve(host, port, provider=provider, open_browser=open_browser)
+
+
+@app.command()
+def export(
+    latex: bool = typer.Option(False, "--latex", help="Write booktabs tables and a Beamer deck."),
+    proof: str = typer.Option(None, "--proof",
+                              help="Write the raw-vs-compressed proof document for one "
+                                   "benchmark item, e.g. --proof kestrel_q2."),
+    files: list[Path] = typer.Option(None, "--file", "-f",
+                                     help="Prove the compression of your own file instead."),
+    question: str = typer.Option(None, "--question", "-q",
+                                 help="The question to compress the attached file against."),
+    provider: str = typer.Option("mock", "--provider",
+                                 help="ollama: also record the answer the model gave."),
+    figures: Path = typer.Option(Path("figures"), "--figures", help="Where the CSVs live."),
+    out: Path = typer.Option(Path("latex/generated"), "--out",
+                             help="Directory for LaTeX, or the file path for a proof."),
+) -> None:
+    """Write the measured results out as LaTeX tables, slides, or a proof document.
+
+    Nothing here recomputes a result: the tables are read from figures/*.csv and
+    the proof from a live compression of the text you name, so a number in a
+    slide cannot drift from the number in the terminal.
+    """
+    from parsimony.modules.m1_context import audit as audit_context
+    from parsimony.surfaces import export as ex
+
+    if not latex and not proof and not files:
+        fail("nothing to export",
+             hint="--latex for tables and slides, --proof ITEM, or --file X.md -q 'question'")
+
+    if latex:
+        tables = ex.latex_tables(figures, out / "results.tex")
+        deck = ex.beamer_slides(figures, out / "slides.tex")
+        table = Table(title="Written", header_style="bold", box=None)
+        table.add_column("file"), table.add_column("what"), table.add_column("lines",
+                                                                             justify="right")
+        for art in (tables, deck):
+            table.add_row(str(art.path), art.what, str(art.lines))
+        console.print(table)
+        console.print("[dim]Tables: \\input{latex/generated/results.tex} after "
+                      "\\usepackage{booktabs}. Deck: pdflatex latex/generated/slides.tex[/dim]")
+
+    if not (proof or files):
+        return
+
+    cfg = pick_encoder(full_stack())
+    real = make_provider(provider) if provider != "mock" else make_provider("mock")
+    pipeline = Pipeline(cfg, provider=real)
+    if proof:
+        from parsimony.eval import longctx as lc
+
+        item = next((i for i in lc.load_longctx() if i.item_id == proof), None)
+        if item is None:
+            fail(f"no item {proof!r}", hint="item ids look like kestrel_q2")
+        text_question, documents = item.question, item.documents
+        stem = item.item_id
+    else:
+        documents = load_documents(files)
+        text_question = require_query(question, what="question (-q)")
+        stem = Path(files[0]).stem
+
+    outcome = pipeline.run(text_question, documents=documents)
+    ctx = pipeline.build_context(text_question, documents=documents)
+    report = audit_context(ctx, cfg)
+    page = ex.proof_html(text_question, report,
+                         answer=outcome.response.strip() if provider != "mock" else "",
+                         model=real.model_name if provider != "mock" else "",
+                         title="Prompt verification")
+    target = out if out.suffix else out / f"proof-{stem}.pdf"
+    written = ex.write_proof(page, target)
+    console.print(f"[bold]{written.path}[/bold]  {written.what}")
+    console.print(f"[dim]{report.tokens_before} -> {report.tokens_after} context tokens "
+                  f"({report.removed_pct:.0f}% removed); every removal is labelled with the "
+                  f"decision that produced it.[/dim]")
+
+
+@app.command()
 def followups(
     provider: str = typer.Option("mock", "--provider",
                                  help="mock: which facts survive, no model needed. "

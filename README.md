@@ -184,6 +184,25 @@ struck through. `--compare` asks the same question again with every layer switch
 the two measurements side by side — on one attached handbook that is 8.9 s of reading against 3.0 s, for the
 same answer.
 
+### See it in a browser, and take the evidence away with you
+
+```bash
+parsimony web                                       # a local page: heatmap, A/B, demo counters
+parsimony export --latex                            # booktabs tables + a Beamer deck from figures/*.csv
+parsimony export --proof kestrel_q2                 # a PDF showing every removal, labelled
+```
+
+`parsimony web` serves one page from the standard library — no framework, no install, nothing leaves the
+machine. It shades every sentence of a document by the score the encoder gave it and names the decision
+behind each one on hover; it runs the same question with the layers off and on against the real model and
+plots both as they generate (one after the other, because two generations on one CPU measure contention,
+not compression); and it keeps a running count of tokens pruned and seconds saved, labelled *estimated*
+unless this machine timed the rate itself.
+
+`parsimony export` writes the results out without retyping them: the tables read `figures/*.csv`, so a
+number in the report cannot drift from the run that produced it, and the proof document reproduces the
+compressed prompt with every removed sentence struck through and tagged with the branch that removed it.
+
 ### A better encoder broke the safety design — and that is the finding
 
 Replacing the lexical encoder with MiniLM (45 MB, served by the same local runtime, no PyTorch) was the

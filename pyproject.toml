@@ -25,6 +25,10 @@ parsimony = "parsimony.surfaces.cli.main:app"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+# The visualiser is one self-contained page; it ships with the code that serves it.
+"parsimony.surfaces" = ["*.html"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]

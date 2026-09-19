@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parsimony — what the middleware decided</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #161a21; --line: #262c36; --ink: #e7ecf3;
+    --dim: #8b97a8; --keep: #4ec9a8; --drop: #e06c75; --accent: #6aa9ff;
+    --warn: #e5c07b;
+    --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Inter, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans);
+         font-size: 15px; line-height: 1.5; }
+  header { display: flex; align-items: baseline; gap: 18px; padding: 14px 22px;
+           border-bottom: 1px solid var(--line); background: var(--panel); position: sticky;
+           top: 0; z-index: 5; flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; letter-spacing: .2px; font-weight: 650; }
+  header .sub { color: var(--dim); font-size: 13px; font-family: var(--mono); }
+  nav { margin-left: auto; display: flex; gap: 6px; }
+  nav button { background: transparent; color: var(--dim); border: 1px solid transparent;
+               padding: 6px 14px; border-radius: 7px; cursor: pointer; font-size: 14px;
+               font-family: inherit; }
+  nav button:hover { color: var(--ink); }
+  nav button[aria-selected="true"] { background: #1d2530; color: var(--ink);
+                                     border-color: var(--line); }
+  main { padding: 22px; max-width: 1400px; margin: 0 auto; }
+  .view[hidden] { display: none; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+           padding: 16px 18px; margin-bottom: 16px; }
+  .panel h2 { font-size: 14px; margin: 0 0 10px; text-transform: uppercase;
+              letter-spacing: .09em; color: var(--dim); font-weight: 600; }
+  label { display: block; font-size: 13px; color: var(--dim); margin-bottom: 5px; }
+  input[type=text], textarea, select {
+    width: 100%; background: #0c0e12; color: var(--ink); border: 1px solid var(--line);
+    border-radius: 7px; padding: 9px 11px; font-family: var(--mono); font-size: 13.5px;
+    resize: vertical; }
+  input[type=text]:focus, textarea:focus { outline: 1px solid var(--accent); }
+  textarea { min-height: 150px; }
+  .row { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end; }
+  .row > * { flex: 1 1 260px; }
+  .row .narrow { flex: 0 0 auto; }
+  button.go { background: var(--accent); color: #07101f; border: 0; border-radius: 7px;
+              padding: 10px 20px; font-weight: 650; font-size: 14px; cursor: pointer;
+              font-family: inherit; }
+  button.go:disabled { opacity: .45; cursor: default; }
+  button.ghost { background: transparent; color: var(--dim); border: 1px solid var(--line);
+                 border-radius: 7px; padding: 9px 14px; cursor: pointer; font-family: inherit; }
+  .stats { display: flex; gap: 26px; flex-wrap: wrap; margin: 4px 0 2px; }
+  .stat .n { font-size: 26px; font-family: var(--mono); font-weight: 600; }
+  .stat .k { font-size: 12px; color: var(--dim); text-transform: uppercase;
+             letter-spacing: .07em; }
+  .doc { font-family: var(--mono); font-size: 13.5px; line-height: 2.05; }
+  .doc .src { color: var(--dim); font-size: 12px; margin: 16px 0 6px;
+              border-bottom: 1px dashed var(--line); padding-bottom: 4px; }
+  .sent { padding: 2px 5px; border-radius: 4px; cursor: default; position: relative;
+          border-bottom: 2px solid transparent; }
+  .sent.drop { color: #6f7885; text-decoration: line-through;
+               text-decoration-color: rgba(224,108,117,.75); }
+  .sent.keep { border-bottom-color: var(--keep); }
+  .sent:hover { outline: 1px solid var(--accent); }
+  .tip { position: fixed; z-index: 20; background: #05070a; border: 1px solid var(--line);
+         border-radius: 8px; padding: 9px 12px; font-family: var(--mono); font-size: 12.5px;
+         max-width: 380px; pointer-events: none; display: none; box-shadow: 0 8px 26px #0008; }
+  .tip b { color: var(--accent); }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--dim);
+            margin-top: 12px; font-family: var(--mono); }
+  .swatch { display: inline-block; width: 26px; height: 10px; border-radius: 2px;
+            vertical-align: middle; margin-right: 5px; }
+  table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 13px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--dim); font-weight: 500; font-size: 12px; text-transform: uppercase; }
+  td.num { text-align: right; }
+  .note { color: var(--dim); font-size: 12.5px; font-style: italic; margin-top: 10px; }
+  .err { color: var(--drop); font-family: var(--mono); font-size: 13px; }
+  .answer { font-family: var(--mono); font-size: 13px; white-space: pre-wrap;
+            background: #0c0e12; border: 1px solid var(--line); border-radius: 7px;
+            padding: 11px 13px; min-height: 60px; color: #cdd6e3; }
+  .arm { margin-top: 12px; }
+  .arm h3 { font-size: 13px; margin: 0 0 6px; font-family: var(--mono); }
+  .arm h3 .tag { font-size: 11px; color: var(--dim); font-weight: 400; margin-left: 8px; }
+  canvas { width: 100%; height: 260px; display: block; }
+  .counters { display: flex; gap: 40px; justify-content: center; align-items: center;
+              flex-wrap: wrap; padding: 40px 10px 30px; }
+  .counter { text-align: center; }
+  .counter .n { font-family: var(--mono); font-size: clamp(56px, 12vw, 148px);
+                font-weight: 700; line-height: 1; letter-spacing: -.03em; }
+  .counter .k { font-size: clamp(13px, 1.4vw, 18px); color: var(--dim); margin-top: 12px;
+                text-transform: uppercase; letter-spacing: .16em; }
+  .counter.green .n { color: var(--keep); }
+  .counter.blue .n { color: var(--accent); }
+  .bigsub { text-align: center; color: var(--dim); font-family: var(--mono); font-size: 13px; }
+  .spinner { display: inline-block; width: 11px; height: 11px; border: 2px solid var(--line);
+             border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear
+             infinite; vertical-align: -1px; margin-right: 7px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (max-width: 720px) { main { padding: 14px; } .stats { gap: 16px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Parsimony</h1>
+  <span class="sub" id="state">connecting…</span>
+  <nav>
+    <button id="tab-map" aria-selected="true">Heatmap</button>
+    <button id="tab-ab" aria-selected="false">A/B</button>
+    <button id="tab-demo" aria-selected="false">Demo</button>
+  </nav>
+</header>
+
+<main>
+  <!-- ─────────────────────────── heatmap ─────────────────────────── -->
+  <section class="view" id="view-map">
+    <div class="panel">
+      <h2>Ask something of a document</h2>
+      <div class="row">
+        <div>
+          <label for="q">Question</label>
+          <input type="text" id="q" placeholder="What is the annual travel budget for the Tallinn office?">
+        </div>
+        <div class="narrow">
+          <label for="file">or load a file</label>
+          <input type="file" id="file" accept=".md,.txt,.rst,.json,.py,.log" style="font-size:12px">
+        </div>
+      </div>
+      <div style="margin-top:12px">
+        <label for="text">Context</label>
+        <textarea id="text" placeholder="Paste the document the model would otherwise read in full…"></textarea>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <div class="narrow"><button class="go" id="run-map">Compress</button></div>
+        <div class="narrow"><button class="ghost" id="sample">Load the sample handbook</button></div>
+      </div>
+      <div id="map-err" class="err"></div>
+    </div>
+
+    <div class="panel" id="map-stats" hidden>
+      <h2>What it decided</h2>
+      <div class="stats" id="map-numbers"></div>
+      <div class="note" id="map-note"></div>
+    </div>
+
+    <div class="panel" id="map-doc-panel" hidden>
+      <h2>Every sentence, shaded by its score</h2>
+      <div class="doc" id="map-doc"></div>
+      <div class="legend">
+        <span><span class="swatch" style="background:linear-gradient(90deg,#1b2430,#4ec9a8)"></span>relevance to the question</span>
+        <span><span class="swatch" style="background:var(--keep)"></span>kept — sent to the model</span>
+        <span style="text-decoration:line-through;text-decoration-color:var(--drop)">dropped — never read</span>
+        <span>hover a sentence for the decision behind it</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────────────────── A/B ───────────────────────────── -->
+  <section class="view" id="view-ab" hidden>
+    <div class="panel">
+      <h2>The same question, twice, against the real model</h2>
+      <div class="row">
+        <div class="narrow"><button class="go" id="run-ab">Run both arms</button></div>
+        <div class="narrow"><button class="ghost" id="copy-map">Use the heatmap's question and text</button></div>
+      </div>
+      <div class="note">
+        One after the other, never at once: two generations on one CPU compete for the same
+        cores, so a simultaneous "race" would measure contention, not compression.
+      </div>
+      <div class="note" id="ab-live-note"></div>
+      <div id="ab-err" class="err"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Answer tokens produced over time</h2>
+      <canvas id="chart" width="1200" height="520"></canvas>
+      <div class="legend">
+        <span><span class="swatch" style="background:var(--keep)"></span>parsimony</span>
+        <span><span class="swatch" style="background:var(--warn)"></span>baseline (full context)</span>
+        <span>the gap before a line starts is the model reading the prompt</span>
+      </div>
+    </div>
+
+    <div class="panel" id="ab-table-panel" hidden>
+      <h2>Measured</h2>
+      <table id="ab-table"></table>
+      <div class="note" id="ab-note"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Answers</h2>
+      <div class="arm">
+        <h3>parsimony <span class="tag" id="ab-tag-p"></span></h3>
+        <div class="answer" id="ab-ans-parsimony"></div>
+      </div>
+      <div class="arm">
+        <h3>baseline <span class="tag" id="ab-tag-b"></span></h3>
+        <div class="answer" id="ab-ans-baseline"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────────────────── demo ──────────────────────────── -->
+  <section class="view" id="view-demo" hidden>
+    <div class="counters">
+      <div class="counter blue"><div class="n" id="c-tokens">0</div>
+        <div class="k">tokens pruned</div></div>
+      <div class="counter green"><div class="n" id="c-secs">0.0s</div>
+        <div class="k"><span id="c-secs-k">seconds saved</span></div></div>
+    </div>
+    <div class="bigsub" id="demo-sub">nothing run yet — use the Heatmap or A/B tab</div>
+    <div class="panel" style="margin-top:28px">
+      <div class="note" style="font-style:normal" id="demo-basis"></div>
+    </div>
+  </section>
+</main>
+
+<div class="tip" id="tip"></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const fmt = (n) => n.toLocaleString("en-US");
+const secs = (s) => s >= 1 ? s.toFixed(1) + "s" : Math.round(s * 1000) + "ms";
+
+/* ── tabs ─────────────────────────────────────────────────────────── */
+const TABS = { map: "view-map", ab: "view-ab", demo: "view-demo" };
+function show(which) {
+  for (const [k, v] of Object.entries(TABS)) {
+    $("tab-" + k).setAttribute("aria-selected", String(k === which));
+    $(v).hidden = k !== which;
+  }
+  if (which === "demo") refreshSession();
+  if (which === "ab") drawChart();
+}
+for (const k of Object.keys(TABS)) $("tab-" + k).onclick = () => show(k);
+
+/* ── session state ────────────────────────────────────────────────── */
+fetch("/api/state").then(r => r.json()).then(s => {
+  $("state").textContent = (s.simulated ? "simulated model" : s.model)
+    + "  ·  encoder " + s.encoder;
+  if (s.simulated) $("state").style.color = "var(--warn)";
+}).catch(() => { $("state").textContent = "offline"; });
+
+async function refreshSession() {
+  try {
+    const t = await (await fetch("/api/session")).json();
+    $("c-tokens").textContent = fmt(t.tokens_pruned);
+    $("c-secs").textContent = t.seconds_saved.toFixed(1) + "s";
+    $("c-secs-k").textContent = t.timed_here ? "seconds saved" : "seconds saved (estimated)";
+    $("demo-basis").innerHTML =
+      "<b>Tokens pruned</b> is measured exactly: what the prompt was written with, minus what "
+      + "was sent. <b>Seconds saved</b> is those pruned tokens at the prefill rate — "
+      + (t.timed_here
+          ? "the milliseconds per token this machine actually took on the prompt it did read."
+          : "<b>and that rate was not timed here.</b> Either the model is simulated or the "
+          + "runtime served a prompt from its cache, so the figure falls back to the project's "
+          + "recorded rate and is an estimate. Run the A/B tab against Ollama with a fresh "
+          + "question for a measured one.");
+    $("demo-sub").textContent = t.requests
+      ? `${t.requests} request${t.requests > 1 ? "s" : ""} — ${fmt(t.tokens_written)} tokens `
+        + `written, ${fmt(t.tokens_sent)} sent (${t.percent.toFixed(0)}% never read)`
+      : "nothing run yet — use the Heatmap or A/B tab";
+  } catch (e) { /* the server went away; leave the last honest figure up */ }
+}
+
+/* ── heatmap ──────────────────────────────────────────────────────── */
+const SAMPLE_Q = "What is the annual travel budget for the Tallinn office?";
+
+$("file").onchange = (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => { $("text").value = reader.result; };
+  reader.readAsText(f);
+};
+
+$("sample").onclick = async () => {
+  $("sample").disabled = true;
+  try {
+    const r = await fetch("/api/sample");
+    const s = await r.json();
+    $("text").value = s.text;
+    if (!$("q").value.trim()) $("q").value = s.question || SAMPLE_Q;
+  } catch (e) { $("map-err").textContent = "no sample document on this machine"; }
+  $("sample").disabled = false;
+};
+
+function shade(score) {
+  // A single hue, lightened by score: colour carries one meaning only.
+  const t = Math.max(0, Math.min(1, score));
+  const a = 0.06 + 0.42 * t;
+  return `rgba(78,201,168,${a.toFixed(3)})`;
+}
+
+let lastMap = null;
+
+function renderMap(data) {
+  lastMap = data;
+  $("map-stats").hidden = $("map-doc-panel").hidden = false;
+  const kept = data.units.filter(u => u.kept).length;
+  $("map-numbers").innerHTML = [
+    ["tokens written", fmt(data.tokens_before)],
+    ["tokens sent", fmt(data.tokens_after)],
+    ["removed", data.removed_pct.toFixed(0) + "%"],
+    ["sentences kept", `${kept} / ${data.units.length}`],
+    ["encoder time", data.encoder_ms.toFixed(0) + "ms"],
+    ["deciding", data.decide_ms.toFixed(0) + "ms"],
+  ].map(([k, v]) => `<div class="stat"><div class="n">${v}</div><div class="k">${k}</div></div>`)
+   .join("");
+  const bits = [`stopped by <b>${data.stopped_by}</b>`,
+                `term coverage ${(data.coverage * 100).toFixed(0)}%`];
+  if (data.off_topic) bits.push("<b>off topic</b> — the floor keeps one sentence rather than "
+                                + "inventing relevance");
+  if (data.anchors.length) bits.push("anchors held: " + data.anchors.join(", "));
+  $("map-note").innerHTML = bits.join(" · ");
+
+  let html = "", src = null;
+  for (const u of data.units) {
+    if (u.source !== src) { src = u.source; html += `<div class="src">${esc(src)}</div>`; }
+    const cls = u.kept ? "keep" : "drop";
+    const bg = u.kept ? shade(u.score) : "transparent";
+    html += `<span class="sent ${cls}" style="background:${bg}"`
+         +  ` data-tag="${esc(u.tag)}" data-detail="${esc(u.detail)}"`
+         +  ` data-score="${u.score.toFixed(3)}" data-tokens="${u.tokens}">`
+         +  `${esc(u.text)}</span> `;
+  }
+  $("map-doc").innerHTML = html;
+  refreshSession();
+}
+
+const esc = (s) => String(s).replace(/[&<>"]/g,
+  c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+const tip = $("tip");
+$("map-doc").addEventListener("mouseover", (e) => {
+  const el = e.target.closest(".sent");
+  if (!el) return;
+  const kept = el.classList.contains("keep");
+  tip.innerHTML = `<b>[${kept ? "KEEP" : "DROP"}: ${esc(el.dataset.tag)}]</b><br>`
+                + `${esc(el.dataset.detail)}<br>`
+                + `<span style="color:var(--dim)">relevance ${el.dataset.score} · `
+                + `${el.dataset.tokens} tokens</span>`;
+  tip.style.display = "block";
+});
+$("map-doc").addEventListener("mousemove", (e) => {
+  const pad = 14, w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = e.clientX + pad, y = e.clientY + pad;
+  if (x + w > innerWidth - 8) x = e.clientX - w - pad;
+  if (y + h > innerHeight - 8) y = e.clientY - h - pad;
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+});
+$("map-doc").addEventListener("mouseout", (e) => {
+  if (!e.relatedTarget || !e.relatedTarget.closest(".sent")) tip.style.display = "none";
+});
+
+$("run-map").onclick = async () => {
+  const question = $("q").value.trim(), text = $("text").value;
+  $("map-err").textContent = "";
+  if (!question || !text.trim()) {
+    $("map-err").textContent = "a question and some text are both required"; return;
+  }
+  $("run-map").disabled = true;
+  $("run-map").innerHTML = '<span class="spinner"></span>working';
+  try {
+    const r = await fetch("/api/compress", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, text }),
+    });
+    const data = await r.json();
+    if (data.error) $("map-err").textContent = data.error; else renderMap(data);
+  } catch (e) { $("map-err").textContent = String(e); }
+  $("run-map").disabled = false;
+  $("run-map").textContent = "Compress";
+};
+
+/* ── A/B ──────────────────────────────────────────────────────────── */
+const series = { parsimony: [], baseline: [] };
+const COLOUR = { parsimony: "#4ec9a8", baseline: "#e5c07b" };
+let armResults = [];
+
+$("copy-map").onclick = () => show("map");
+
+function drawChart() {
+  const c = $("chart"), g = c.getContext("2d");
+  const W = c.width, H = c.height, pad = { l: 66, r: 20, t: 20, b: 42 };
+  g.clearRect(0, 0, W, H);
+  const all = [...series.parsimony, ...series.baseline];
+  const maxT = Math.max(1, ...all.map(p => p[0]));
+  const maxN = Math.max(8, ...all.map(p => p[1]));
+  const X = (t) => pad.l + (W - pad.l - pad.r) * (t / maxT);
+  const Y = (n) => H - pad.b - (H - pad.t - pad.b) * (n / maxN);
+
+  g.strokeStyle = "#262c36"; g.fillStyle = "#8b97a8";
+  g.font = "13px ui-monospace, Consolas, monospace"; g.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const n = Math.round(maxN * i / 4), y = Y(n);
+    g.beginPath(); g.moveTo(pad.l, y); g.lineTo(W - pad.r, y); g.stroke();
+    g.textAlign = "right"; g.fillText(String(n), pad.l - 10, y + 4);
+  }
+  g.textAlign = "center";
+  for (let i = 0; i <= 4; i++) {
+    const t = maxT * i / 4;
+    g.fillText(t.toFixed(1) + "s", X(t), H - pad.b + 20);
+  }
+  g.textAlign = "left";
+  g.fillText("answer tokens", pad.l - 56, pad.t - 4);
+
+  for (const [arm, pts] of Object.entries(series)) {
+    if (!pts.length) continue;
+    g.strokeStyle = COLOUR[arm]; g.lineWidth = 2.5; g.beginPath();
+    pts.forEach(([t, n], i) => i ? g.lineTo(X(t), Y(n)) : g.moveTo(X(t), Y(n)));
+    g.stroke();
+    const [t, n] = pts[pts.length - 1];
+    g.fillStyle = COLOUR[arm]; g.beginPath(); g.arc(X(t), Y(n), 4, 0, 7); g.fill();
+    g.fillText(arm, X(t) + 9, Y(n) + 4);
+  }
+  if (!all.length) {
+    g.fillStyle = "#8b97a8"; g.textAlign = "center";
+    g.fillText("run both arms to plot them", W / 2, H / 2);
+  }
+}
+drawChart();
+
+$("run-ab").onclick = () => {
+  const question = $("q").value.trim(), text = $("text").value;
+  $("ab-err").textContent = "";
+  if (!question || !text.trim()) {
+    $("ab-err").textContent = "set a question and some text on the Heatmap tab first"; return;
+  }
+  series.parsimony = []; series.baseline = []; armResults = [];
+  $("ab-ans-parsimony").textContent = ""; $("ab-ans-baseline").textContent = "";
+  $("ab-tag-p").textContent = ""; $("ab-tag-b").textContent = "";
+  $("ab-table-panel").hidden = true;
+  drawChart();
+  $("run-ab").disabled = true;
+  $("run-ab").innerHTML = '<span class="spinner"></span>running';
+
+  const url = "/api/race?question=" + encodeURIComponent(question)
+            + "&text=" + encodeURIComponent(text);
+  const es = new EventSource(url);
+
+  es.addEventListener("note", (e) => {
+    const d = JSON.parse(e.data);
+    $("ab-live-note").textContent = d.warmed
+      ? "Model warmed with a throwaway token first, so neither arm pays the weight load."
+      : "";
+  });
+  es.addEventListener("prompt", (e) => {
+    const d = JSON.parse(e.data);
+    $(d.arm === "parsimony" ? "ab-tag-p" : "ab-tag-b").textContent =
+      fmt(d.tokens) + " prompt tokens — reading…";
+  });
+  es.addEventListener("token", (e) => {
+    const d = JSON.parse(e.data);
+    series[d.arm].push([d.t, d.n]);
+    $("ab-ans-" + d.arm).textContent += d.text;
+    if (d.n % 3 === 0) drawChart();
+  });
+  es.addEventListener("arm_done", (e) => {
+    const d = JSON.parse(e.data);
+    armResults.push(d);
+    $(d.arm === "parsimony" ? "ab-tag-p" : "ab-tag-b").textContent =
+      `${fmt(d.prompt_tokens)} prompt tokens · read in ${secs(d.prefill_s)}`
+      + (d.reused ? " (reused earlier work)" : "");
+    drawChart();
+  });
+  es.addEventListener("done", (e) => {
+    const d = JSON.parse(e.data);
+    renderAbTable(d.arms); refreshSession(); finish();
+  });
+  es.addEventListener("failed", (e) => {
+    $("ab-err").textContent = JSON.parse(e.data).error; finish();
+  });
+  es.onerror = () => { finish(); };
+
+  function finish() {
+    es.close(); $("run-ab").disabled = false; $("run-ab").textContent = "Run both arms";
+    drawChart();
+  }
+};
+
+function renderAbTable(arms) {
+  const p = arms.find(a => a.arm === "parsimony"), b = arms.find(a => a.arm === "baseline");
+  if (!p || !b) return;
+  const pct = (a, x) => {
+    const d = 100 * (b[x] - a[x]) / (b[x] || 1);
+    return (d > 0 ? "−" : "+") + Math.abs(d).toFixed(0) + "%";
+  };
+  const rows = [
+    ["prompt tokens", fmt(p.prompt_tokens), fmt(b.prompt_tokens), pct(p, "prompt_tokens")],
+    ["reading the prompt", secs(p.prefill_s), secs(b.prefill_s), pct(p, "prefill_s")],
+    ["time to first token", p.ttft_s ? secs(p.ttft_s) : "—",
+                            b.ttft_s ? secs(b.ttft_s) : "—",
+                            (p.ttft_s && b.ttft_s) ? pct(p, "ttft_s") : ""],
+    ["answer tokens", fmt(p.answer_tokens), fmt(b.answer_tokens), ""],
+    ["wall clock", secs(p.total_s), secs(b.total_s), pct(p, "total_s")],
+  ];
+  $("ab-table").innerHTML =
+    "<tr><th>measured</th><th>parsimony</th><th>baseline</th><th>change</th></tr>"
+    + rows.map(r => `<tr><td>${r[0]}</td><td class="num">${r[1]}</td>`
+                  + `<td class="num">${r[2]}</td><td class="num">${r[3]}</td></tr>`).join("");
+  $("ab-table-panel").hidden = false;
+  const caveat = (p.reused || b.reused)
+    ? "One arm reused earlier work from the runtime's cache, so its reading time is not a "
+    + "cold measurement — rerun with a different question for a clean pair."
+    : "Both arms ran cold, one after the other, on this machine.";
+  const same = p.answer_tokens === b.answer_tokens;
+  $("ab-note").textContent = caveat
+    + " Prompt tokens and reading time are what the layers changed. Wall clock also carries "
+    + (same ? "generation" : "the two answers' different lengths (" + p.answer_tokens + " vs "
+              + b.answer_tokens + " tokens), which compression did not choose")
+    + " — read it as context, not as the result. Whether the two answers agree is for you to "
+    + "judge: a faster wrong answer is not an improvement.";
+}
+
+refreshSession();
+setInterval(() => { if (!$("view-demo").hidden) refreshSession(); }, 2000);
+</script>
+</body>
+</html>
