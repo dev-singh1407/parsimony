@@ -239,3 +239,48 @@ fails `reproduce.py` in CI, which is exactly the tripwire ADR-014 needs.
 | Config drift mid-sweep | `config_hash` in every row; a cell with two distinct hashes fails analysis loudly |
 | Model changed mid-project | `model_digest` pinned and recorded; a digest change is visible in the ledger |
 | Subset ≠ full corpus | Winner and baseline re-run on the full 150; agreement reported as a validity check |
+
+---
+
+## 7. The external benchmark
+
+Everything above measures the system on corpora we authored. That is the right instrument for the questions
+only we are asking — whether the tier stays quiet on an unanswerable question, whether a pronoun-opening
+answer survives — and it is the wrong instrument for the question an examiner asks first: *did you only do
+well because you set the exam?*
+
+`src/parsimony/eval/longbench.py` answers that one. It runs the shipped configuration, unchanged, on
+**LongBench** (Bai et al., ACL 2024), which is what the prompt-compression literature reports.
+
+**What is borrowed, and what is ours.** The items, the answers, the prompt template and the F1 metric are
+LongBench's. `qa_f1` is a transcription of their scorer — SQuAD-style token F1 after their normalisation,
+maximised over the references — and it is unit-tested against worked examples, including partial credit.
+Rewriting a metric to suit the system under test is the easiest way to win a benchmark and the fastest way
+to make winning meaningless.
+
+**Three rules that keep it honest.**
+
+1. **Items in file order, never sampled.** Selecting by length would be choosing the exam again. `--limit N`
+   takes the first N.
+2. **The window is set from the data.** Five of the first twenty 2wikimqa items need more than 8,192 tokens,
+   so the run uses 16,384. Choosing items that fit a comfortable window is the same mistake as sampling, one
+   step removed — and a prompt that does not fit is refused rather than recorded (ADR-045).
+3. **A per-prompt nonce.** The arms of one item share nearly all their text, so without it the second arm's
+   prefill is served from the runtime's cache and measured as nearly free. This was reintroduced here and
+   caught by a row reporting 0.1 s for 7,152 tokens.
+
+**What the numbers can and cannot support.** The arms are compared against each other, on the same items,
+through the same model — that comparison is sound. The absolute F1 is **not** comparable to published
+LongBench tables, which are produced by 7B–70B models; this is a 1.5B on a laptop CPU and scores far lower
+before compression is involved at all. Any number from this harness that appears beside a number from a
+paper is being misused.
+
+**The data is not vendored.** ~110 MB, and the tasks carry the licences of the datasets they are built
+from. `parsimony longbench --data DIR` points at an extracted copy, and each run records the task file's
+SHA-256 so a result can be tied to the bytes that produced it.
+
+**What it found immediately.** Three of the first four items were refused by the fidelity gate, because
+`is_sentence_extract` could not handle a document with headings (ADR-047); the embedding server refused a
+batch of ~500 sentences; and the model server was silently truncating long prompts (ADR-045). None of the
+three was reachable from our own corpus. That is the argument for having this harness, independent of what
+its F1 column eventually says.

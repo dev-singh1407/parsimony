@@ -1431,6 +1431,67 @@ def followups(
 
 
 @app.command()
+def longbench(
+    task: str = typer.Option("2wikimqa", "--task",
+                             help="LongBench QA task: 2wikimqa, hotpotqa, musique, "
+                                  "multifieldqa_en, qasper."),
+    data: Path = typer.Option(None, "--data",
+                              help="Directory holding <task>.jsonl from LongBench's data.zip."),
+    limit: int = typer.Option(20, "--limit", help="First N items, in file order."),
+    provider: str = typer.Option("ollama", "--provider"),
+    num_ctx: int = typer.Option(16384, "--num-ctx",
+                                help="Context window. Set from the DATA, never the other way "
+                                     "round: a window chosen to fit makes the benchmark easier "
+                                     "and says nothing (ADR-045)."),
+    out: Path = typer.Option(Path("figures/longbench_items.jsonl"), "--out"),
+) -> None:
+    """Run the shipped configuration on LongBench, the set the literature reports.
+
+    Our own corpus is ours -- we chose its documents, its distractors and its
+    questions. This answers the other question: does the compressor work on a
+    benchmark we did not write? Same prompt as LongBench, same F1 metric, items
+    taken in file order rather than sampled.
+
+    The data is not vendored (~110 MB, and its tasks carry the licences of the
+    datasets they are built from). Download data.zip from the LongBench dataset
+    repository, extract it, and point --data at the folder.
+    """
+    from parsimony.eval import longbench as lb
+
+    if data is None:
+        fail("--data is required",
+             hint="extract LongBench's data.zip and pass the folder holding <task>.jsonl")
+    if not (Path(data) / f"{task}.jsonl").exists():
+        fail(f"no {task}.jsonl in {data}", hint=f"tasks available: {', '.join(lb.TASKS)}")
+    if provider == "mock":
+        fail("a mock cannot read a long document",
+             hint="this study needs --provider ollama")
+
+    from parsimony.infra.providers import OllamaProvider
+
+    real = OllamaProvider(num_ctx=num_ctx, timeout=2400.0)
+    console.print(f"[dim]{task} · first {limit} items · window {num_ctx:,} · "
+                  f"data {lb.data_digest(task, data)}[/dim]")
+    console.print("[dim]Long prompts on a CPU take minutes each; the run is resumable, so "
+                  "stopping it loses nothing.[/dim]")
+    rows = lb.run(task, data, real, out, limit=limit,
+                  progress=lambda line: console.print(f"[dim]{line}[/dim]"))
+
+    table = Table(title=f"LongBench {task} — {limit} items, {real.model_name}",
+                  header_style="bold")
+    table.add_column("arm")
+    for col in ("F1", "context kept", "context tokens", "prefill"):
+        table.add_column(col, justify="right")
+    for row in lb.summarise(rows):
+        table.add_row(row["arm"], f"{row['f1']:.1f}", f"{row['context_kept_pct']:.1f}%",
+                      f"{row['context_tokens']:,}", f"{row['prefill_s']:.1f} s")
+    console.print(table)
+    console.print("[dim]These F1 values are NOT comparable to published LongBench tables: those "
+                  "use 7B-70B models and this is a 1.5B on a laptop CPU. The full-context arm is "
+                  "the only baseline that means anything here.[/dim]")
+
+
+@app.command()
 def longctx(
     provider: str = typer.Option("mock", "--provider",
                                  help="mock: which answers survive compression, no model needed. "

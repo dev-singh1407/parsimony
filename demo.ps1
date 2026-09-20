@@ -172,6 +172,14 @@ switch ($act) {
         Run-Cli followups @rest
     }
 
+    "longbench" {
+        # Needs LongBench's data.zip extracted somewhere and passed with --data.
+        # Long prompts on a CPU take minutes each; the run is resumable.
+        Show-Banner "L" "A benchmark we did not write" `
+            "Same compressor, same settings, on the set the literature reports. Say that the absolute F1 is low because this is a 1.5B model on a CPU - the full-context arm is the baseline that matters."
+        Run-Cli longbench @rest
+    }
+
     "longctx" {
         # Without --provider ollama this is instant and needs no model: it
         # reports which methods keep the answer sentences. With it, every arm

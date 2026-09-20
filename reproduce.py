@@ -310,6 +310,47 @@ def render_tokenprobe(ctx: Context) -> str:
     )
 
 
+def render_longbench(ctx: Context) -> str:
+    """LongBench, read from whatever a previous run recorded.
+
+    Reads only. The run itself takes minutes per item on a CPU and needs data
+    that is not vendored, so `reproduce.py` reports it rather than performing
+    it -- the same treatment the real-model long-context study gets.
+    """
+    import json
+
+    from parsimony.eval import longbench as lb
+
+    path = ctx.out / "longbench_items.jsonl"
+    if not path.exists():
+        return ("_No LongBench run recorded. Download LongBench's data.zip, extract it, and run "
+                "`parsimony longbench --data DIR`._")
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()]
+    if not rows:
+        return "_longbench_items.jsonl is empty._"
+
+    summaries = lb.summarise(rows)
+    headers = ["arm", "items", "F1", "context kept %", "context tokens", "prefill s"]
+    table = [[r["arm"], str(r["n"]), f"{r['f1']:.1f}", f"{r['context_kept_pct']:.1f}",
+              f"{r['context_tokens']:,}", f"{r['prefill_s']:.1f}"] for r in summaries]
+    _write_csv(ctx.out / "longbench.csv", headers, table)
+
+    task = rows[0]["task"]
+    model = rows[0]["model"]
+    window = rows[0].get("num_ctx")
+    text = (f"The shipped configuration on **LongBench {task}**, items taken in file order, "
+            f"{model}"
+            + (f", {window:,}-token window" if window else "") + ":\n\n"
+            + _table(headers, table))
+    return text + (
+        "\n\n**These F1 values are not comparable to published LongBench tables.** Those are "
+        "produced by 7B-70B models; this is a 1.5B on a laptop CPU, which scores far lower before "
+        "compression is involved at all. The full-context arm is the only baseline that means "
+        "anything here, which is why it runs on every item. What the table supports is the "
+        "comparison BETWEEN arms on the same items.")
+
+
 def render_longctx(ctx: Context) -> str:
     """Long-context compression (ADR-040): offline evidence, plus the recorded real-model run.
 
@@ -785,6 +826,7 @@ SECTIONS: tuple[Section, ...] = (
             ("tokenizer_id", "tokens_in_final", "tokens_out"), render_generalisation),
     Section("tokenprobe", "Negative-yield probe", (), render_tokenprobe),
     Section("longctx", "Long-context compression", (), render_longctx),
+    Section("longbench", "A benchmark we did not write", (), render_longbench),
     Section("followups", "Conversations: does the needed fact survive?", (), render_followups),
     Section("middleware", "Middleware overhead and prefix reuse",
             ("middleware_ns", "prefix_tokens_survived"), render_middleware),
