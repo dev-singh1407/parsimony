@@ -557,3 +557,75 @@ class TestThePromptMustFitTheWindow:
         assert "did not fit" in text
         assert "not" in text and "valid" in text
         assert "earlier work was reused" not in text
+
+
+class TestTheGateAcceptsExtractionsFromDocumentsWithHeadings:
+    """A heading is a sentence that is a prefix of the sentence after it.
+
+    `is_sentence_extract` consumed the target greedily, one source sentence at
+    a time, so given "Diana Weston" followed by "Diana Weston (born 1953) is an
+    actress." it ate the heading, was left holding "(born 1953) is an actress."
+    and reported that the module had rewritten the text. The gate then refused
+    a legal extraction and the pipeline fell back to the full context --
+    silently, safely and uselessly. Three of the first four LongBench items
+    were refused this way; our own corpus is plain prose and never showed it
+    (ADR-047).
+    """
+
+    HEADED = ("Diana Weston\n"
+              "Diana Weston (born 13 November 1953) is an actress. "
+              "She is a grandchild of Charles Price.")
+
+    def test_it_allows_keeping_the_sentences_under_a_heading(self):
+        from parsimony.modules.m8_fidelity import is_sentence_extract
+
+        kept = ("Diana Weston (born 13 November 1953) is an actress. "
+                "She is a grandchild of Charles Price.")
+        assert is_sentence_extract(self.HEADED, kept)
+
+    def test_it_allows_keeping_only_the_heading(self):
+        from parsimony.modules.m8_fidelity import is_sentence_extract
+
+        assert is_sentence_extract(self.HEADED, "Diana Weston")
+
+    def test_it_allows_keeping_one_sentence_from_the_middle(self):
+        from parsimony.modules.m8_fidelity import is_sentence_extract
+
+        assert is_sentence_extract(self.HEADED, "She is a grandchild of Charles Price.")
+
+    @pytest.mark.parametrize("target, why", [
+        ("Diana Weston Diana Weston (born 13 November 1953) is an actress.",
+         "merging the heading into the next sentence is a rewrite"),
+        ("She is a grandchild of Charles Price. Diana Weston",
+         "reordering is not deletion"),
+        ("DIANA WESTON", "rewording is not deletion"),
+        ("Diana Weston is a Canadian actress.", "a sentence that was never there"),
+    ])
+    def test_it_still_refuses_everything_it_refused_before(self, target, why):
+        from parsimony.modules.m8_fidelity import is_sentence_extract
+
+        assert not is_sentence_extract(self.HEADED, target), why
+
+    def test_an_empty_extraction_is_allowed_here_and_caught_elsewhere(self):
+        """Deleting everything is not a sentence-level violation; the gate's
+        separate content check is what refuses it."""
+        from parsimony.modules.m8_fidelity import is_sentence_extract
+
+        assert is_sentence_extract(self.HEADED, "")
+
+    def test_the_whole_gate_passes_a_headed_document(self):
+        from dataclasses import replace
+
+        from parsimony.core.types import Document, Invariants, RequestContext
+        from parsimony.core.proposals import TransformKind
+        from parsimony.modules.m8_fidelity import FidelityGate
+
+        before = RequestContext(
+            request_id="r", conversation_id="c", original_query="Who is her grandchild?",
+            original_history=(), invariants=Invariants(), query="Who is her grandchild?",
+            history=(), documents=(Document("d0", self.HEADED, "Diana Weston"),),
+            original_documents=(Document("d0", self.HEADED, "Diana Weston"),))
+        after = replace(before, documents=(
+            Document("d0", "She is a grandchild of Charles Price.", "Diana Weston"),))
+        verdict = FidelityGate().check(before, after, TransformKind.EXTRACT, "M1")
+        assert verdict.passed, verdict.detail

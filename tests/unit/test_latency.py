@@ -157,22 +157,42 @@ class TestAgainstTheRealModel:
             pytest.skip(f"the model server is busy ({slowest:.0f} ms for a short prompt); "
                         f"timing relationships cannot be measured under contention")
 
+    @staticmethod
+    def _measure(fn, *args, **kwargs):
+        """Run a timing measurement, or skip if the server never got to it.
+
+        Contention does not always show up as a slow result -- it also shows up
+        as no result. A sweep holding the model for minutes at a time makes
+        these calls time out at the socket, and a TimeoutError here means the
+        measurement was not taken, not that the property under test failed.
+        Reporting that as red teaches people to ignore red.
+        """
+        import socket
+
+        from parsimony.core.errors import ProviderError
+
+        try:
+            return fn(*args, **kwargs)
+        except (socket.timeout, TimeoutError, ProviderError, OSError) as exc:
+            pytest.skip(f"the model server did not answer in time ({type(exc).__name__}); "
+                        f"something else is using it")
+
     def test_prefill_dominates_on_cpu(self):
         """The empirical case for the whole project: on CPU the prompt side is
         the expensive half, so removing input tokens buys the expensive half."""
-        points = prefill_scaling(OllamaProvider(), target_tokens=(256, 512))
+        points = self._measure(prefill_scaling, OllamaProvider(), target_tokens=(256, 512))
         assert points, "expected at least one usable measurement"
         assert all(p.prefill_share > 80 for p in points)
 
     def test_prefill_grows_with_prompt_length(self):
-        points = prefill_scaling(OllamaProvider(), target_tokens=(256, 1024))
+        points = self._measure(prefill_scaling, OllamaProvider(), target_tokens=(256, 1024))
         assert len(points) == 2
         assert points[1].prefill_ms > points[0].prefill_ms * 2
 
     def test_a_volatile_head_destroys_prefix_reuse(self):
         """ADR-025 measured this in prefix-tokens-reused, a proxy nobody
         outside this project reports. It has a wall-clock price."""
-        stable, volatile = prefix_reuse(OllamaProvider(), words=120, repeats=2)
+        stable, volatile = self._measure(prefix_reuse, OllamaProvider(), words=120, repeats=2)
         self._skip_if_busy(stable, volatile)
         assert stable.reuse_pct > 80
         assert volatile.reuse_pct < 30

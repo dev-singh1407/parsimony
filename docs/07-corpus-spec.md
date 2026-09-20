@@ -193,3 +193,31 @@ to do; they cannot tell you whether that was worth doing. Only `test` and `test2
 the evidence strings out of them verbatim — a retyped sentence that no longer matches scores as a loss and
 looks like a finding. `sections` asserts, per item, that the answer sentence does not contain the entity
 its own heading names; without that assertion the split does not test what its name claims.
+
+---
+
+## 8. What this corpus cannot see
+
+A benchmark authored alongside the system inherits the system's blind spots. Two are known, and both were
+found by measuring something else.
+
+**It has no headings.** Every document in `longctx_docs.jsonl` is plain prose with its title in a separate
+field, so no document contains a line that is also the opening words of the sentence after it. Real
+documents are full of them — Wikipedia, reports, manuals, the handbook in `examples/` if it had been
+written differently. The fidelity gate had a bug that refused any extraction from such a document
+(ADR-047), and this corpus could not have found it: three of the first four LongBench items hit it
+immediately. The regression is pinned by unit test rather than by corpus item, because adding headed
+documents now would change a frozen instrument.
+
+**Its documents are short.** Six documents of ~1,000 tokens total, against LongBench's 4,000–15,000. Two
+consequences that only appeared on longer input: the embedding server refuses a batch above ~256 inputs and
+one long item is ~500 sentences (fixed by chunking), and the model server was silently truncating anything
+over ~2,048 tokens (ADR-045). Neither could fire here. The largest prompt this corpus has ever produced is
+869 tokens.
+
+**What it is still for.** It asks questions LongBench does not: whether the tier stays quiet on a question
+the documents cannot answer at all (`offtopic`), whether an answer sentence opening with a pronoun survives
+(`anaphora`), whether a negated question can be told from its positive twin. Those are properties of the
+compressor that a general QA set does not isolate. The conclusion is not that a bespoke corpus was a
+mistake — it is that it must never be the only thing the system is measured on, which is what
+`eval/longbench.py` is for.

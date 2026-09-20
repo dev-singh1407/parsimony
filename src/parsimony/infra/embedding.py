@@ -167,6 +167,16 @@ class OllamaEmbedder:
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 body = json.loads(resp.read())
+        except urllib.error.HTTPError as exc:
+            from parsimony.core.errors import FeatureNotAvailable
+
+            # A refusal is not an absence. Reporting "not reachable" for an HTTP
+            # 400 sent a real batch-size limit off to be investigated as a
+            # connectivity problem: the server was there, running, and saying no.
+            raise FeatureNotAvailable(
+                f"embedding model {self.model!r} refused a request of {len(texts)} inputs "
+                f"at {self.host}: HTTP {exc.code}. The server is reachable and the model is "
+                f"loaded; the request itself was rejected.") from exc
         except (urllib.error.URLError, OSError) as exc:
             from parsimony.core.errors import FeatureNotAvailable
 
@@ -181,10 +191,21 @@ class OllamaEmbedder:
                                       f"{str(body)[:120]}")
         return vectors
 
+    #: Inputs per request. The server refuses somewhere between 256 and 512 --
+    #: measured, not guessed -- and a long-context item easily exceeds that: the
+    #: 35 passages of one LongBench question come to about 500 sentences, which
+    #: is a single request the whole run then dies on. Our own corpus, six short
+    #: documents at a time, never came close, so this surfaced only on a
+    #: benchmark with real documents in it.
+    BATCH = 128
+
     def embed(self, texts: list[str]) -> np.ndarray:
         missing = [t for t in dict.fromkeys(texts) if t not in self._memo]
         if missing:
-            for text, vec in zip(missing, self._post(missing)):
+            vectors: list[list[float]] = []
+            for start in range(0, len(missing), self.BATCH):
+                vectors.extend(self._post(missing[start:start + self.BATCH]))
+            for text, vec in zip(missing, vectors):
                 v = np.asarray(vec, dtype=np.float32)
                 norm = float(np.linalg.norm(v)) or 1.0
                 self._memo[text] = v / norm

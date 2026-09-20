@@ -266,3 +266,67 @@ class TestTheChoiceIsGlobal:
         result = CliRunner().invoke(app, ["calibrate"])
         assert result.exit_code == 0, result.output
         assert "Encoder:" in result.output
+
+
+class TestTheEmbedderHandlesRealDocuments:
+    """The server refuses a batch this project only reached on a real benchmark.
+
+    Ollama's embed endpoint rejects somewhere between 256 and 512 inputs in one
+    request. Six short documents never approached that; one LongBench question
+    is 35 passages and about 500 sentences, and the whole run died on a single
+    HTTP 400 that the error message blamed on connectivity.
+    """
+
+    def test_a_batch_larger_than_the_limit_is_split(self, monkeypatch):
+        from parsimony.infra.embedding import OllamaEmbedder
+
+        embedder = OllamaEmbedder()
+        sent: list[int] = []
+
+        def fake_post(texts):
+            sent.append(len(texts))
+            assert len(texts) <= embedder.BATCH, "a request exceeded the server's limit"
+            return [[float(len(t)), 1.0, 0.0] for t in texts]
+
+        monkeypatch.setattr(embedder, "_post", fake_post)
+        out = embedder.embed([f"sentence {i}" for i in range(500)])
+        assert out.shape[0] == 500
+        assert len(sent) == 4 and sum(sent) == 500
+
+    def test_the_vectors_stay_with_their_own_text(self, monkeypatch):
+        """Batching that misaligns rows would be silent and score every
+        sentence against another sentence's meaning."""
+        import numpy as np
+
+        from parsimony.infra.embedding import OllamaEmbedder
+
+        embedder = OllamaEmbedder()
+        monkeypatch.setattr(embedder, "BATCH", 3)
+        # A vector that encodes its own text, so a swap is detectable.
+        monkeypatch.setattr(embedder, "_post",
+                            lambda texts: [[float(int(t.split()[-1])), 1.0] for t in texts])
+        texts = [f"sentence {i}" for i in range(10)]
+        out = embedder.embed(texts)
+        for i, row in enumerate(out):
+            assert row[0] / row[1] == pytest.approx(float(i), abs=1e-5), f"row {i} misaligned"
+        assert np.allclose(np.linalg.norm(out, axis=1), 1.0, atol=1e-5)
+
+    def test_a_refusal_is_not_reported_as_unreachable(self, monkeypatch):
+        import urllib.error
+
+        from parsimony.core.errors import FeatureNotAvailable
+        from parsimony.infra.embedding import OllamaEmbedder
+
+        embedder = OllamaEmbedder()
+
+        def refuse(req, timeout=None):
+            raise urllib.error.HTTPError(req.full_url, 400, "Bad Request", {}, None)
+
+        monkeypatch.setattr("urllib.request.urlopen", refuse)
+        with pytest.raises(FeatureNotAvailable) as exc:
+            embedder._post(["one", "two"])
+        message = str(exc.value)
+        assert "refused" in message and "reachable" in message
+        assert "is not reachable" not in message, (
+            "an HTTP 400 means the server answered; saying it is absent sends the reader "
+            "to debug the wrong thing")

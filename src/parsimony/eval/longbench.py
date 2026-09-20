@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import secrets
 import re
 import string
 import time
@@ -213,7 +214,16 @@ def run(task: str, data_dir: Path, provider, out_path: Path, *, limit: int = 20,
                 else:
                     raise ValueError(f"unknown arm {arm!r}")
 
-                prompt = _render(documents, item.question)
+                # A fresh nonce per prompt. The arms of one item share almost
+                # all of their text -- truncation IS a prefix of the full
+                # context -- and Ollama reuses its key-value cache for any
+                # identical prefix, so without this the second arm's prefill is
+                # measured as nearly free. It showed up immediately on the
+                # first run of this harness: an arm that had not compressed at
+                # all reported 0.1 s for 7,152 tokens, because the previous arm
+                # had just read the same bytes (ADR-034, reintroduced here and
+                # caught by the number being impossible).
+                prompt = f"[{secrets.token_hex(3)}]\n" + _render(documents, item.question)
                 sent = methods.count(prompt)
                 if progress:
                     progress(f"{n_item * len(arms) + n_arm + 1}/{total}  {item.item_id[:12]}  "

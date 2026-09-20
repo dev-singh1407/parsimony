@@ -2038,3 +2038,56 @@ in 45 here. That is the resolution of this instrument, and no single-item differ
 be read as an effect — which is why the findings that matter are carried by paired McNemar tests over the
 same items rather than by comparing two accuracy totals. The nonce is still right: without it the arms
 share prefixes and every prefill measurement is wrong instead.
+
+---
+
+### ADR-047 — The fidelity gate was refusing legal extractions on any document with headings
+
+**Status.** Accepted, 20 September 2026. Found by running the compressor on LongBench, which is what a
+public benchmark is for.
+
+**Context.** On the first four LongBench 2wikimqa items, the gate refused **three**, all with the same
+verdict: *"extract altered a sentence"*. The compressor had done nothing wrong — the audit showed a clean
+6,998 → 396 token selection — and the pipeline fell back to the full context, silently. Safe, and useless.
+
+The cause is in `is_sentence_extract`, which asked whether the target could be produced from the source by
+deleting whole sentences. It did that by consuming a **prefix** of the target, greedily, one source
+sentence at a time. Greedy is wrong whenever one sentence is a prefix of a later one, and that is exactly
+what a heading is:
+
+```
+Diana Weston
+Diana Weston (born 13 November 1953) is a Canadian-British actress ...
+```
+
+Keeping only the second sentence is a legal extraction. The matcher consumed the heading `Diana Weston `
+first, was left holding `(born 13 November 1953) is ...`, found nothing to match it against, and reported
+that the module had rewritten the text.
+
+**Why our own corpus never showed it.** `corpus/longctx_docs.jsonl` is plain prose written for the
+benchmark: every document is sentences, no headings, no title lines repeated as the opening words of the
+first sentence. Wikipedia has them everywhere, and so does any report, manual or handbook a real user would
+attach. The instrument could not see a failure of this shape because we had built the instrument out of
+text that does not contain it.
+
+**Decision.** Compare two sentence *lists* rather than consume a prefix of a string: split both sides, and
+check that the target's sentences appear in the source's, in order. No prefix ambiguity, and the guarantee
+is unchanged — verified by keeping every refusal the old version made:
+
+| edit | must be | is |
+|---|---|---|
+| keep later sentences under a heading | allowed | allowed *(was refused)* |
+| keep only the heading | allowed | allowed |
+| merge the heading into the next sentence | refused | refused |
+| reorder two kept sentences | refused | refused |
+| reword a kept sentence | refused | refused |
+| introduce a sentence that was never there | refused | refused |
+
+**Consequence.** On the first eight LongBench items the gate now passes 8/8, and the compressor keeps 6–37%
+of the context instead of 100%. This is the largest single behavioural change the project has made since
+the context tier shipped, and it was invisible from inside: every test passed, every published figure was
+correct, and the system was quietly declining to compress the kind of document it was built for.
+
+**The lesson is about the corpus, not the regex.** A benchmark authored alongside the system inherits the
+system's blind spots. That is not an argument against writing one — ours asks questions LongBench cannot —
+but it is a reason never to let it be the only thing the system is measured on.

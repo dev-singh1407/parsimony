@@ -42,17 +42,34 @@ def is_sentence_extract(source: str, target: str) -> bool:
     then return something else. Whitespace between sentences is free -- a
     module may re-join kept sentences with a space or a newline -- but every
     retained sentence must be character-identical and in its original order.
+
+    Compared as two lists of sentences rather than by consuming a prefix of the
+    target string. The prefix version was greedy, and greedy is wrong whenever
+    one sentence is a prefix of a later one -- which is what a heading is. Given
+
+        Diana Weston
+        Diana Weston (born 13 November 1953) is a Canadian-British actress ...
+
+    keeping only the second sentence is a perfectly legal extraction, but the
+    prefix matcher consumed the heading first, was left holding "(born 13 ..."
+    and reported that the module had altered a sentence. The gate then refused
+    the saving. On documents with headings -- Wikipedia, reports, anything with
+    a title line that reappears as the start of its first sentence -- this
+    rejected three of the first four LongBench items, and our own corpus never
+    showed it because its documents are plain prose (ADR-047).
     """
-    rest = _squash(target)
-    if not rest:
+    kept = [_squash(s) for s in split_sentences(target) if _squash(s)]
+    if not kept:
         return True
-    for sentence in split_sentences(source):
-        s = _squash(sentence)
-        if rest == s:
-            return True
-        if rest.startswith(s + " "):
-            rest = rest[len(s) + 1:]
-    return False
+    available = [_squash(s) for s in split_sentences(source)]
+    at = 0
+    for sentence in kept:
+        while at < len(available) and available[at] != sentence:
+            at += 1
+        if at == len(available):
+            return False
+        at += 1
+    return True
 
 
 @dataclass(frozen=True, slots=True)
