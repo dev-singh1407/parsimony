@@ -144,7 +144,7 @@ from here is concrete. Reviewers of final-year projects are calibrated on whethe
 
 - Focused studies: M1×M2 threshold sweep (two encoders, ADR-018); M1×M4 crossover; M6 on the winner.
 - Cross-model / cross-quantisation generalisation run → the calibration table (Contribution 6).
-- Surfaces: OpenAI-compatible proxy, dashboard, MV3 extension.
+- Surfaces: OpenAI-compatible proxy, MV3 extension. (The dashboard was built: `parsimony web`.)
 - Two-way ANOVA, Pareto frontier, `reproduce.py` regenerating every figure from raw logs.
 - Final report.
 
@@ -261,6 +261,13 @@ answer as well as the time (ADR-042).
    model is installed; `_provider_for` records the tier honestly rather than pretending, so this is a
    measurement waiting on a download.
 
-**Explicitly out of scope for Project I:** the dashboard, the OpenAI-compatible proxy, and the browser
-extension. They are surfaces over results that already exist, and none of them would answer a research
-question.
+**Built since, and why the reasoning changed.** The dashboard was out of scope on the argument that a
+surface over existing results answers no research question. That argument was half right. `parsimony web`
+was built anyway, and the half it got wrong is that a surface showing the *decisions* rather than the
+results turns out to be an instrument: the heatmap is what exposed the selector keeping a distractor over
+the answer (ADR-044), and running the compressor against a benchmark we had not written exposed three
+silent failures in a day (ADR-045, ADR-046, ADR-047). Presentation answers nothing; inspection answers
+plenty.
+
+**Still explicitly out of scope for Project I:** the OpenAI-compatible proxy and the browser extension.
+Those are distribution rather than inspection, and neither would answer a research question.

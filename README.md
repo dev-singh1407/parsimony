@@ -39,7 +39,12 @@ Plus: ledger v1 with dual sinks, generation memoisation, factorial sweep runner,
 bootstrap/effect-size/Pareto statistics, threshold calibration, a cross-vocabulary generalisation study, and
 `reproduce.py`.
 
-**Deferred by request:** the dashboard, OpenAI-compatible proxy and browser extension.
+**Surfaces.** A terminal view that draws each layer as it runs (`parsimony chat`, `ask`), a local web
+visualiser you can scrub through stage by stage (`parsimony web`), LaTeX and proof-document export
+(`parsimony export`), and the studies as commands: `longctx`, `followups`, `longbench`, `compare`,
+`calibrate`.
+
+**Still deferred:** the OpenAI-compatible proxy and the browser extension.
 
 **Runs against a real model.** `qwen2.5:1.5b-instruct` (Q4_K_M) via Ollama, CPU-only, offline — the same
 model whose vocabulary the token counts already used, so attaching it invalidated nothing. `--provider
