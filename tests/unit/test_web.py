@@ -504,3 +504,43 @@ class TestTheScriptActuallyParses:
         drops every rule after it, which is worth one cheap check."""
         css = (web.PAGE.parent / "web_app.css").read_text(encoding="utf-8")
         assert css.count("{") == css.count("}"), "unbalanced braces in the stylesheet"
+
+
+class TestItWouldSurviveBeingInstalled:
+    """Everything the server can serve has to ship with it.
+
+    The page was one self-contained HTML file, so `package-data` declared
+    `*.html` and that was enough. Splitting the stylesheet and script out --
+    necessary once the page grew a scrubbable pipeline view -- silently broke
+    every installed copy: `pip install .` shipped the markup alone, and the
+    visualiser came up unstyled and inert. Nothing failed in the repo, where the
+    files are simply present on disk.
+    """
+
+    @staticmethod
+    def _declared_suffixes() -> set[str]:
+        import re
+
+        root = Path(__file__).resolve().parents[2]
+        text = (root / "pyproject.toml").read_text(encoding="utf-8")
+        block = re.search(r'"parsimony\.surfaces"\s*=\s*\[([^\]]*)\]', text)
+        assert block, "parsimony.surfaces has no package-data entry at all"
+        return {m.lower() for m in re.findall(r'"\*(\.[a-z0-9]+)"', block.group(1))}
+
+    def test_every_servable_file_is_declared_as_package_data(self):
+        needed = {web.PAGE.suffix.lower()}
+        for name, _kind in web.ASSETS.values():
+            needed.add(Path(name).suffix.lower())
+        missing = needed - self._declared_suffixes()
+        assert not missing, (
+            f"pyproject.toml ships {sorted(self._declared_suffixes())} but the server also "
+            f"serves {sorted(missing)}; an installed copy would 500 on those paths")
+
+    def test_the_asset_table_and_the_files_on_disk_agree(self):
+        """A file in the directory that nothing serves is dead weight; a served
+        file that is not there is a crash."""
+        surfaces = web.PAGE.parent
+        on_disk = {p.name for p in surfaces.glob("web_*")}
+        served = {web.PAGE.name} | {name for name, _ in web.ASSETS.values()}
+        assert served <= on_disk, f"serves files that do not exist: {served - on_disk}"
+        assert on_disk <= served, f"unserved files left behind: {on_disk - served}"

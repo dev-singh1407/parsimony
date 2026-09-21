@@ -41,7 +41,7 @@ are the things that cannot be fixed later (ADR-014, ADR-015).
 
 | # | Deliverable | Notes |
 |---|---|---|
-| 0.1 | Repo, `pyproject.toml`, ruff + mypy strict + pytest + import-linter contracts | Import contracts encode the L0–L5 layering (§2 of `00-architecture.md`) — cheap now, unenforceable later |
+| 0.1 | Repo, `pyproject.toml`, pytest, layering enforced by `tests/test_architecture.py` | **Shipped without ruff, mypy or import-linter.** The layering rules they would have carried are asserted by a test that parses every source file instead — it runs in the existing suite, needs no extra dependency, and explains *why* a rule exists when it fails (§2 of `00-architecture.md`). Style and typing are consequently **not** machine-checked, which is a real gap and is listed as one rather than implied away |
 | 0.2 | **L0 core**: `Turn`, `RequestContext`, `Invariants`, `Proposal`, `Stage`, `LLMProvider`, `ParsimonyConfig` + `config_hash` | Stdlib only. This is the contract everything else is written against — get it reviewed before building on it |
 | 0.3 | `MockProvider` — deterministic canned responses, simulated TTFT/TPOT | ADR-007 |
 | 0.4 | Orchestrator loop + stage registry + DAG validation | ~40 lines (`00-architecture.md` §4) |

@@ -26,8 +26,12 @@ parsimony = "parsimony.surfaces.cli.main:app"
 where = ["src"]
 
 [tool.setuptools.package-data]
-# The visualiser is one self-contained page; it ships with the code that serves it.
-"parsimony.surfaces" = ["*.html"]
+# The visualiser's page, stylesheet and script ship with the code that serves
+# them. It was one self-contained file until the page grew a scrubbable pipeline
+# view and stopped being reviewable; splitting it meant an installed copy served
+# markup with no styles and no behaviour, because only *.html was declared here.
+# `test_web.py` now asserts that everything web.py can serve is listed.
+"parsimony.surfaces" = ["*.html", "*.css", "*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
