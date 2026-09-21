@@ -1,14 +1,14 @@
-﻿# Demo Runbook
+# Demo Runbook
 
-**Parsimony** Â· mini demo and final review
+**Parsimony** · mini demo and final review
 Every command below was executed and timed on the demo machine before this was written.
 
 ---
 
-## 0. Start here â€” the launcher
+## 0. Start here — the launcher
 
 Two things break a live demo before it starts: being in the wrong folder, and using the wrong Python. Both
-happened in rehearsal, so `demo.ps1` removes them â€” it sets the folder and the interpreter itself.
+happened in rehearsal, so `demo.ps1` removes them — it sets the folder and the interpreter itself.
 
 **Open PowerShell and paste this one line first. Nothing else works until you do.**
 
@@ -39,9 +39,9 @@ about.
 
 ---
 
-## 1. The demo â€” six acts, fifteen minutes
+## 1. The demo — six acts, fifteen minutes
 
-### Act 0 â€” A document, live Â· 3 minutes
+### Act 0 — A document, live · 3 minutes
 
 **Run this first. It is the strongest thing you have, and the only act where the guide watches the system
 work rather than reads about it afterwards.**
@@ -53,19 +53,19 @@ work rather than reads about it afterwards.**
 An 817-token staff handbook is attached, and one question is asked about it. The screen fills in as the
 request moves:
 
-1. **Each layer appears as it runs**, with its real duration and what it did â€” the calculator declining, the
+1. **Each layer appears as it runs**, with its real duration and what it did — the calculator declining, the
    memory with nothing stored yet, the context selector removing 546 tokens in about 50 ms.
 2. **The prompt bar shrinks** from 888 tokens to about 320.
 3. **A clock runs while the model reads the prompt.** That wait is the cost the layers exist to remove.
 4. **The answer streams in**, counted against the budget the answer limiter chose.
-5. **The prompt the model actually received** is printed with every removed sentence struck through â€” six
+5. **The prompt the model actually received** is printed with every removed sentence struck through — six
    document sections, mostly deleted, the answer sentence kept.
 6. Then the same question is asked again **from cold with every layer switched off**, and the two runs are
    put side by side.
 
 > "Same question, same model, same laptop, one after the other. Without the layers it reads 907 tokens and
 > takes 8.9 seconds before it can start answering. With them it reads 326 and takes 3.0. The answer is the
-> same sentence. Neither number is mine â€” both come from the runtime's own counters."
+> same sentence. Neither number is mine — both come from the runtime's own counters."
 
 **If asked why the comparison is run twice rather than reusing the first answer:** *"Because the runtime
 caches the prompt it just processed. Re-sending it would have been measured as 64 milliseconds, which would
@@ -78,19 +78,19 @@ the other's work."*
 .\demo.ps1 sentences
 ```
 
-Every sentence of six documents, marked kept or removed, with the answer sentences in bold â€” and the line
+Every sentence of six documents, marked kept or removed, with the answer sentences in bold — and the line
 underneath saying what stopped the selection, which names were guaranteed a sentence, and how many sentences
 were kept only so a following "It" still refers to something.
 
 ---
 
-### Act 1 â€” What the system does Â· 2 minutes
+### Act 1 — What the system does · 2 minutes
 
 ```powershell
 .\demo.ps1 1
 ```
 
-**What appears:** the same question sent twice â€” once with the middleware off, once on â€” to a real model
+**What appears:** the same question sent twice — once with the middleware off, once on — to a real model
 running on this laptop, with no internet.
 
 > "Same question, same model, same machine. The only difference is whether our middleware ran. It removed
@@ -102,12 +102,12 @@ clock on a single request also carries how long the answer happened to be, and t
 effect. Prefill is the part input tokens actually control."*
 
 **If output tokens went up:** *"M5 right-sizes the output budget per question type. A code question gets 512
-tokens instead of the 256 default â€” the baseline was being cut off mid-answer. Across the whole corpus it
+tokens instead of the 256 default — the baseline was being cut off mid-answer. Across the whole corpus it
 still reduces every class."*
 
 ---
 
-### Act 2 â€” Why you can trust it Â· 2 minutes
+### Act 2 — Why you can trust it · 2 minutes
 
 This is the strongest thing in the demo. Do not rush it.
 
@@ -115,7 +115,7 @@ This is the strongest thing in the demo. Do not rush it.
 .\demo.ps1 2
 ```
 
-**What appears:** two panels â€” **kept (what the model sees)** and **refused (what it would have lost)**.
+**What appears:** two panels — **kept (what the model sees)** and **refused (what it would have lost)**.
 
 > "The compressor found two near-identical sentences and tried to delete one. But one carries a date the
 > other doesn't. The fidelity gate blocked the edit and the pipeline kept the longer, correct text. You are
@@ -124,12 +124,12 @@ This is the strongest thing in the demo. Do not rush it.
 Then say the sentence that separates this project from a demo:
 
 > "Every module in this system *proposes* a change. Only the orchestrator commits one, and only after the
-> gate has checked it. That is why we can switch any module off independently â€” which is what makes the
+> gate has checked it. That is why we can switch any module off independently — which is what makes the
 > ablation possible at all."
 
 ---
 
-### Act 3 â€” The finding nobody else has Â· 3 minutes
+### Act 3 — The finding nobody else has · 3 minutes
 
 ```powershell
 .\demo.ps1 3
@@ -137,41 +137,41 @@ Then say the sentence that separates this project from a demo:
 
 Runs in ~2 seconds.
 
-> "We built 45 adversarial pairs â€” questions one word apart with opposite answers â€” plus 45 controls that
+> "We built 45 adversarial pairs — questions one word apart with opposite answers — plus 45 controls that
 > mean the same thing and should match.
 >
 > The negation pair sits at cosine 0.924. That is **higher than every genuine paraphrase in our set**. The
-> thresholds published as safe across the caching literature are 0.85 to 0.92 â€” so the standard setting
+> thresholds published as safe across the caching literature are 0.85 to 0.92 — so the standard setting
 > would accept it and serve the opposite answer.
 >
 > No threshold fixes this, because the adversarial pairs sit *above* the real paraphrases. What fixes it is
 > a verifier: four cheap set comparisons that took our false-answer rate from 26.7% to zero."
 
-If they want the three checks: **operative modifiers** (min/max â€” changes no number, entity or negation),
+If they want the three checks: **operative modifiers** (min/max — changes no number, entity or negation),
 **morphological negation** (possible/impossible), and **alphanumeric identifiers** (pandas vs Panda3D).
 
 > "As far as our survey of 54 papers found, no published semantic cache performs those three."
 
 ---
 
-### Act 4 â€” The science Â· 3 minutes
+### Act 4 — The science · 3 minutes
 
 ```powershell
 .\demo.ps1 4
 ```
 
-Takes about 100 seconds. **Talk while it runs** â€” this is your architecture slot, not dead air:
+Takes about 100 seconds. **Talk while it runs** — this is your architecture slot, not dead air:
 
 > "This is rebuilding every table in my report from raw logs. Eight modules, a 2â´ factorial ablation, 151
 > conversations, 263 requests, 17 configurations, bootstrap confidence intervals.
 >
-> While it runs â€” the reason it *can* run is that stage order is configuration rather than code. Modules
+> While it runs — the reason it *can* run is that stage order is configuration rather than code. Modules
 > propose, the orchestrator commits, every decision is written to a ledger. So switching a module off
 > genuinely removes its effect, and the factorial cell means what it says."
 
 When it finishes:
 
-> "Fourteen CSV files and a full report, about a hundred seconds. I am not showing you screenshots â€” you can
+> "Fourteen CSV files and a full report, about a hundred seconds. I am not showing you screenshots — you can
 > ask me about any number in this report and I will regenerate it in front of you."
 
 Then the headline:
@@ -182,23 +182,23 @@ Then the headline:
 
 ---
 
-### Act 5 â€” What we got wrong Â· 2 minutes
+### Act 5 — What we got wrong · 2 minutes
 
 Counter-intuitive, and it is what separates a project from a report. Pick **one**:
 
-**Option A â€” our own explanation was half wrong.**
+**Option A — our own explanation was half wrong.**
 > "We claimed compression sometimes costs tokens because of two effects in the tokenizer. We tested that
-> against a second vocabulary â€” GPT-2 against Qwen. The reduction percentages transferred almost exactly.
+> against a second vocabulary — GPT-2 against Qwen. The reduction percentages transferred almost exactly.
 > The *explanation* did not: one of our two mechanisms is specific to Qwen and doesn't exist in GPT-2. We
 > found that ourselves and wrote it up."
 
-**Option B â€” we attacked our own safety component.**
-> "We fuzzed our own cache verifier and found we could defeat it with an invisible character â€” a zero-width
+**Option B — we attacked our own safety component.**
+> "We fuzzed our own cache verifier and found we could defeat it with an invisible character — a zero-width
 > space inside the word 'not' hides the negation, and the verifier passes a question against its own
 > opposite. Seven variants worked. We fixed it, and no result moved."
 
-**Option C â€” a number moved against us.**
-> "We improved our encoder, and it made our headline result weaker â€” the cache got better, so the modules
+**Option C — a number moved against us.**
+> "We improved our encoder, and it made our headline result weaker — the cache got better, so the modules
 > overlapped less, so the shortfall shrank and its interval now barely clears zero. We kept the better encoder and
 > reported both. Choosing a worse component because it gives a nicer number is the failure mode this whole
 > project is written against."
@@ -221,16 +221,16 @@ Counter-intuitive, and it is what separates a project from a report. Pick **one*
 | `.\demo.ps1 web` | live | The visualiser in a browser: sentence heatmap, A/B against the real model, demo counters |
 | `.\demo.ps1 proof` | 10 s | A PDF of the compressed prompt, every removal struck through and labelled |
 
-**The visualiser, if the room has a projector.** `.\demo.ps1 web` opens a local page â€” no install, no
+**The visualiser, if the room has a projector.** `.\demo.ps1 web` opens a local page — no install, no
 network. Paste or load a document, ask a question, and every sentence is shaded by the score the encoder
 gave it, with the branch that decided it on hover: `[KEEP: ANCHOR]`, `[DROP: FLOOR]`. The A/B tab runs the
 same question with the layers off and on against the real model and plots both as they generate; say out
 loud that they run **one after the other**, because two generations on one CPU would measure contention
 rather than compression, and that the model is warmed first so neither arm pays the weight load. The Demo
-tab is two counters large enough to read from the back â€” and the seconds counter says *estimated* unless
+tab is two counters large enough to read from the back — and the seconds counter says *estimated* unless
 this machine timed the rate itself, which is worth pointing at rather than hiding.
 
-**Do not run live:** `latency` (3â€“4 min) and `judge` (5â€“10 min). Quote their numbers from Â§8 of the findings
+**Do not run live:** `latency` (3–4 min) and `judge` (5–10 min). Quote their numbers from §8 of the findings
 instead, or run them beforehand and show the scrollback.
 
 ---
@@ -239,34 +239,34 @@ instead, or run them beforehand and show the scrollback.
 
 **"Did you test on a real model, or just simulate?"**
 > Real. `qwen2.5:1.5b-instruct`, 4-bit, running on this laptop's CPU, offline. On our 40 gold questions it
-> scores 92.5% without the pipeline and 97.5% with it â€” and **not one answer the baseline got right was
+> scores 92.5% without the pipeline and 97.5% with it — and **not one answer the baseline got right was
 > lost**. Everything before that was measured against a deterministic stand-in, and every log row records
 > which one produced it, so the two can never be confused.
 
 **"How do you know the cache is safe?"**
 > 45 adversarial pairs, false-answer rate from 26.7% to 0%. Then we fuzzed it and found a bypass our own
 > corpus couldn't reveal, and fixed that too. And when we finally swapped in a neural encoder, it broke the
-> safety design â€” which is the most useful thing we found all month.
+> safety design — which is the most useful thing we found all month.
 
-**"You're still using a lexical encoder â€” why not a real embedding model?"**
+**"You're still using a lexical encoder — why not a real embedding model?"**
 > We did, and it is installed: MiniLM, 45 MB, served by the same local runtime, no PyTorch. It fixes what a
 > lexical encoder cannot see, and it took our false-answer rate from **0% to 17.8%**. The reason is the part
 > worth hearing: our design skipped verification when similarity was overwhelming, and the lexical encoder
 > simply never scored a trick pair that high. MiniLM scores *"is it safe"* against *"is it NOT safe"* at
-> **0.996**. No threshold fixes that â€” a negation is a smaller edit than a rephrasing in any embedding space,
+> **0.996**. No threshold fixes that — a negation is a smaller edit than a rephrasing in any embedding space,
 > so a better space makes it worse. We now verify every hit, which costs microseconds: 0% false answers under
 > both encoders, and reuse rises from 26.7% to 37.8%. The thresholds are recalibrated per encoder, because a
 > threshold belongs to the encoder it was set against.
 
 **"How much of your speed comes from the layers rather than from tuning?"**
 > One honest deduction: while measuring the encoder we found that resolving `localhost` cost **two seconds
-> per call** on this machine â€” it tries IPv6 first, Ollama listens on IPv4, and the attempt has to time out.
+> per call** on this machine — it tries IPv6 first, Ollama listens on IPv4, and the attempt has to time out.
 > At `127.0.0.1` the same call takes 31 ms. Every wall-clock figure we had measured carried that constant, on
 > both sides of every comparison, and none of the prefill numbers could see it because the runtime's counters
 > start after the connection. It is fixed, and it is written up rather than quietly removed.
 
 **"Why is prefill the number you keep quoting?"**
-> On CPU, reading the prompt is 92 to 99% of the time â€” about 8.5 milliseconds per input token, measured.
+> On CPU, reading the prompt is 92 to 99% of the time — about 8.5 milliseconds per input token, measured.
 > Writing the answer is almost free by comparison. That is why input tokens are the thing worth cutting, and
 > it is the opposite of the GPU-datacentre assumption most of the literature is written under.
 
@@ -279,10 +279,10 @@ instead, or run them beforehand and show the scrollback.
 > sentences sends 30% fewer tokens again with no answers lost. `.\demo.ps1 followups` prints it.
 
 **"These layers are basic. Anyone could build this."**
-> Anyone can build the obvious version of each one, and we did â€” `parsimony.eval.naive` holds them as running
+> Anyone can build the obvious version of each one, and we did — `parsimony.eval.naive` holds them as running
 > code, not as a description. Then we ran them against ours on 45 held-out questions over six documents each,
 > at the same token budget, on the real model. Keeping the last sentences until the budget runs out scores
-> **14/45**. Ranking sentences by BM25 and sending the top ones â€” textbook retrieval â€” scores **32/45**.
+> **14/45**. Ranking sentences by BM25 and sending the top ones — textbook retrieval — scores **32/45**.
 > Deleting stopwords everywhere scores **29/45** while still sending three times as many tokens. Ours scores
 > **36/45**, against **40/45** for sending the whole document, and the difference from sending everything is
 > not statistically significant. The gap is not in the idea; it is in what the idea needs to survive contact
@@ -357,7 +357,7 @@ caught by it.*
 
 | Symptom | Fix |
 |---|---|
-| First model query hangs ~10 s | Normal â€” it is loading. You should have warmed it in Â§0. |
+| First model query hangs ~10 s | Normal — it is loading. You should have warmed it in §0. |
 | `nothing is listening at localhost:11434` | Ollama stopped. Run `ollama list` to restart it, then retry. |
 | Tables wrap badly | Terminal too narrow. Maximise, or add `--turns 4` to shorten. |
 | A number differs slightly from the report | Say so plainly: wall-clock and middleware-ms vary run to run; token counts do not. Point at the token column. |
@@ -371,11 +371,11 @@ deterministic"* and move to the token column. Never guess at an explanation in t
 ## 5. If you have sixty seconds
 
 > "It's a middleware layer that sits between an application and a small language model running on a normal
-> laptop â€” no GPU, no internet, no API cost. Eight modules that each cut token usage a different way, and a
+> laptop — no GPU, no internet, no API cost. Eight modules that each cut token usage a different way, and a
 > gate that blocks any edit which would change the meaning.
 >
 > It cuts about a third of the tokens with no loss of answer accuracy. But the real result is that the
-> savings **don't add up** â€” techniques that each save 10% don't save 40% together, and we measured by how
+> savings **don't add up** — techniques that each save 10% don't save 40% together, and we measured by how
 > much they fail to. Nobody had, because nobody runs them in one pipeline.
 >
 > Everything regenerates from raw logs with one command, and there are over 1,130 tests."

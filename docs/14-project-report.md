@@ -1,4 +1,4 @@
-﻿<div class="cover">
+<div class="cover">
   <div class="uni">VIT UNIVERSITY</div>
   <div class="uni-sub">Vellore Institute of Technology</div>
   <div class="uni-sub2">Vellore, Tamil Nadu, India</div>
@@ -21,8 +21,8 @@
 # Abstract
 
 Language models charge by the token and, on a CPU-only laptop, spend almost all of their time reading the
-prompt rather than writing the answer. A literature has grown around reducing that cost â€” prompt compression,
-semantic caching, key-value cache reuse, model routing, output budgeting â€” but it has grown in **isolated
+prompt rather than writing the answer. A literature has grown around reducing that cost — prompt compression,
+semantic caching, key-value cache reuse, model routing, output budgeting — but it has grown in **isolated
 strands**. Each technique is proposed, measured against an uncompressed baseline, and published alone.
 
 This report surveys **40 papers** across eight strands, extracts the limitation of each with respect to a
@@ -32,13 +32,13 @@ middleware layer of seven optimisation modules plus an always-on fidelity gate, 
 independently switchable, the whole system is a 2â´ factorial experiment rather than a fixed pipeline.
 
 Measured over 151 conversations and 263 requests against `qwen2.5:1.5b-instruct` running locally on CPU, the
-full stack removes **39.6%** of tokens with **no loss of answer accuracy** (92.5% â†’ 97.5% on 40 gold items,
+full stack removes **39.6%** of tokens with **no loss of answer accuracy** (92.5% → 97.5% on 40 gold items,
 zero regressions). Three findings are new. **Savings do not compound**: an additivity shortfall of 1.66
 percentage points whose size is a property of the configuration rather than a constant. **Prefill dominates
-CPU inference** at 92â€“99% of total time, ~8.5 ms per input token, making input reduction worth far more than
+CPU inference** at 92–99% of total time, ~8.5 ms per input token, making input reduction worth far more than
 the GPU-centric framing of the literature implies. And **the cache thresholds published as safe are unsafe
-here**: an adversarial negation pair scores higher than every genuine paraphrase in our set, so the verifier â€”
-not the threshold â€” is what makes reuse safe, taking the false-answer rate from 26.7% to 0.0%.
+here**: an adversarial negation pair scores higher than every genuine paraphrase in our set, so the verifier —
+not the threshold — is what makes reuse safe, taking the false-answer rate from 26.7% to 0.0%.
 
 **Keywords:** prompt compression, semantic caching, KV-cache reuse, small language models, CPU inference,
 factorial ablation, fidelity verification.
@@ -52,15 +52,15 @@ its **limitation with respect to this project's setting**, and the **metrics** i
 
 > **How to read the limitation column.** These are limitations *relative to a CPU-only, single-user,
 > multi-turn deployment with several techniques composed together*. They are not criticisms of the papers on
-> their own terms â€” most are datacentre-serving or single-technique works, and are sound in that context. The
+> their own terms — most are datacentre-serving or single-technique works, and are sound in that context. The
 > gap this project addresses is precisely the setting they do not target.
 
-## 1.1 Strand A â€” Prompt compression
+## 1.1 Strand A — Prompt compression
 
 | Ref | Method proposed | Limitation w.r.t. this work | Metrics reported |
 |---|---|---|---|
 | [1] | Selective Context: drop low self-information lexical units, scored by a small LM | Needs a second model in the loop; measured alone, never against a cache | latency, memory, task score |
-| [2] | LLMLingua: budget controller + token-level iterative compression | Up to 20Ã— compression, but on GPU and in isolation; no interaction study | compression ratio, task score |
+| [2] | LLMLingua: budget controller + token-level iterative compression | Up to 20× compression, but on GPU and in isolation; no interaction study | compression ratio, task score |
 | [3] | LongLLMLingua: conditional perplexity for long contexts | Targets very long contexts; a laptop assistant rarely reaches them | speedup, task score |
 | [4] | LLMLingua-2: data distillation for task-agnostic compression | Faithfulness targeted but not adversarially tested | compression, faithfulness |
 | [5] | Evaluator heads for long-context compression | Requires access to attention internals; unavailable through a served API | latency, accuracy |
@@ -71,11 +71,11 @@ its **limitation with respect to this project's setting**, and the **metrics** i
 | [10] | SARA: selective and adaptive retrieval with compression | RAG-specific; assumes a retrieval corpus exists | retrieval quality |
 | [11] | PCToolkit: unified compression toolkit | A harness, not a method; does not compose across technique families | comparative scores |
 | [12] | Empirical study of prompt compression across three LLMs | **Names two failure modes** (altered-semantic and information-loss hallucination) but proposes no run-time guard | hallucination rates |
-| [13] | Information preservation in prompt compression | Measures ~30â€“50 point groundedness drops; diagnosis without a prevention mechanism | groundedness |
+| [13] | Information preservation in prompt compression | Measures ~30–50 point groundedness drops; diagnosis without a prevention mechanism | groundedness |
 | [14] | Fidelity loss in compressed financial analysis | Shows compression that is fluent, plausible and decision-changing | decision agreement |
-| [15] | Compression paradox: provider-dependent energy effects | **Compression does not uniformly reduce energy** â€” measured on hosted APIs, not CPU | energy per request |
+| [15] | Compression paradox: provider-dependent energy effects | **Compression does not uniformly reduce energy** — measured on hosted APIs, not CPU | energy per request |
 
-## 1.2 Strand B â€” Semantic caching
+## 1.2 Strand B — Semantic caching
 
 | Ref | Method proposed | Limitation w.r.t. this work | Metrics reported |
 |---|---|---|---|
@@ -85,9 +85,9 @@ its **limitation with respect to this project's setting**, and the **metrics** i
 | [19] | ContextCache: context-aware multi-turn caching | Closest to our setting; does not report false-hit rate on adversarial pairs | hit rate |
 | [20] | Generative caching for LLMs | Synthesises rather than reuses; adds generation cost | hit rate, quality |
 | [21] | Key-collision attack on LLM semantic caching | Treats collisions as an **adversarial search** problem; ordinary confusable pairs are not the threat model | attack success rate |
-| [22] | SAFE-CACHE: cluster-centroid caching for adversarial resilience | Concludes vector similarity is insufficient â€” and answers with a redesign rather than a cheap verifier | robustness, hit rate |
+| [22] | SAFE-CACHE: cluster-centroid caching for adversarial resilience | Concludes vector similarity is insufficient — and answers with a redesign rather than a cheap verifier | robustness, hit rate |
 
-## 1.3 Strand C â€” KV cache and prefix reuse
+## 1.3 Strand C — KV cache and prefix reuse
 
 | Ref | Method proposed | Limitation w.r.t. this work | Metrics reported |
 |---|---|---|---|
@@ -97,31 +97,31 @@ its **limitation with respect to this project's setting**, and the **metrics** i
 | [26] | Sparse prefix caching for hybrid/recurrent serving | Architecture-specific | throughput |
 | [27] | Multi-segment attention for KV management | Serving-side; no application-level guidance | latency, memory |
 
-## 1.4 Strand D â€” Positional effects in context
+## 1.4 Strand D — Positional effects in context
 
 | Ref | Method proposed | Limitation w.r.t. this work | Metrics reported |
 |---|---|---|---|
-| [28] | **Lost in the Middle**: accuracy peaks when relevant content sits at the beginning or the end | Motivates reordering by relevance â€” which **destroys prefix reuse**, a conflict neither strand names | QA accuracy by position |
+| [28] | **Lost in the Middle**: accuracy peaks when relevant content sits at the beginning or the end | Motivates reordering by relevance — which **destroys prefix reuse**, a conflict neither strand names | QA accuracy by position |
 | [29] | Adaptive Focus Memory: per-message fidelity levels | Heuristic tiers; no measurement of the cost of reordering | token usage |
 | [30] | Survey of multi-turn interaction capabilities | Survey; no composed measurement | mixed |
 | [31] | Survey of memory mechanisms for LLMs | Survey; taxonomy rather than measurement | mixed |
 
-## 1.5 Strand E â€” Routing and cascades
+## 1.5 Strand E — Routing and cascades
 
 | Ref | Method proposed | Limitation w.r.t. this work | Metrics reported |
 |---|---|---|---|
 | [32] | FrugalGPT: prompt adaptation, approximation, LLM cascade | Up to 98% cost cut **against commercial APIs**; assumes a large capable tier exists | cost, accuracy |
-| [33] | RouteLLM: routers trained on human preference data | Assumes the strong model is meaningfully better â€” untrue at 1.5B vs 3B on our set | cost, benchmark scores |
+| [33] | RouteLLM: routers trained on human preference data | Assumes the strong model is meaningfully better — untrue at 1.5B vs 3B on our set | cost, benchmark scores |
 | [34] | Semantic router for vLLM | Serving-side routing; datacentre assumption | latency, cost |
 | [35] | UCCI: calibrated uncertainty for cascade routing | Requires calibrated uncertainty; expensive on CPU | cost, accuracy |
 | [36] | Uncertainty-based **on-device** LLM routing | Closest setting; routes between device and cloud, not within a local stack | accuracy, offload rate |
 | [37] | Cluster, route, escalate: cost-aware serving | Cluster-level; no fidelity guarantee on the cheap path | cost, quality |
 
-## 1.6 Strand F â€” Output length control
+## 1.6 Strand F — Output length control
 
 | Ref | Method proposed | Limitation w.r.t. this work | Metrics reported |
 |---|---|---|---|
-| [38] | Length-difference positional encoding with a countdown | **Requires fine-tuning** â€” out of reach on the target hardware | length adherence |
+| [38] | Length-difference positional encoding with a countdown | **Requires fine-tuning** — out of reach on the target hardware | length adherence |
 | [39] | BudgetThinker: budget-aware generation with control tokens | Requires training with control tokens | budget adherence, accuracy |
 | [40] | Reasoning under strict output-length constraints | Characterises the cost of truncation; no per-class budgeting scheme | accuracy vs length |
 
@@ -131,8 +131,8 @@ Across all forty papers, five limitations recur and together define the space th
 
 | # | Recurring limitation | Papers |
 |---|---|---|
-| L1 | Evaluated **in isolation** against an uncompressed baseline; never composed with another technique | [1]â€“[11], [16]â€“[20], [38]â€“[40] |
-| L2 | Assumes **GPU / datacentre serving**, where the cost structure is the opposite of a CPU laptop | [2], [3], [23]â€“[27], [32]â€“[35], [37] |
+| L1 | Evaluated **in isolation** against an uncompressed baseline; never composed with another technique | [1]–[11], [16]–[20], [38]–[40] |
+| L2 | Assumes **GPU / datacentre serving**, where the cost structure is the opposite of a CPU laptop | [2], [3], [23]–[27], [32]–[35], [37] |
 | L3 | Failure modes are **diagnosed but not prevented** at run time | [12], [13], [14], [21], [22] |
 | L4 | Operating points (ratios, thresholds) **quoted as universal**, calibrated only on GPT-class models | [2], [4], [16], [17], [19] |
 | L5 | Requires **training or fine-tuning**, or access to model internals | [5], [7], [8], [38], [39] |
@@ -144,15 +144,15 @@ Four of the forty sit closest to what this work does, and each is the direct ant
 **[28] Lost in the Middle (TACL 2024)** and **[24] vLLM automatic prefix caching** are the pair this project
 measures *against each other*. The first says put relevant content at the prompt's edges. The second requires
 the prompt head to be byte-stable across turns. **Doing the first destroys the second**, and neither
-literature names the conflict. Â§7.2 prices it at ~80Ã—.
+literature names the conflict. §7.2 prices it at ~80×.
 
 **[16] GPTCache (NLP-OSS @ EMNLP 2023)** established the design every semantic cache now follows: embed,
 compare, serve above a threshold. Our adversarial set shows the threshold is the wrong place to put the
-safety (Â§7.3) â€” the same conclusion **[22] SAFE-CACHE (Scientific Reports, 2026)** reaches independently, but
+safety (§7.3) — the same conclusion **[22] SAFE-CACHE (Scientific Reports, 2026)** reaches independently, but
 reached here with four set comparisons costing microseconds rather than a cluster-centroid redesign.
 
 **[12] An Empirical Study on Prompt Compression (ICLR 2025)** is the closest antecedent of the fidelity gate.
-It names the two failure modes â€” altered-semantic and information-loss hallucination â€” and measures how often
+It names the two failure modes — altered-semantic and information-loss hallucination — and measures how often
 they occur. It does not propose a run-time mechanism to *prevent* them. Module M8 is that mechanism: every
 proposed edit is checked for lost numbers, entities, negations and operative modifiers before it is
 committed.
@@ -161,7 +161,7 @@ committed.
 
 # 2. Research Gaps Identified
 
-Six gaps follow from the limitation column of Â§1, in the order the survey exposes them.
+Six gaps follow from the limitation column of §1, in the order the survey exposes them.
 
 ## 2.1 Gap 1: The Techniques Have Never Been Stacked
 
@@ -181,7 +181,7 @@ on the interaction terms &mdash; the first stacked-interaction table for this co
 </div>
 
 **Status: answered.** The additivity shortfall is **1.69 pp, 95% CI [+0.04, +3.21]**, and both material
-interaction terms are negative (Â§7.1).
+interaction terms are negative (§7.1).
 
 ## 2.2 Gap 2: The Output Side of the Bill Is Ignored
 
@@ -206,8 +206,8 @@ independently ablated module.</p>
 </div>
 
 **Status: answered, and the expected direction was wrong.** Read from the server's own counters rather than
-wall-clock TTFT, **prefill is 92â€“99% of the time**, not the minority share the framing above anticipated
-(Â§7.2). The output budgeter remains the single largest token effect (+10.80 pp) because it is the only module
+wall-clock TTFT, **prefill is 92–99% of the time**, not the minority share the framing above anticipated
+(§7.2). The output budgeter remains the single largest token effect (+10.80 pp) because it is the only module
 that touches the output side at all.
 
 ## 2.3 Gap 3: Compression and Caching Have Never Met
@@ -230,9 +230,9 @@ reporting the threshold shift explicitly.</p>
 </div>
 </div>
 
-**Status: answered, and the question dissolves.** No threshold separates the classes at all â€” the adversarial
-negation pair scores *above* every genuine paraphrase â€” so the correct answer is not a threshold shift but a
-verifier (Â§7.3).
+**Status: answered, and the question dissolves.** No threshold separates the classes at all — the adversarial
+negation pair scores *above* every genuine paraphrase — so the correct answer is not a threshold shift but a
+verifier (§7.3).
 
 ## 2.4 Gap 4: Fewer Tokens Can Cost More Time
 
@@ -253,8 +253,8 @@ at which further compression starts costing time.</p>
 </div>
 </div>
 
-**Status: answered.** Same content, 0.5% apart in token count, **~80Ã— apart in cost**: 212 ms against 18,914
-ms of steady-state prefill (Â§7.2).
+**Status: answered.** Same content, 0.5% apart in token count, **~80× apart in cost**: 212 ms against 18,914
+ms of steady-state prefill (§7.2).
 
 ## 2.5 Gap 5: Thresholds Tuned on Models That Do Not Break
 
@@ -275,9 +275,9 @@ number.</p>
 </div>
 </div>
 
-**Status: answered.** The published 0.85â€“0.92 cache range is **unsafe at this scale** â€” it auto-accepts a
-negation pair at cosine 0.924 and serves the opposite answer (Â§7.3). Reduction *ratios*, by contrast, do
-transfer across vocabularies within 0.1 pp (Â§7.5).
+**Status: answered.** The published 0.85–0.92 cache range is **unsafe at this scale** — it auto-accepts a
+negation pair at cosine 0.924 and serves the opposite answer (§7.3). Reduction *ratios*, by contrast, do
+transfer across vocabularies within 0.1 pp (§7.5).
 
 ## 2.6 Gap 6: Every Cache in the Literature Starts Empty
 
@@ -302,7 +302,7 @@ locally, with no data leaving the machine.</p>
 </div>
 
 **Status: answered, and made conditional.** Mined policy is worth **+0.00 pp at 0% traffic recurrence and
-+17.83 pp at 57%** on held-out conversations (Â§7.5). "Self-improving" is a property of the traffic, not of the
++17.83 pp at 57%** on held-out conversations (§7.5). "Self-improving" is a property of the traffic, not of the
 module.
 
 <div class="pagebreak"></div>
@@ -312,7 +312,7 @@ module.
 ## 3.1 Research questions
 
 **RQ1.** When several token-reduction techniques are composed in one pipeline, do their individual savings
-add â€” and if not, by how much do they fall short? *(Gap 1)*
+add — and if not, by how much do they fall short? *(Gap 1)*
 
 **RQ2.** On CPU-only hardware, which half of a request dominates the cost, and what is one input token worth
 in milliseconds? *(Gaps 2, 4)*
@@ -320,7 +320,7 @@ in milliseconds? *(Gaps 2, 4)*
 **RQ3.** Can a semantic cache be made safe against near-identical, opposite-meaning questions without a second
 neural forward pass? *(Gaps 3, 4)*
 
-**RQ4.** Does a calibration â€” thresholds, module settings, mined policy â€” transfer to a different
+**RQ4.** Does a calibration — thresholds, module settings, mined policy — transfer to a different
 configuration or to unseen conversations without re-tuning? *(Gaps 5, 6)*
 
 ## 3.2 Problem statement
@@ -348,27 +348,27 @@ safety property is the constraint under which every optimisation must operate.
 
 # 4. Contributions
 
-**Contribution 1 â€” The additivity shortfall, measured.** A full 2â´ factorial over compressor Ã— cache Ã— history
-manager Ã— output budgeter with bootstrap confidence intervals and partial Î·Â² effect sizes. Savings do not
+**Contribution 1 — The additivity shortfall, measured.** A full 2⁴ factorial over compressor × cache × history
+manager × output budgeter with bootstrap confidence intervals and partial η² effect sizes. Savings do not
 compound: the shortfall is **1.69 pp, 95% CI [+0.04, +3.21]**. Further, its magnitude is a property of the
-*configuration* â€” improving the encoder moved it from 2.53 pp to 1.69 pp, because a cache that hits more often
+*configuration* — improving the encoder moved it from 2.53 pp to 1.69 pp, because a cache that hits more often
 overlaps its neighbours less. *(Answers RQ1, closes Gap 1.)*
 
-**Contribution 2 â€” The CPU cost structure, and the price of prompt order.** Prefill is **92â€“99%** of total
+**Contribution 2 — The CPU cost structure, and the price of prompt order.** Prefill is **92–99%** of total
 time, linear at **~8.5 ms per input token**. This converts every token result into wall clock and establishes
 why input reduction is the thing worth doing. It also prices a conflict the literature does not name: a
-volatile token at prompt position 0 costs **212 ms â†’ 18,914 ms** in steady-state prefill for the same content.
+volatile token at prompt position 0 costs **212 ms → 18,914 ms** in steady-state prefill for the same content.
 *(Answers RQ2, closes Gaps 2 and 4.)*
 
-**Contribution 3 â€” A verifier that makes reuse safe without a second model.** An adversarial set of 45 pairs
-one operative token apart, plus 45 controls. The negation pair sits at cosine **0.924 â€” above every genuine
-paraphrase in the set** â€” so no threshold separates them. Four set comparisons costing microseconds take the
+**Contribution 3 — A verifier that makes reuse safe without a second model.** An adversarial set of 45 pairs
+one operative token apart, plus 45 controls. The negation pair sits at cosine **0.924 — above every genuine
+paraphrase in the set** — so no threshold separates them. Four set comparisons costing microseconds take the
 false-answer rate from **26.7% to 0.0%**, including three checks no surveyed cache performs: operative
 modifiers, morphological negation, and alphanumeric identifiers. *(Answers RQ3, closes Gaps 3 and 4.)*
 
-**Contribution 4 â€” Calibration transfer, tested both ways.** Re-running the protocol against a second real
+**Contribution 4 — Calibration transfer, tested both ways.** Re-running the protocol against a second real
 vocabulary shows **reduction ratios transfer** (within 0.1 pp, identical module ranking) while **the mechanisms
-behind them do not** â€” one of our own two explanations for an effect proved specific to one tokenizer.
+behind them do not** — one of our own two explanations for an effect proved specific to one tokenizer.
 Separately, mined-policy transfer is shown to be a function of traffic repetition: **+0.00 pp at 0% recurrence,
 +17.83 pp at 57%**, with zero fidelity violations at any level. *(Answers RQ4, closes Gaps 5 and 6.)*
 
@@ -391,33 +391,33 @@ answerable because the cache lookup can be moved before or after the compressor 
 
 ## 5.2 The pipeline, tier by tier
 
-Requests flow top to bottom. Each stage may short-circuit, propose an edit, or do nothing â€” and reports which.
+Requests flow top to bottom. Each stage may short-circuit, propose an edit, or do nothing — and reports which.
 
-| # | Tier | What it actually does | Input â†’ Output | Why it exists |
+| # | Tier | What it actually does | Input → Output | Why it exists |
 |---|---|---|---|---|
-| 1 | **M6a â€” Deterministic router** | Recognises arithmetic and date questions and computes the answer exactly, with an AST evaluator rather than `eval` | question â†’ answer, or pass through | The cheapest request is the one never sent. 23 tokens â†’ **0**. |
-| 2 | **M2 â€” Semantic cache** | Embeds the question, retrieves near neighbours, applies a **three-zone policy**: accept, reject, or *verify*. Borderline matches are settled by four set comparisons over numbers, entities, negations and operative modifiers | question â†’ stored answer, or pass through | Reuse without a second model call â€” and without serving the opposite answer. |
-| 3 | **M3a â€” History selector** | Scores prior turns for relevance with MMR and keeps only those that fit the budget | N turns â†’ M turns | In a long conversation most turns are irrelevant to the current question. |
-| 4 | **M3b â€” History arranger** | Orders the kept turns | turns â†’ ordered turns | Where a turn sits changes both attention and prefix reuse (Â§7.2). |
-| 5 | **M1a â€” Tier 1, boilerplate** | Removes greetings, politeness and markdown, losslessly and sentence-aware | text â†’ shorter text | Politeness carries no instruction and costs real tokens. |
-| 6 | **M1b â€” Tier 2, redundancy** | Deletes a sentence that restates a fact already present, above a similarity threshold calibrated from data | text â†’ shorter text | The same fact stated twice is paid for twice. |
-| 7 | **M1c â€” Tier 3, word level** | Shortens long-winded phrasing, with a **negative-yield guard** that rejects any edit not reducing the token count | text â†’ shorter text | Shortening text does not always shorten *tokens*; the guard measures rather than assumes. |
-| 8 | **M4 â€” Prefix-stable assembler** | Assembles the final prompt with invariant content first and volatile content last | parts â†’ prompt | Keeps the prompt head byte-stable so the model reuses its KV cache. Worth ~0 tokens and ~18 seconds. |
-| 9 | **M5 â€” Output budgeter** | Classifies the question and sets `num_predict` accordingly â€” 48 for arithmetic, 640 for reasoning â€” plus a streaming early stop on trigram novelty | question â†’ token budget | Small models ramble. Right-sizing beats truncating. |
-| 10 | **M6b â€” Escalation router** | Scores complexity and decides whether a larger model is warranted | question â†’ route | Calibrated to the observed distribution, and deliberately **off**: a 3B model scored item-for-item identically to 1.5B here. |
-| â€” | **M8 â€” Fidelity gate** | **Runs on every proposal from every stage.** Compares invariants before and after; refuses any edit that would drop a number, entity, negation or operative modifier, or that would empty the payload | proposal â†’ commit / refuse | The constraint under which all of the above operate. |
-| â€” | **M7 â€” Policy learner** | Offline: mines recurring questions, standing facts and templates from past conversations into a `PolicyBundle` that warm-starts the cache | logs â†’ bundle | Value is a property of the traffic (Â§7.5), not of the module. |
+| 1 | **M6a — Deterministic router** | Recognises arithmetic and date questions and computes the answer exactly, with an AST evaluator rather than `eval` | question → answer, or pass through | The cheapest request is the one never sent. 23 tokens → **0**. |
+| 2 | **M2 — Semantic cache** | Embeds the question, retrieves near neighbours, applies a **three-zone policy**: accept, reject, or *verify*. Borderline matches are settled by four set comparisons over numbers, entities, negations and operative modifiers | question → stored answer, or pass through | Reuse without a second model call — and without serving the opposite answer. |
+| 3 | **M3a — History selector** | Scores prior turns for relevance with MMR and keeps only those that fit the budget | N turns → M turns | In a long conversation most turns are irrelevant to the current question. |
+| 4 | **M3b — History arranger** | Orders the kept turns | turns → ordered turns | Where a turn sits changes both attention and prefix reuse (§7.2). |
+| 5 | **M1a — Tier 1, boilerplate** | Removes greetings, politeness and markdown, losslessly and sentence-aware | text → shorter text | Politeness carries no instruction and costs real tokens. |
+| 6 | **M1b — Tier 2, redundancy** | Deletes a sentence that restates a fact already present, above a similarity threshold calibrated from data | text → shorter text | The same fact stated twice is paid for twice. |
+| 7 | **M1c — Tier 3, word level** | Shortens long-winded phrasing, with a **negative-yield guard** that rejects any edit not reducing the token count | text → shorter text | Shortening text does not always shorten *tokens*; the guard measures rather than assumes. |
+| 8 | **M4 — Prefix-stable assembler** | Assembles the final prompt with invariant content first and volatile content last | parts → prompt | Keeps the prompt head byte-stable so the model reuses its KV cache. Worth ~0 tokens and ~18 seconds. |
+| 9 | **M5 — Output budgeter** | Classifies the question and sets `num_predict` accordingly — 48 for arithmetic, 640 for reasoning — plus a streaming early stop on trigram novelty | question → token budget | Small models ramble. Right-sizing beats truncating. |
+| 10 | **M6b — Escalation router** | Scores complexity and decides whether a larger model is warranted | question → route | Calibrated to the observed distribution, and deliberately **off**: a 3B model scored item-for-item identically to 1.5B here. |
+| — | **M8 — Fidelity gate** | **Runs on every proposal from every stage.** Compares invariants before and after; refuses any edit that would drop a number, entity, negation or operative modifier, or that would empty the payload | proposal → commit / refuse | The constraint under which all of the above operate. |
+| — | **M7 — Policy learner** | Offline: mines recurring questions, standing facts and templates from past conversations into a `PolicyBundle` that warm-starts the cache | logs → bundle | Value is a property of the traffic (§7.5), not of the module. |
 
 ## 5.3 Experimental protocol
 
 | Element | Setting |
 |---|---|
-| Design | 2â´ full factorial over M1 Ã— M2 Ã— M3 Ã— M5, 17 cells |
+| Design | 2⁴ full factorial over M1 × M2 × M3 × M5, 17 cells |
 | Corpus | 151 conversations, 263 requests; 45 adversarial pairs + 45 controls; 40 gold items |
 | Model | `qwen2.5:1.5b-instruct`, Q4_K_M quantisation, via Ollama, CPU-only, offline |
 | Hardware | AMD Ryzen 7 5800HS, 16 GB RAM, no GPU used |
 | Statistics | Bootstrap 95% confidence intervals, partial Î·Â² effect sizes, two-way ANOVA on interactions, exact McNemar for paired accuracy |
-| Reproduction | `python reproduce.py --out figures` â€” every table regenerates in ~100 s |
+| Reproduction | `python reproduce.py --out figures` — every table regenerates in ~100 s |
 | Verification | 968 automated tests, including architecture-layering and golden-output tests |
 
 <div class="pagebreak"></div>
@@ -545,7 +545,7 @@ automated test rather than by convention.
 |---|---|---|
 | **L0** | Contracts | Pure type and protocol definitions: `Request`, `Turn`, `Proposal` (`ContextPatch` / `ShortCircuit` / `NoOp`), `LedgerRow`, `TransformKind`. No logic, no imports from above. |
 | **L1** | Infrastructure | Tokeniser (Qwen2.5 vocabulary, 151,665 entries), embedders (`content-v1` default, `hashing-v1` for comparison), text normalisation and Unicode sanitisation, providers (Ollama, Mock), generation memoisation. |
-| **L2** | Modules | M1â€“M8. Each is a pure function of its inputs that returns a **proposal**; none mutates the request. |
+| **L2** | Modules | M1–M8. Each is a pure function of its inputs that returns a **proposal**; none mutates the request. |
 | **L3** | Orchestrator | Applies stages in the configured order, submits every proposal to the gate, commits or refuses, and writes one ledger row per stage. |
 | **L4** | Evaluation | Factorial sweep runner, quality measures, bootstrap and effect-size statistics, threshold calibration, cross-vocabulary generalisation, latency instrumentation, learning study, judge calibration. |
 | **L5** | Surfaces | The command-line interface: `chat`, `bench`, `compare`, `ask`, `tour`, `judge`, `learning`, `latency`. |
@@ -575,7 +575,7 @@ entities, negations, operative modifiers and payload emptiness on every proposal
 
 | Component | Role |
 |---|---|
-| **Ledger (v1)** | One row per stage per request â€” module, outcome, tokens before/after, duration, rationale, gate event, provider content digest. Dual sinks (JSONL + in-memory). **A stage that did nothing still writes a row**; an invisible stage is an unauditable one. |
+| **Ledger (v1)** | One row per stage per request — module, outcome, tokens before/after, duration, rationale, gate event, provider content digest. Dual sinks (JSONL + in-memory). **A stage that did nothing still writes a row**; an invisible stage is an unauditable one. |
 | **Fidelity gate** | The single safety choke point. Runs on every proposal from every stage, before commitment. |
 | **Provider layer** | `OllamaProvider` (stdlib `urllib`, no SDK) and `MockProvider`. A run that asks for the real model and cannot reach it **refuses** rather than silently falling back. |
 | **Generation memoisation** | Bit-exact at temperature 0, so repeated sweep cells do not re-pay for identical generations. |
@@ -611,19 +611,19 @@ Full 2â´ factorial, 151 conversations, 263 requests, 17 cells.
 | M3 history manager | +6.78 pp | 0.462 |
 | M2 semantic cache | +1.96 pp | 0.013 |
 | M1 compressor | +10.97 pp | 0.365 |
-| M3 Ã— M5 interaction | **âˆ’0.75 pp** | 0.002 |
+| M3 × M5 interaction | **−0.75 pp** | 0.002 |
 
 Full stack: **+39.6%** total token reduction. Both material interaction terms are negative and both involve
-M5 â€” trimming history and shortening output reduce the same conversation.
+M5 — trimming history and shortening output reduce the same conversation.
 
 > **Additivity shortfall: 1.69 pp, 95% CI [+0.04, +3.21].**
 
 And the sharper result: the shortfall is **configuration-dependent**.
 
-| Encoder | M2 effect | M3 Ã— M5 | Additivity shortfall |
+| Encoder | M2 effect | M3 × M5 | Additivity shortfall |
 |---|---|---|---|
-| `hashing-v1` | +1.61 pp | âˆ’1.14 | 2.53 pp, [+0.93, +3.99] |
-| `content-v1` (default) | +1.96 pp | âˆ’0.75 | 1.69 pp, [+0.04, +3.21] |
+| `hashing-v1` | +1.61 pp | −1.14 | 2.53 pp, [+0.93, +3.99] |
+| `content-v1` (default) | +1.96 pp | −0.75 | 1.69 pp, [+0.04, +3.21] |
 
 Improving the encoder made the cache hit more often, so it overlapped its neighbours less. The weaker encoder
 was **not** reinstated to protect the interval: choosing a component known to be worse because it yields a more
@@ -648,7 +648,7 @@ corpus, 383 ms per request**.
 | Stable prefix (M4) | 1,490 | **212 ms** | **98.5%** |
 | Volatile head | 1,497 | **18,914 ms** | **0.5%** |
 
-Same content, 0.5% apart in token count, **~80Ã— apart in cost**. Every metric in the compression literature
+Same content, 0.5% apart in token count, **~80× apart in cost**. Every metric in the compression literature
 scores those two configurations identically.
 
 ## 7.3 The verifier, not the threshold
@@ -657,11 +657,11 @@ scores those two configurations identically.
 
 | Cosine | Pair |
 |---|---|
-| **0.924** | "Is it safe to mix bleach and vinegar?" / "Is it **not** safeâ€¦" |
+| **0.924** | "Is it safe to mix bleach and vinegar?" / "Is it **not** safe…" |
 | 0.869 | "capital of **Australia**" / "capital of **Austria**" |
 | 0.653 | "What causes rain?" / "What causes rainfall to occur?" |
 
-The adversarial pair scores **above every genuine paraphrase**, so the published 0.85â€“0.92 range would
+The adversarial pair scores **above every genuine paraphrase**, so the published 0.85–0.92 range would
 auto-accept it and return the opposite answer.
 
 | Operative difference | Initial false-hit rate | After the verifier |
@@ -677,8 +677,8 @@ auto-accept it and return the opposite answer.
 
 | Configuration | Gold accuracy |
 |---|---|
-| Baseline | 37/40 â€” 92.5% |
-| Full stack | **39/40 â€” 97.5%** |
+| Baseline | 37/40 — 92.5% |
+| Full stack | **39/40 — 97.5%** |
 
 Paired per item: **zero regressions.** Not one answer the baseline got right was lost to compression. The two
 gains are arithmetic routed to M6's deterministic tier; two discordant pairs is not significant (exact McNemar
@@ -688,7 +688,7 @@ p = 0.50), so the claim is *no measurable degradation* rather than improvement.
 
 **Across vocabularies.** Re-running the entire sweep against GPT-2's 50,257-entry vocabulary with thresholds
 carried over unchanged: reduction ratios land within 0.1 pp and the module ranking is identical. The
-*mechanisms* fare worse â€” one of our two stated explanations for a tokenizer effect proved specific to Qwen.
+*mechanisms* fare worse — one of our two stated explanations for a tokenizer effect proved specific to Qwen.
 
 **Across conversations.** M7's value, mined from one half of the conversations and tested on a disjoint half:
 
@@ -704,22 +704,22 @@ The exact zero at 0% recurrence is what makes the rest credible.
 
 | Metric | Baseline | With Parsimony |
 |---|---|---|
-| Total token reduction | â€” | **33.3%** |
+| Total token reduction | — | **33.3%** |
 | Gold accuracy (40 items) | 92.5% | **97.5%**, zero regressions |
 | False-answer rate on adversarial pairs | 26.7% | **0.0%** |
-| Prefill share of wall clock | 91.7 â€“ 98.8% | unchanged (measured, not optimised away) |
+| Prefill share of wall clock | 91.7 – 98.8% | unchanged (measured, not optimised away) |
 | Prefix-cache reuse | 0.5% (volatile head) | **98.5%** |
-| Prefill saved across the corpus | â€” | **100.6 s** (383 ms per request) |
-| Middleware overhead per request | â€” | under 120 ms |
-| Mined-policy transfer at 57% recurrence | â€” | **+17.83 pp** |
+| Prefill saved across the corpus | — | **100.6 s** (383 ms per request) |
+| Middleware overhead per request | — | under 120 ms |
+| Mined-policy transfer at 57% recurrence | — | **+17.83 pp** |
 
 ## 7.7 Threats to validity
 
 1. **Single hardware configuration.** The 8.5 ms/token rate is not claimed to generalise.
 2. **Small gold set.** 40 items; after a grading fix only two defeat both models, and both are arithmetic
-   already handled without a model â€” so Â§7.4 measures the gold set as much as the pipeline.
+   already handled without a model — so §7.4 measures the gold set as much as the pipeline.
 3. **Lexical encoder.** Operating points shift with the encoder; rankings do not.
-4. **Corpus recurrence is 1.9%**, which is why Â§7.5 reports a curve over synthetic traffic rather than a single
+4. **Corpus recurrence is 1.9%**, which is why §7.5 reports a curve over synthetic traffic rather than a single
    number. The repetition structure is synthetic; every question and answer in it is real.
 
 <div class="pagebreak"></div>
@@ -732,7 +732,7 @@ instrument**: eight techniques in one harness, each independently switchable, ev
 auditable ledger.
 
 What that instrument found, repeatedly, is that **published operating points are configuration-specific**. A
-threshold quoted as safe is unsafe here. A placement strategy justified by a well-cited attention result is 80Ã—
+threshold quoted as safe is unsafe here. A placement strategy justified by a well-cited attention result is 80×
 more expensive here. A calibration transfers as a ratio but not as a mechanism. An escalation premise that
 holds at 70B does not hold at 3B.
 
@@ -767,7 +767,7 @@ For this class of system, the deliverable is a **calibration procedure, not a nu
 25. *ChunkAttention: Efficient Self-Attention with Prefix-Aware KV Cache and Two-Phase Partition.* arXiv:2402.15220
 26. *Sparse Prefix Caching for Hybrid and Recurrent LLM Serving.* arXiv:2605.05219
 27. *Multi-Segment Attention: Efficient KV-Cache Management for Faster LLM Serving.* arXiv:2606.02964
-28. Liu, N. F. et al. *Lost in the Middle: How Language Models Use Long Contexts.* TACL 12:157â€“173, 2024. arXiv:2307.03172
+28. Liu, N. F. et al. *Lost in the Middle: How Language Models Use Long Contexts.* TACL 12:157–173, 2024. arXiv:2307.03172
 29. *Adaptive Focus Memory for Language Models.* arXiv:2511.12712
 30. *A Survey on Multi-Turn Interaction Capabilities of Large Language Models.* arXiv:2501.09959
 31. *From Human Memory to AI Memory: A Survey on Memory Mechanisms in the Era of LLMs.* arXiv:2504.15965

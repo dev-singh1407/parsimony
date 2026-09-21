@@ -121,3 +121,68 @@ class TestWhatItRefuses:
         assert got["full"]["context_kept_pct"] == 100.0
         assert got["parsimony"]["context_kept_pct"] == 25.0
         assert got["parsimony"]["f1"] == 100.0
+
+
+class TestTheAnswerPositionSplit:
+    """Separating "truncation worked" from "truncation got lucky".
+
+    Truncation's entire strategy is "keep the front". On documents in their
+    natural order that is a coin toss it wins about half the time, which is why
+    it can score level with a compressor overall while doing nothing a
+    compressor does. The split is made on where the answer sits in the DATA,
+    computed without reference to any result.
+    """
+
+    @staticmethod
+    def _item(context: str, answers: list[str]):
+        from parsimony.eval.longbench import BenchItem, _as_documents
+
+        return BenchItem(item_id="x", task="t", question="q?", answers=tuple(answers),
+                         documents=_as_documents(context, "x"),
+                         context_words=len(context.split()))
+
+    def test_position_is_where_the_answer_first_appears(self):
+        item = self._item("alpha " * 10 + "Ozalj " + "beta " * 80, ["Ozalj"])
+        position = lb.answer_position(item)
+        assert position is not None
+        assert 0.05 < position < 0.15
+
+    def test_an_answer_at_the_very_front_is_zero(self):
+        assert lb.answer_position(self._item("Ozalj is a town. " + "x " * 90,
+                                             ["Ozalj"])) == 0.0
+
+    def test_an_answer_that_is_not_in_the_context_has_no_position(self):
+        """Answers are not guaranteed to be extractive, and inventing a
+        position for one would put it in whichever group flattered us."""
+        assert lb.answer_position(self._item("nothing relevant here", ["Ozalj"])) is None
+
+    def test_the_split_uses_the_budget_as_its_cutoff(self):
+        """Below the budget truncation keeps the answer by construction, which
+        is exactly the line that makes the two groups mean different things."""
+        items = {
+            "early": self._item("Ozalj " + "x " * 99, ["Ozalj"]),
+            "late": self._item("x " * 90 + "Ozalj " + "x " * 9, ["Ozalj"]),
+        }
+        rows = [
+            {"item_id": "early", "arm": "parsimony", "f1": 1.0, "context_tokens": 20,
+             "prefill_ms": 10},
+            {"item_id": "early", "arm": "full", "f1": 1.0, "context_tokens": 100,
+             "prefill_ms": 50},
+            {"item_id": "late", "arm": "parsimony", "f1": 1.0, "context_tokens": 20,
+             "prefill_ms": 10},
+            {"item_id": "late", "arm": "full", "f1": 0.0, "context_tokens": 100,
+             "prefill_ms": 50},
+        ]
+        split = lb.by_position(rows, items, cutoff=0.20)
+        assert {c["group"]: c["n"] for c in split["counts"]} == {"early": 1, "late": 1}
+        late_parsimony = next(r for r in split["late"] if r["arm"] == "parsimony")
+        assert late_parsimony["f1"] == 100.0
+
+    def test_an_item_with_no_locatable_answer_goes_to_the_harder_group(self):
+        """Unlocatable is not early. Putting it in the group truncation wins
+        would be choosing the split to suit the result."""
+        items = {"a": self._item("no answer text at all here", ["Ozalj"])}
+        rows = [{"item_id": "a", "arm": "full", "f1": 0.0, "context_tokens": 10,
+                 "prefill_ms": 1}]
+        split = lb.by_position(rows, items)
+        assert {c["group"]: c["n"] for c in split["counts"]} == {"early": 0, "late": 1}

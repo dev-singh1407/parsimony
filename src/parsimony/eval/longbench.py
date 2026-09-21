@@ -299,6 +299,53 @@ def _truncate(methods, item: BenchItem, budget: int) -> tuple[Document, ...]:
 # ------------------------------------------------------------- reporting --
 
 
+def answer_position(item: BenchItem) -> float | None:
+    """How far through the context the answer string first appears, 0.0-1.0.
+
+    A property of the DATA, computed without reference to any result, so it can
+    split the items without being a fishing expedition. `None` when no reference
+    answer occurs literally in the context -- which happens, since the answers
+    are not guaranteed to be extractive.
+    """
+    context = _normalise("\n\n".join(d.content for d in item.documents))
+    total = len(context.split())
+    best = None
+    for answer in item.answers:
+        needle = _normalise(answer)
+        if not needle:
+            continue
+        idx = context.find(needle)
+        if idx >= 0:
+            fraction = len(context[:idx].split()) / max(1, total)
+            best = fraction if best is None else min(best, fraction)
+    return best
+
+
+def by_position(rows: list[dict], items: dict[str, BenchItem], *,
+                cutoff: float = 0.20) -> dict[str, list[dict]]:
+    """The same summary, split by whether keeping the front keeps the answer.
+
+    Truncation's whole strategy is "keep the front". On a benchmark whose
+    documents arrive in their natural order, that is a coin toss it sometimes
+    wins -- which is why it scores level with a compressor overall, and why the
+    overall number alone hides what is happening. Splitting on where the answer
+    actually sits separates "truncation worked" from "truncation got lucky".
+
+    `cutoff` defaults to the budget the compressed arms are held to, because
+    that is the threshold that makes the split mean something: below it,
+    truncation keeps the answer by construction.
+    """
+    early, late = [], []
+    for item_id, item in items.items():
+        position = answer_position(item)
+        (early if position is not None and position < cutoff else late).append(item_id)
+    return {
+        "early": summarise([r for r in rows if r["item_id"] in early]),
+        "late": summarise([r for r in rows if r["item_id"] in late]),
+        "counts": [{"group": "early", "n": len(early)}, {"group": "late", "n": len(late)}],
+    }
+
+
 def summarise(rows: list[dict]) -> list[dict]:
     """One row per arm: F1, what it sent, and what reading it cost."""
     by_arm: dict[str, list[dict]] = {}

@@ -217,3 +217,53 @@ class TestCountsQuotedInTheReadme:
         text = README.read_text(encoding="utf-8")
         for doc in sorted((ROOT / "docs").glob("*.md")):
             assert f"docs/{doc.name}" in text, f"docs/{doc.name} is not linked from README"
+
+
+class TestTheDocumentsAreStillUtf8:
+    """Mojibake is silent, and it ate four documents before anything noticed.
+
+    A PowerShell `Get-Content -Raw | ... | Set-Content -Encoding utf8` over a
+    BOM-less UTF-8 file reads it as ANSI and writes it back double-encoded:
+    every em dash becomes "aEUR"", every multiplication sign becomes "A-", and
+    a BOM appears at the front. Nothing errors. The files still render, just
+    wrongly, and the only reason it surfaced at all was an unrelated assertion
+    about an interaction term that could no longer find "M1xM3xM5" because the
+    x had been mangled.
+
+    357 lines across four documents were affected. This is the cheap check that
+    would have caught it in seconds.
+    """
+
+    #: Sequences that only occur when UTF-8 has been read as cp1252 and
+    #: re-encoded. Real prose does not contain them.
+    MOJIBAKE = ("\u00e2\u20ac", "\u00c3\u2014", "\u00c3\u00a9", "\u00c2\u00a7",
+                "\u00c2\u00b7", "\u00e2\u02c6", "\u00c3\u00a8", "\u00c2\u00a0")
+
+    def _markdown(self):
+        root = Path(__file__).resolve().parents[1]
+        return [root / "README.md", *sorted((root / "docs").glob("*.md"))]
+
+    def test_no_document_has_been_double_encoded(self):
+        bad = []
+        for path in self._markdown():
+            text = path.read_text(encoding="utf-8")
+            for n, line in enumerate(text.splitlines(), 1):
+                if any(m in line for m in self.MOJIBAKE):
+                    bad.append(f"{path.name}:{n}")
+                    break
+        assert not bad, ("double-encoded text in: " + ", ".join(bad)
+                         + " -- re-read as utf-8 and rewrite, do not hand-edit")
+
+    def test_no_document_starts_with_a_byte_order_mark(self):
+        """A BOM is how the corrupting round trip announces itself, and it also
+        breaks the first heading in some renderers."""
+        bad = [p.name for p in self._markdown()
+               if p.read_text(encoding="utf-8").startswith("\ufeff")]
+        assert not bad, f"byte-order mark at the start of: {bad}"
+
+    def test_every_document_decodes_as_utf8_at_all(self):
+        for path in self._markdown():
+            try:
+                path.read_bytes().decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise AssertionError(f"{path.name} is not valid UTF-8: {exc}") from exc
