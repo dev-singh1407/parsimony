@@ -186,3 +186,33 @@ class TestTheAnswerPositionSplit:
                  "prefill_ms": 1}]
         split = lb.by_position(rows, items)
         assert {c["group"]: c["n"] for c in split["counts"]} == {"early": 0, "late": 1}
+
+    def test_the_split_works_from_the_rows_alone(self):
+        """A results file must be re-analysable without the 110 MB it came from."""
+        rows = [
+            {"item_id": "a", "arm": "parsimony", "f1": 1.0, "context_tokens": 20,
+             "prefill_ms": 10, "answer_position": 0.05},
+            {"item_id": "b", "arm": "parsimony", "f1": 0.0, "context_tokens": 20,
+             "prefill_ms": 10, "answer_position": 0.70},
+        ]
+        split = lb.by_position(rows)
+        assert {c["group"]: c["n"] for c in split["counts"]} == {"early": 1, "late": 1}
+        assert next(r for r in split["early"] if r["arm"] == "parsimony")["f1"] == 100.0
+        assert next(r for r in split["late"] if r["arm"] == "parsimony")["f1"] == 0.0
+
+    def test_a_row_without_a_recorded_position_falls_back_to_the_items(self):
+        """Rows written before the field existed still analyse, given the data."""
+        items = {"a": self._item("x " * 90 + "Ozalj " + "y " * 9, ["Ozalj"])}
+        rows = [{"item_id": "a", "arm": "full", "f1": 0.0, "context_tokens": 10,
+                 "prefill_ms": 1}]
+        split = lb.by_position(rows, items)
+        assert {c["group"]: c["n"] for c in split["counts"]} == {"early": 0, "late": 1}
+
+    def test_a_recorded_position_is_preferred_over_recomputing_it(self):
+        """The row is the record. Recomputing from data that may have moved on
+        would let a result change without anything being re-run."""
+        items = {"a": self._item("Ozalj " + "x " * 99, ["Ozalj"])}       # early
+        rows = [{"item_id": "a", "arm": "full", "f1": 1.0, "context_tokens": 10,
+                 "prefill_ms": 1, "answer_position": 0.9}]               # recorded late
+        split = lb.by_position(rows, items)
+        assert {c["group"]: c["n"] for c in split["counts"]} == {"early": 0, "late": 1}

@@ -200,6 +200,7 @@ def run(task: str, data_dir: Path, provider, out_path: Path, *, limit: int = 20,
     total = len(items) * len(arms)
     with out_path.open("a", encoding="utf-8") as fh:
         for n_item, item in enumerate(items):
+            position = answer_position(item)
             ours = _compress(methods, item, cfg)
             budget = sum(methods.count(d.content) for d in ours)
             for n_arm, arm in enumerate(arms):
@@ -239,6 +240,10 @@ def run(task: str, data_dir: Path, provider, out_path: Path, *, limit: int = 20,
 
                 row = {
                     "task": task, "item_id": item.item_id, "arm": arm,
+                    # A property of the item, stored per row so the analysis in
+                    # `by_position` survives without the 110 MB of source data.
+                    "answer_position": (round(position, 4)
+                                        if position is not None else None),
                     "model": provider.model_name, "model_digest": digest,
                     "f1": round(qa_f1(text, list(item.answers)), 4),
                     "response": text.strip()[:400],
@@ -321,7 +326,7 @@ def answer_position(item: BenchItem) -> float | None:
     return best
 
 
-def by_position(rows: list[dict], items: dict[str, BenchItem], *,
+def by_position(rows: list[dict], items: dict[str, BenchItem] | None = None, *,
                 cutoff: float = 0.20) -> dict[str, list[dict]]:
     """The same summary, split by whether keeping the front keeps the answer.
 
@@ -334,10 +339,20 @@ def by_position(rows: list[dict], items: dict[str, BenchItem], *,
     `cutoff` defaults to the budget the compressed arms are held to, because
     that is the threshold that makes the split mean something: below it,
     truncation keeps the answer by construction.
+
+    Positions come from the rows themselves where a run recorded them, so this
+    runs on a results file alone; `items` is only needed for rows written before
+    that field existed.
     """
+    positions: dict[str, float | None] = {}
+    for row in rows:
+        if "answer_position" in row:
+            positions[row["item_id"]] = row["answer_position"]
+    for item_id, item in (items or {}).items():
+        positions.setdefault(item_id, answer_position(item))
+
     early, late = [], []
-    for item_id, item in items.items():
-        position = answer_position(item)
+    for item_id, position in positions.items():
         (early if position is not None and position < cutoff else late).append(item_id)
     return {
         "early": summarise([r for r in rows if r["item_id"] in early]),

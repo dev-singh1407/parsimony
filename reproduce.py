@@ -343,6 +343,26 @@ def render_longbench(ctx: Context) -> str:
             f"{model}"
             + (f", {window:,}-token window" if window else "") + ":\n\n"
             + _table(headers, table))
+
+    # The split that separates "truncation worked" from "truncation got lucky".
+    # Positions are recorded on each row, so this needs no access to the data.
+    if any("answer_position" in r for r in rows):
+        split = lb.by_position(rows)
+        counts = {c["group"]: c["n"] for c in split["counts"]}
+        if counts.get("early") and counts.get("late"):
+            head = ["group", *[r["arm"] for r in split["early"]]]
+            body = [
+                [f"answer in the first 20% ({counts['early']} items)",
+                 *[f"{r['f1']:.1f}" for r in split["early"]]],
+                [f"answer beyond 20% ({counts['late']} items)",
+                 *[f"{r['f1']:.1f}" for r in split["late"]]],
+            ]
+            _write_csv(ctx.out / "longbench_by_position.csv", head, body)
+            text += ("\n\n**F1 split by where the answer sits in the context.** Truncation keeps "
+                     "the front, so it succeeds whenever the answer is already there; splitting "
+                     "on a property of the data separates that from selection actually "
+                     "working:\n\n" + _table(head, body))
+
     return text + (
         "\n\n**These F1 values are not comparable to published LongBench tables.** Those are "
         "produced by 7B-70B models; this is a 1.5B on a laptop CPU, which scores far lower before "
