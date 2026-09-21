@@ -125,6 +125,7 @@
       <span class="hint" id="stack-hint">words in the channels are your own text ·
         red ones are leaving · click a layer to inspect it</span></h2>
     <div class="stackwrap"><div class="vstack" id="stack"></div></div>
+    <div class="gatebar" id="gate-summary"></div>
   </div>
 
   <div class="side-by">
@@ -228,6 +229,21 @@
     <h2>What it decided</h2>
     <div class="stats" id="map-numbers"></div>
     <div class="note" id="map-note"></div>
+  </div>
+
+  <div class="panel" id="map-profile-panel" hidden>
+    <h2>The selection rule, and every exception to it
+      <span class="hint">sentences sorted by score · the line is the relevance floor</span></h2>
+    <div class="profilewrap"><svg id="profile" height="190" preserveAspectRatio="none"></svg></div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--keep)"></span>kept</span>
+      <span><span class="swatch" style="background:#3a4150"></span>dropped</span>
+      <span><span class="swatch" style="background:var(--warn)"></span>kept below the floor — an
+        anchor, or pulled in by dependency closure</span>
+      <span><span class="swatch" style="background:var(--drop)"></span>dropped above it — the budget
+        ran out</span>
+    </div>
+    <div class="note" id="profile-note"></div>
   </div>
 
   <div class="panel" id="map-doc-panel" hidden>

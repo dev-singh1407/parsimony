@@ -194,6 +194,18 @@ button.ghost.tiny { padding: 3px 10px; font-size: 11.5px; border-radius: 6px; }
              0 0 26px -8px var(--accent); transform: translateY(-1px); }
 .vstage.sel { outline: 2px solid var(--violet); outline-offset: 1px; }
 
+.vs-gate { margin-left: auto; font-size: 10.5px; font-family: var(--mono);
+           border: 1px solid var(--line); border-radius: 5px; padding: 1px 7px;
+           color: var(--faint); white-space: nowrap; }
+.vs-gate.ok { color: var(--keep); border-color: rgba(78,201,168,.45); }
+.vs-gate.stop { color: var(--stop); border-color: var(--stop); background: #241518; }
+.vs-gate.dim { opacity: .55; }
+.vs-gate:empty { display: none; }
+.gatebar { margin-top: 12px; padding: 9px 13px; border-radius: 8px;
+           background: var(--panel2); border: 1px solid var(--line);
+           font-size: 12.5px; color: var(--dim); }
+.gatebar:empty { display: none; }
+
 /* the channel between two stages */
 .vflow { grid-column: 2; position: relative; height: 74px; overflow: hidden; }
 .vflow .vline { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px;
@@ -293,6 +305,15 @@ button.ghost.tiny { padding: 3px 10px; font-size: 11.5px; border-radius: 6px; }
 .bar .t { height: 7px; background: #1d2431; border-radius: 4px; overflow: hidden; }
 .bar .t > i { display: block; height: 100%; background: var(--keep); }
 .bar.below .t > i { background: #46505f; }
+
+/* ── the score profile ──────────────────────────────────────────── */
+.profilewrap { overflow-x: auto; }
+#profile { display: block; width: 100%; min-width: 320px; }
+#profile .bar { transition: height .4s, y .4s; }
+#profile .floorline { stroke: var(--warn); stroke-width: 1.5; stroke-dasharray: 5 4; }
+#profile .axis { stroke: var(--line); stroke-width: 1; }
+#profile text { font-family: var(--mono); font-size: 10px; fill: var(--faint); }
+#profile text.lab { fill: var(--warn); }
 
 /* ── tables ──────────────────────────────────────────────────────── */
 table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12.5px; }

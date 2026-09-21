@@ -181,6 +181,11 @@ class Visualiser:
             "encoder_ms": encoder_ms,
             "decide_ms": max(0.0, took_ms - encoder_ms),
             "encoder": self.cfg.embedder_id,
+            # The thresholds the page draws its lines at. Sent rather than
+            # hard-coded in the script: a page that draws a boundary the
+            # configuration has moved is worse than one that draws none.
+            "floor": self.cfg.compression.context_relevance_floor,
+            "budget": report.budget,
             "anchors": sorted(str(a) for a in report.anchors),
             "units": [
                 {"text": u.text, "source": u.source_label, "score": round(u.score, 4),

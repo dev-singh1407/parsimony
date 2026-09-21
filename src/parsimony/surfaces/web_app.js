@@ -132,7 +132,8 @@ function drawStack() {
       + `<span class="vs-time" id="vt-${s.name}"></span></div>`
       + `<div class="vs-job">${esc(s.does)}</div>`
       + `<div class="vs-out"><span id="vk-${s.name}">—</span>`
-      + `<span class="vs-delta" id="vd-${s.name}"></span></div>`
+      + `<span class="vs-delta" id="vd-${s.name}"></span>`
+      + `<span class="vs-gate" id="vg-${s.name}"></span></div>`
       + `<div class="vs-why" id="vw-${s.name}"></div></div>`);
     if (i < RUN.plan.length - 1) {
       rows.push(`<div class="vrail"></div>`
@@ -146,6 +147,43 @@ function drawStack() {
     const el = $("vs-" + s.name);
     if (el) el.onclick = () => { RUN.selected = s.name; paintAll(); };
   }
+}
+
+/* The gate, per stage. Three states, and the dim one matters as much as the
+   others: a stage that proposed nothing never reached M8, and saying "passed"
+   there would claim a check that did not happen. */
+const GATE = {
+  applied: ["checked", "ok", "M8 inspected this edit and let it through"],
+  reverted: ["refused", "stop", "M8 blocked this edit: it would have changed the meaning"],
+  short_circuit: ["not asked", "dim", "answered before any edit was proposed"],
+};
+
+function paintGate(name, stage) {
+  const el = $("vg-" + name);
+  if (!el) return;
+  if (!stage) { el.textContent = ""; el.className = "vs-gate"; return; }
+  const [word, cls, why] = GATE[stage.outcome]
+    || ["not asked", "dim", "this layer proposed no edit, so the gate was never consulted"];
+  el.textContent = "M8 " + word;
+  el.className = "vs-gate " + cls;
+  el.title = why;
+}
+
+/* How often the gate was consulted this request, and what it did. The page
+   claimed a safety component; this is the line that shows it working. */
+function gateSummary() {
+  const asked = RUN.stages.filter((s) => s.outcome === "applied" || s.outcome === "reverted");
+  const refused = asked.filter((s) => s.outcome === "reverted");
+  if (!RUN.stages.length) return "";
+  if (!asked.length) return "No layer proposed an edit, so the fidelity gate was not consulted.";
+  const names = refused.map((s) => labelFor(s.name)).join(", ");
+  return refused.length
+    ? `The fidelity gate checked ${asked.length} proposed edit`
+      + `${asked.length === 1 ? "" : "s"} and refused ${refused.length} — ${names}. `
+      + `A refusal is the system declining tokens to stay correct.`
+    : `The fidelity gate checked ${asked.length} proposed edit`
+      + `${asked.length === 1 ? "" : "s"} and let all of them through: every kept sentence is `
+      + `verbatim and in order, and nothing the question names was lost.`;
 }
 
 /* Words for the channels, taken from the reader's own text. A stream of dots
@@ -303,6 +341,7 @@ function paintAll() {
     $("vd-" + p.name).textContent = ran && d < 0 ? `−${fmt(-d)}` : "";
     const layer = RUN.layers.find((l) => l.name === p.name);
     $("vw-" + p.name).textContent = ran && layer ? layer.why : "";
+    paintGate(p.name, ran ? s : null);
     // Only the channels the request has actually reached are in motion.
     const flow = $("vf-" + RUN.plan.indexOf(p));
     if (flow) flow.classList.toggle("running", ran);
@@ -315,6 +354,8 @@ function paintAll() {
       + `</span>`
     : `<span class="sub">${RUN.stages.length ? "before anything ran — press play, or use ← →"
         : "run something, then scrub through it stage by stage"}</span>`;
+  const gs = $("gate-summary");
+  if (gs) gs.textContent = gateSummary();
   paintDoc();
   paintInspector();
   paintLayers();
@@ -787,8 +828,70 @@ $("sample").onclick = async () => {
 const shade = (score) => `rgba(78,201,168,${(0.06 + 0.42 *
   Math.max(0, Math.min(1, score))).toFixed(3)})`;
 
+/* Sentences sorted by score, with the floor drawn across them.
+
+   If selection were nothing but a threshold, kept would be a clean prefix and
+   this chart would be boring. It is not: anchors survive below the floor, and
+   dependency closure drags in sentences that score near zero because the
+   sentence above them needs them to make sense. Those exceptions are the tier,
+   and colouring them differently is the whole point of the picture. */
+function drawProfile(data) {
+  const svg = $("profile");
+  const units = data.units.slice().sort((a, b) => b.score - a.score);
+  if (!units.length) { svg.innerHTML = ""; return; }
+
+  const W = Math.max(340, units.length * 9), H = 190;
+  const pad = { l: 34, r: 8, t: 12, b: 26 };
+  const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
+  const bw = Math.max(1.5, plotW / units.length - 1);
+  const floor = typeof data.floor === "number" ? data.floor : null;
+  const Y = (v) => pad.t + plotH * (1 - Math.max(0, Math.min(1, v)));
+
+  let exceptions = 0;
+  const bars = units.map((u, i) => {
+    const x = pad.l + i * (plotW / units.length);
+    const y = Y(u.score);
+    const below = floor !== null && u.score < floor;
+    let fill = u.kept ? "var(--keep)" : "#3a4150";
+    if (u.kept && below) { fill = "var(--warn)"; exceptions++; }
+    if (!u.kept && !below) { fill = "var(--drop)"; exceptions++; }
+    const why = `${u.kept ? "KEPT" : "DROPPED"} · ${u.tag} · score ${u.score.toFixed(3)}`
+              + `\n${u.detail}\n\n${u.text.slice(0, 160)}`;
+    return `<rect class="bar" x="${x.toFixed(1)}" y="${y.toFixed(1)}" `
+         + `width="${bw.toFixed(1)}" height="${(pad.t + plotH - y).toFixed(1)}" `
+         + `fill="${fill}"><title>${esc(why)}</title></rect>`;
+  }).join("");
+
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((v) =>
+    `<line class="axis" x1="${pad.l}" y1="${Y(v)}" x2="${W - pad.r}" y2="${Y(v)}"`
+    + ` opacity="${v === 0 ? 1 : 0.35}"/>`
+    + `<text x="${pad.l - 6}" y="${Y(v) + 3}" text-anchor="end">${v.toFixed(2)}</text>`).join("");
+
+  const floorMark = floor === null ? "" :
+    `<line class="floorline" x1="${pad.l}" y1="${Y(floor)}" x2="${W - pad.r}" y2="${Y(floor)}"/>`
+    + `<text class="lab" x="${W - pad.r}" y="${Y(floor) - 5}" text-anchor="end">`
+    + `relevance floor ${floor}</text>`;
+
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = ticks + bars + floorMark
+    + `<text x="${pad.l}" y="${H - 8}">highest scoring</text>`
+    + `<text x="${W - pad.r}" y="${H - 8}" text-anchor="end">lowest</text>`;
+
+  const kept = units.filter((u) => u.kept).length;
+  $("profile-note").innerHTML = exceptions
+    ? `${kept} of ${units.length} sentences kept. <b>${exceptions}</b> of them `
+      + `${exceptions === 1 ? "is" : "are"} not explained by the score alone — an anchor the `
+      + `question named, or a sentence dependency closure pulled in so a pronoun still refers `
+      + `to something. Hover any bar for its reason. `
+      + `Selection stopped because of <b>${esc(data.stopped_by)}</b>.`
+    : `${kept} of ${units.length} sentences kept, and the cut is exactly the floor — no anchor `
+      + `or closure exception on this question. Selection stopped because of `
+      + `<b>${esc(data.stopped_by)}</b>.`;
+}
+
 function renderMap(data) {
   $("map-stats").hidden = $("map-doc-panel").hidden = false;
+  $("map-profile-panel").hidden = false;
   const kept = data.units.filter((u) => u.kept).length;
   $("map-numbers").innerHTML = [
     ["tokens written", fmt(data.tokens_before)], ["tokens sent", fmt(data.tokens_after)],
@@ -815,6 +918,7 @@ function renderMap(data) {
          + `${esc(u.text)}</span> `;
   }
   $("map-doc").innerHTML = html;
+  drawProfile(data);
   refreshSession();
 }
 
