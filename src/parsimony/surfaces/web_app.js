@@ -575,6 +575,21 @@ function paintTokenBar(t) {
     + `(${Math.round((1 - t.ratio) * 100)}%)</i> of ${fmt(t.original)} written`;
 }
 
+/* Memory, not time. Derived from the model's own key-value geometry, so the
+   derivation travels with the number: without it this is a plausible-looking
+   megabyte figure and there is no way for a reader to check it. Absent
+   entirely when the runtime will not report its geometry. */
+function paintKv(kv, tokens) {
+  const line = $("kvline");
+  if (!kv || !tokens.removed) { line.hidden = true; return; }
+  line.hidden = false;
+  const mb = kv.bytes_saved / 1048576;
+  $("kv-n").textContent = (mb >= 1 ? mb.toFixed(1) + " MB" : Math.round(kv.bytes_saved / 1024)
+    + " KB") + " of key-value cache never allocated";
+  $("kv-how").textContent = `${fmt(tokens.removed)} tokens never read × `
+    + `${fmt(kv.per_token)} bytes each — ${kv.how}`;
+}
+
 /* ── what the AI actually received ───────────────────────────────── */
 function paintReceived(rows) {
   if (!rows || !rows.length) return;
@@ -740,6 +755,7 @@ $("run-pipe").onclick = () => {
   $("pipe-answer").innerHTML = '<span class="cursor"></span>';
   $("pipe-prompt").textContent = "—";
   $("tokenbar").hidden = true;
+  $("kvline").hidden = true;
   $("received").innerHTML = '<div class="dimtext" style="font-size:13px">assembling…</div>';
   $("measured").innerHTML = '<li class="dimtext">measuring…</li>';
   $("prompt-tok").textContent = ""; $("answer-tok").textContent = "";
@@ -800,7 +816,8 @@ $("run-pipe").onclick = () => {
         + (t.timed_here ? ", measured on this machine."
           : t.reused ? " — but the runtime reused an earlier prompt, so that rate is not cold."
           : " — the model is simulated, so that rate is the project's recorded figure.");
-    paintTokenBar(d.tokens); paintReceived(d.received); paintMeasured(d.measured);
+    paintTokenBar(d.tokens); paintKv(d.kv, d.tokens);
+    paintReceived(d.received); paintMeasured(d.measured);
     buildDoc(); fillChannels(); drawTrack(); goTo(-1);
     refreshSession();
     stop();
@@ -988,7 +1005,27 @@ $("run-map").onclick = async () => {
 const series = { parsimony: [], baseline: [] };
 const COLOUR = { parsimony: "#4ec9a8", baseline: "#e5c07b" };
 
-$("copy-map").onclick = () => show("map");
+function abSize() {
+  const n = $("ab-text").value.length;
+  $("ab-ctx-size").textContent = n ? Math.round(n / 1024) + " KB attached" : "nothing yet";
+}
+$("ab-text").addEventListener("input", abSize);
+
+$("copy-map").onclick = () => {
+  $("abq").value = $("pq").value || $("q").value;
+  $("ab-text").value = $("pipe-text").value || $("text").value;
+  abSize();
+};
+$("ab-sample").onclick = async () => {
+  $("ab-sample").disabled = true;
+  try {
+    const sample = await (await fetch("/api/sample")).json();
+    $("ab-text").value = sample.text;
+    if (!$("abq").value.trim()) $("abq").value = sample.question;
+    abSize();
+  } catch (e) { $("ab-err").textContent = "no sample document on this machine"; }
+  $("ab-sample").disabled = false;
+};
 
 function drawChart() {
   const c = $("chart"), g = c.getContext("2d");
@@ -1029,11 +1066,13 @@ function drawChart() {
 drawChart();
 
 $("run-ab").onclick = () => {
-  const question = $("pq").value.trim() || $("q").value.trim();
-  const text = $("pipe-text").value || $("text").value;
+  const question = $("abq").value.trim() || $("pq").value.trim() || $("q").value.trim();
+  const text = $("ab-text").value || $("pipe-text").value || $("text").value;
   $("ab-err").textContent = "";
-  if (!question || !text.trim()) {
-    $("ab-err").textContent = "set a question and some text on the Pipeline or Heatmap tab first";
+  if (!question) { $("ab-err").textContent = "ask something first"; return; }
+  if (!text.trim()) {
+    $("ab-err").textContent = "attach some context — with none, both arms send the same "
+      + "prompt and there is nothing to compare";
     return;
   }
   series.parsimony = []; series.baseline = [];

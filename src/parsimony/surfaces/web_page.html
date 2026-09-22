@@ -91,6 +91,10 @@
     <div class="tb-track"><div class="tb-sent" id="tb-sent"></div></div>
     <div class="tb-num" id="tb-num"></div>
   </div>
+  <div class="kvline" id="kvline" hidden>
+    <span class="kv-n" id="kv-n"></span>
+    <span class="kv-how" id="kv-how"></span>
+  </div>
 
   <!-- transport: scrub the request's own timeline -->
   <div class="transport" id="transport">
@@ -263,12 +267,26 @@
   <div class="panel">
     <h2>The same question, twice, against the real model</h2>
     <div class="row">
+      <div style="flex:4 1 380px">
+        <label for="abq">Question</label>
+        <input type="text" id="abq"
+               placeholder="What is the annual travel budget for the Tallinn office?">
+      </div>
       <div class="narrow"><button class="go" id="run-ab">Run both arms</button></div>
-      <div class="narrow"><button class="ghost" id="copy-map">Use the heatmap's question and text</button></div>
+      <div class="narrow"><button class="ghost" id="ab-sample">Attach the handbook</button></div>
+      <div class="narrow"><button class="ghost" id="copy-map">Take the Pipeline tab's</button></div>
     </div>
+    <details style="margin-top:10px">
+      <summary class="dimtext" style="cursor:pointer;font-size:13px">
+        Context attached — <span id="ab-ctx-size">nothing yet</span></summary>
+      <textarea id="ab-text" style="margin-top:8px"
+                placeholder="Paste documents here, or attach the handbook."></textarea>
+    </details>
     <div class="note">
       One after the other, never at once: two generations on one CPU compete for the same
-      cores, so a simultaneous "race" would measure contention, not compression.
+      cores, so a simultaneous "race" would measure contention, not compression. Both arms run
+      cold, with a per-prompt nonce, or the second would be served from the runtime's cache and
+      measured as nearly free.
     </div>
     <div class="note" id="ab-live-note"></div>
     <div id="ab-err" class="err"></div>

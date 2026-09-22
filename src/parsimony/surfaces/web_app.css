@@ -348,6 +348,13 @@ td .mark { font-family: var(--mono); }
 .tokenbar .tb-num b { color: var(--keep); } .tokenbar .tb-num i { color: var(--drop);
                     font-style: normal; }
 
+.kvline { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+          margin: -6px 0 14px; padding: 0 4px; font-family: var(--mono);
+          font-size: 12px; }
+.kvline[hidden] { display: none; }
+.kvline .kv-n { color: var(--violet); font-weight: 650; }
+.kvline .kv-how { color: var(--faint); font-size: 11px; }
+
 /* ── what the AI actually received ──────────────────────────────── */
 .received { display: grid; grid-template-columns: 150px 1fr; gap: 3px 16px;
             font-size: 12.5px; max-height: 420px; overflow: auto; padding-right: 6px; }
