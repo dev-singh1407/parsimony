@@ -421,6 +421,15 @@ canvas { width: 100%; height: 250px; display: block; }
               text-transform: uppercase; letter-spacing: .16em; }
 .counter.green .n { color: var(--keep); } .counter.blue .n { color: var(--accent); }
 .bigsub { text-align: center; color: var(--dim); font-family: var(--mono); font-size: 13px; }
+.secondaries { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap;
+               margin: 34px auto 0; max-width: 1100px; }
+.sec { flex: 1 1 150px; text-align: center; background: var(--panel);
+       border: 1px solid var(--line); border-radius: 10px; padding: 14px 10px; }
+.sec .sv { font-family: var(--mono); font-size: clamp(22px, 3vw, 34px); font-weight: 650;
+           line-height: 1.1; font-variant-numeric: tabular-nums; }
+.sec .sv.warnv { color: var(--warn); } .sec .sv.dropv { color: var(--drop); }
+.sec .sk { font-size: 11px; color: var(--dim); text-transform: uppercase;
+           letter-spacing: .09em; margin-top: 7px; line-height: 1.35; }
 
 @media (max-width: 720px) {
   main { padding: 13px; } .transport { position: static; }

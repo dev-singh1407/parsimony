@@ -544,3 +544,51 @@ class TestItWouldSurviveBeingInstalled:
         served = {web.PAGE.name} | {name for name, _ in web.ASSETS.values()}
         assert served <= on_disk, f"serves files that do not exist: {served - on_disk}"
         assert on_disk <= served, f"unserved files left behind: {on_disk - served}"
+
+
+class TestTheDemoScreenCounts:
+    """The demo screen is the one read from across a room, so every figure on
+    it has to be one the session actually measured -- including the two that
+    make the system look busy rather than clever."""
+
+    def test_a_request_the_model_never_saw_is_counted_as_one(self, vis):
+        vis.totals = web.SessionTotals()
+        vis.run_pipeline("What is 17 * 4?", "", lambda *a: None)
+        snap = vis.totals.snapshot()
+        assert snap["requests"] == 1
+        assert snap["without_model"] == 1
+
+    def test_a_normal_request_is_not(self, vis, handbook_text):
+        vis.totals = web.SessionTotals()
+        vis.run_pipeline("Who runs the Porto office?", handbook_text, lambda *a: None)
+        assert vis.totals.snapshot()["without_model"] == 0
+
+    def test_the_gate_is_counted_when_it_refuses(self, vis):
+        vis.totals = web.SessionTotals()
+        vis.run_pipeline("Explain the deadline. The deadline is 15 March. "
+                         "The deadline is 16 March.", "", lambda *a: None)
+        snap = vis.totals.snapshot()
+        assert snap["gate_refused"] >= 1
+        assert snap["gate_checked"] >= snap["gate_refused"], (
+            "a refusal is also a check; counting it only as a refusal loses the denominator")
+
+    def test_a_refusal_is_never_reported_without_what_it_was_out_of(self, vis, handbook_text):
+        vis.totals = web.SessionTotals()
+        vis.run_pipeline("Who runs the Porto office?", handbook_text, lambda *a: None)
+        snap = vis.totals.snapshot()
+        assert snap["gate_checked"] >= 1
+        assert snap["gate_refused"] == 0
+
+    def test_kv_is_zero_rather_than_guessed_when_the_model_cannot_say(self, vis, handbook_text):
+        """MockProvider reports no key-value geometry, so there is nothing to
+        price the pruned tokens at. The screen shows a dash, not a number."""
+        vis.totals = web.SessionTotals()
+        vis.run_pipeline("Who runs the Porto office?", handbook_text, lambda *a: None)
+        assert vis.totals.snapshot()["kv_mb_saved"] == 0.0
+
+    def test_every_figure_the_screen_shows_is_in_the_payload(self, server):
+        _status, body = get(server, "/api/session")
+        snap = json.loads(body)
+        for key in ("requests", "tokens_pruned", "seconds_saved", "timed_here",
+                    "without_model", "gate_checked", "gate_refused", "kv_mb_saved"):
+            assert key in snap, key

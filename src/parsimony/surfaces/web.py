@@ -98,10 +98,16 @@ class SessionTotals:
     seconds_measured: float = 0.0     # prefill actually spent
     seconds_full: float = 0.0         # prefill the untrimmed prompt would have cost
     priced_here: int = 0              # requests whose rate this machine actually timed
+    without_model: int = 0            # answered by the calculator or the cache
+    gate_checked: int = 0             # edits M8 inspected
+    gate_refused: int = 0             # edits M8 threw out
+    kv_bytes_saved: int = 0           # key-value cache the pruned tokens never needed
     lock: object = field(default_factory=threading.Lock)
 
     def record(self, *, written: int, sent: int, prefill_s: float, rate_ms: float,
-               timed_here: bool) -> None:
+               timed_here: bool, served_without_model: bool = False,
+               gate_checked: int = 0, gate_refused: int = 0,
+               kv_bytes_saved: int = 0) -> None:
         """One request. `timed_here` says whether the rate is this machine's own.
 
         A mock model, or a prompt the runtime served from its cache, gives no
@@ -116,6 +122,10 @@ class SessionTotals:
             self.tokens_sent += sent
             self.seconds_measured += prefill_s
             self.seconds_full += written * rate_ms / 1000.0
+            self.without_model += int(served_without_model)
+            self.gate_checked += gate_checked
+            self.gate_refused += gate_refused
+            self.kv_bytes_saved += kv_bytes_saved
 
     def snapshot(self) -> dict:
         with self.lock:
@@ -128,6 +138,10 @@ class SessionTotals:
                 "seconds_saved": max(0.0, self.seconds_full - self.seconds_measured),
                 "timed_here": self.priced_here == self.requests and self.requests > 0,
                 "percent": (100.0 * pruned / self.tokens_written) if self.tokens_written else 0.0,
+                "without_model": self.without_model,
+                "gate_checked": self.gate_checked,
+                "gate_refused": self.gate_refused,
+                "kv_mb_saved": self.kv_bytes_saved / 1048576.0,
             }
 
 
@@ -418,10 +432,15 @@ class Visualiser:
         prefill = view.reading_seconds or 0.0
         rate = view.ms_per_token
         timed_here = not (self.simulated or view.reused_earlier_work) and bool(prefill)
-        self.totals.record(written=row.tokens_in_original, sent=row.tokens_in_final,
-                           prefill_s=prefill, rate_ms=rate, timed_here=timed_here)
         kv = kv_bytes_per_token(self.provider)
         removed = max(0, row.tokens_in_original - row.tokens_in_final)
+        checked = sum(1 for st in seen if st["outcome"] in ("applied", "reverted"))
+        refused = sum(1 for st in seen if st["outcome"] == "reverted")
+        self.totals.record(written=row.tokens_in_original, sent=row.tokens_in_final,
+                           prefill_s=prefill, rate_ms=rate, timed_here=timed_here,
+                           served_without_model=not outcome.generated,
+                           gate_checked=checked, gate_refused=refused,
+                           kv_bytes_saved=(kv[0] * removed) if kv else 0)
         summary = {
             "answer": outcome.response.strip(),
             "tokens": {"original": row.tokens_in_original, "final": row.tokens_in_final,

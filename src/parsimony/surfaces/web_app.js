@@ -65,6 +65,20 @@ async function refreshSession() {
         : "<b>and that rate was not timed here.</b> Either the model is simulated or the "
           + "runtime served a prompt from its cache, so the figure falls back to the "
           + "project's recorded rate and is an estimate.");
+    $("d-requests").textContent = fmt(t.requests);
+    $("d-nomodel").textContent = fmt(t.without_model || 0);
+    $("d-gate").textContent = fmt(t.gate_checked || 0);
+    $("d-refused").textContent = fmt(t.gate_refused || 0);
+    $("d-kv").textContent = t.kv_mb_saved ? t.kv_mb_saved.toFixed(0) + " MB" : "—";
+    $("demo-extra").innerHTML = t.requests
+      ? "<b>Answered without the model</b> counts requests the calculator or the cache settled "
+        + "outright: zero prompt tokens, zero generated. <b>Edits the gate refused</b> are "
+        + "savings the system declined in order to stay correct, which is the number a "
+        + "compression project is least likely to show you. <b>KV cache never allocated</b> is "
+        + "the pruned tokens priced at this model's own key-value footprint, read from the "
+        + "runtime's metadata rather than assumed; it shows a dash where the model cannot "
+        + "report it."
+      : "";
     $("demo-sub").textContent = t.requests
       ? `${t.requests} request${t.requests > 1 ? "s" : ""} — ${fmt(t.tokens_written)} tokens `
         + `written, ${fmt(t.tokens_sent)} sent (${t.percent.toFixed(0)}% never read)`
