@@ -338,14 +338,22 @@ def render_longbench(ctx: Context) -> str:
 
     task = rows[0]["task"]
     model = rows[0]["model"]
-    window = rows[0].get("num_ctx")
+    # Items can run under different windows: one 2wikimqa item needs 17,050
+    # tokens, so the later half was raised to fit it (ADR-045). Reporting the
+    # first row's window as the run's would be a quiet fiction.
+    windows = sorted({r["num_ctx"] for r in rows if r.get("num_ctx")})
+    window = windows[0] if len(windows) == 1 else None
     text = (f"The shipped configuration on **LongBench {task}**, items taken in file order, "
             f"{model}"
-            + (f", {window:,}-token window" if window else "") + ":\n\n"
+            + (f", {window:,}-token window" if window
+               else (", windows " + ", ".join(f"{w:,}" for w in windows)) if windows else "")
+            + ":\n\n"
             + _table(headers, table))
 
-    # The split that separates "truncation worked" from "truncation got lucky".
-    # Positions are recorded on each row, so this needs no access to the data.
+    # The split that was supposed to separate "truncation worked" from
+    # "truncation got lucky". It held on the first 20 items and reversed on the
+    # next 20, so it is rendered as an analysis with its own refutation beside
+    # it, not as a result. Positions ride on each row, so this needs no data.
     if any("answer_position" in r for r in rows):
         split = lb.by_position(rows)
         counts = {c["group"]: c["n"] for c in split["counts"]}
@@ -359,9 +367,10 @@ def render_longbench(ctx: Context) -> str:
             ]
             _write_csv(ctx.out / "longbench_by_position.csv", head, body)
             text += ("\n\n**F1 split by where the answer sits in the context.** Truncation keeps "
-                     "the front, so it succeeds whenever the answer is already there; splitting "
-                     "on a property of the data separates that from selection actually "
-                     "working:\n\n" + _table(head, body))
+                     "the front, so it succeeds whenever the answer is already there. The first "
+                     "20 items suggested selection pulls ahead where it is not; the next 20 "
+                     "reversed that, and over all 40 the two are level. Kept as an analysis, "
+                     "not as a result:\n\n" + _table(head, body))
 
     return text + (
         "\n\n**These F1 values are not comparable to published LongBench tables.** Those are "

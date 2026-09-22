@@ -673,91 +673,79 @@ that the method as a whole beats the baselines while its individual components a
 questions. The floor does have a measured price: without it the prompt keeps 34.6% of the context instead of
 21.2% for no accuracy difference we can see.
 
-### On a benchmark we did not write, and what it cost us to look
+### On a benchmark we did not write, and a finding that did not survive it
 
 Everything above is measured on corpora we authored. `eval/longbench.py` runs the shipped configuration,
 unchanged, on **LongBench 2wikimqa** — multi-hop QA, LongBench's own prompt, LongBench's own F1 metric
-transcribed and unit-tested, the first 20 items in file order. 16,384-token window, `qwen2.5:1.5b-instruct`.
+transcribed and unit-tested, items taken in file order. `qwen2.5:1.5b-instruct`, 16,384-token window for
+the first twenty items and 20,480 for the rest, because one item needs 17,050 tokens and a prompt that
+does not fit is refused rather than recorded (ADR-045).
 
-| arm | F1 | context kept | context tokens | prefill per item |
-|---|---|---|---|---|
-| full context | 31.9 | 100% | 7,481 | 230.7 s |
-| **Parsimony** | **37.5** | **19.8%** | **1,478** | **33.5 s** |
-| truncate to budget | 32.3 | 19.6% | 1,469 | 31.9 s |
+**This was run in two halves on purpose.** The first twenty produced a hypothesis; the second twenty had
+not been run when it was stated. That is the same dev/test discipline the long-context corpus uses, applied
+to a claim about someone else's data.
 
-**The cost result holds, and it is the one to quote.** A fifth of the context, **6.9× less prefill** — 11.1
-minutes against 76.9 for the same twenty questions — and the answers are identical on **17 of 20 items**,
-better on 2, worse on 1. On a set we had no hand in, compression is indistinguishable from sending
-everything at a seventh of the reading cost.
+| arm | F1 | context kept | context tokens | prefill per item | vs full, paired |
+|---|---|---|---|---|---|
+| full context | 35.2 | 100% | 7,309 | 194.9 s | — |
+| **Parsimony** | **29.6** | **20.2%** | **1,476** | **29.0 s** | 3 better, 7 worse, 30 tied · p = 0.34 |
+| truncate to budget | 29.3 | 20.1% | 1,469 | 28.1 s | 3 better, 8 worse, 29 tied · p = 0.23 |
 
-**The accuracy result does not, and must not be quoted.** 37.5 against 31.9 looks like compression
-*improving* accuracy. It is two items better and one worse out of twenty. At that sample the difference is
-nothing, and the direction is an accident of which items the model happened to get right. The honest
-sentence is "no detectable difference", and it is the same sentence in both directions.
+**The cost result holds and is the one worth quoting.** A fifth of the context, **6.7× less prefill** —
+19.3 minutes against 130.0 for the same forty questions — with the answer unchanged on 30 of 40 items and
+**the same 9 exact answers as full context**. On a set we had no hand in, at a seventh of the reading cost.
 
-**And the finding that costs us something.** Truncation scores 32.3 here — statistically level with our
-method (3 items better, 1 worse) — where on our own corpus it scored **16/45 against 40/45**, one of the
-most dramatic gaps in this document. Both numbers are real. The difference is in the corpora, and it is our
-doing:
+**The accuracy result is a loss, and it is reported as one.** Three items better, seven worse. On 40 items
+that is p = 0.34, so the defensible sentence is "no difference we can detect at this sample size" — but the
+point estimate is negative, and it would be easy to stop at "not significant" and move on. A project that
+says "not significant" only when the sign is unfavourable is advocating, not measuring. Parsimony is also
+level with plain truncation here (6 better, 5 worse, p = 1.00).
 
-> `longctx.py`: *"Document order shuffled per item with a fixed seed, so the answer is not always near the
-> front — which would flatter truncation."*
+#### The finding that died
 
-That choice was made to stop truncation winning by luck of position. In 2wikimqa the position is natural,
-and it is kind: the answer string first appears a median of 30% of the way through the context, and for
-**9 of 20 items inside the first 20%** — which is exactly the budget truncation gets. Roughly half the time,
-keeping the front keeps the answer.
+The first twenty items suggested something clean: truncation only competes when the answer happens to sit
+near the front of the context, and question-aware selection is the difference where it does not. It was
+predicted from a design note written before this benchmark existed — `longctx.py` shuffles document order
+"so the answer is not always near the front, which would flatter truncation" — and then tested on a
+property of the data rather than fitted to the results. It looked like the most interesting thing in this
+document.
 
-So the claim "truncation is catastrophic" is not a property of truncation. It is a property of truncation
-*on documents whose evidence is not at the front*, and our corpus deliberately builds that condition.
-Against naturally-ordered retrieval output, truncation is a much stronger baseline than our headline
-suggests, and the margin our method holds over it is small.
+It reversed on the confirmation half.
 
-What survives both corpora is narrower and better supported than what we set out to claim: **the compressor
-reaches full-context accuracy at a fifth of the tokens, on documents it has never seen, and on a metric we
-did not choose.** Whether it beats a naive baseline depends on whether that baseline gets lucky, and on
-this benchmark it often does.
-
-**So we tested the explanation instead of asserting it.** If truncation is only competitive where the
-answer happens to sit at the front, then splitting the items on that property should separate the two
-behaviours. The split is made on the **data** — where the answer string first appears in the context —
-computed without reference to any result, and the cutoff is the budget the compressed arms are held to,
-because below it truncation keeps the answer by construction.
-
-| | full | **Parsimony** | truncate |
+| F1 where the answer sits beyond the first 20% | full | Parsimony | truncate |
 |---|---|---|---|
-| answer in the first 20% — 9 items | 48.7 | 47.8 | **49.6** |
-| answer beyond 20% — 11 items | 18.2 | **29.1** | 18.2 |
+| items 1–20, where the hypothesis came from (n=11) | 18.2 | **29.1** | 18.2 |
+| items 21–40, which it had never seen (n=11) | 31.0 | **12.1** | 22.7 |
+| all 40 (n=22) | 24.6 | 20.6 | 20.5 |
 
-The prediction holds. Where position rescues truncation, all three arms are level and there is nothing to
-choose between them — truncation is not working, it is being handed the answer. Where position does not
-rescue it, truncation collapses to exactly the full-context score and Parsimony is ten points clear of
-both, **ahead on 2 items and behind on 0**.
+Item by item on those late-answer items: 2–0 in Parsimony's favour in the first half, **1–3 against in the
+second**, 3–3 across all 40. The effect was twenty items of noise, and the second twenty were run for the
+sole purpose of being allowed to say so.
 
-This restores the claim in a properly scoped form, and the scope matters:
+**Three things worth taking from that.**
 
-> Question-aware selection buys nothing when the evidence is already at the front of the document, and it
-> is the difference between an answer and no answer when it is not. Both halves are true, and the
-> literature's usual single average hides the first one.
+First, the hypothesis was good and still wrong. It had a mechanism, a prior written down before the data
+existed, and a split made on the data rather than the outcome. None of that is protection; only the
+untouched half was. This is the third time in this project that a well-motivated post-hoc improvement has
+failed on held-out data — the other two are in §13 — and it is the reason the split exists.
 
-It also explains the earlier line in this section without contradicting it. Our corpus shuffles document
-order, so essentially every item lands in the second group; LongBench's natural order puts nine of twenty
-in the first. Two corpora, one mechanism, and the 16/45-against-40/45 gap is what the second group looks
-like when it is the whole benchmark.
+Second, **the earlier edition of this section reported the 20-item version as a result.** It said
+question-aware selection "is the difference between an answer and no answer" where the evidence is late.
+That sentence was published here and in the README, and it was wrong. It is replaced rather than quietly
+softened, because the record of what we believed and why we stopped believing it is worth more than a
+tidier document.
 
-*How much weight this carries.* Nine and eleven items, post-hoc. The reason it is reported rather than
-buried is that the split was **predicted from a design note written before this benchmark existed** —
-`longctx.py` says document order is shuffled "so the answer is not always near the front, which would
-flatter truncation" — and then tested on a property of the data rather than fitted to the results. That is
-a weaker claim than a pre-registered one and a much stronger claim than a pattern noticed in a table. It
-should be confirmed on the remaining 180 items of the task before it is leaned on, and `by_position()`
-runs that analysis on whatever has been recorded.
+Third, the split survives as an *analysis*, not as a finding. `by_position()` runs it on whatever has been
+recorded, and every row now carries its own `answer_position` so a result can be re-analysed without the
+110 MB it came from. If someone runs the remaining 160 items of the task, the question is settled in an
+afternoon.
 
-*A caveat that cuts the other way.* The absolute F1 of ~32 is low. Published LongBench tables for 2wikimqa
-run far higher, and they are produced by 7B–70B models; this is a 1.5B on a laptop CPU, which is bad at
+*The caveat that cuts the other way.* An absolute F1 of ~35 is low. Published LongBench tables for
+2wikimqa run far higher and are produced by 7B–70B models; this is a 1.5B on a laptop CPU, which is bad at
 multi-hop reasoning before compression is involved at all. These numbers support comparison **between the
 arms**, on the same items, through the same model. A number from this table placed beside a number from a
 paper is being misused.
+
 
 ### It replicates on questions nothing was tuned against
 

@@ -150,36 +150,41 @@ nothing else — the same configuration, twice, with the difference coming from 
 (ADR-046). The encoder each arm ran with is now recorded on every row.
 
 
-**And on a benchmark we did not write.** The same configuration on **LongBench 2wikimqa** — LongBench's
-prompt, LongBench's F1 metric, first 20 items in file order:
+**And on a benchmark we did not write.** The same configuration on **LongBench 2wikimqa** —
+LongBench's prompt, LongBench's F1 metric, the first 40 items in file order, `qwen2.5:1.5b-instruct`:
 
-| arm | F1 | context kept | prefill per item |
+| arm | F1 | context kept | prefill per item | vs full context |
+|---|---|---|---|---|
+| full context | 35.2 | 100% | 194.9 s | — |
+| **Parsimony** | **29.6** | **20.2%** | **29.0 s** | 3 better, 7 worse, 30 tied · p = 0.34 |
+| truncate to budget | 29.3 | 20.1% | 28.1 s | 3 better, 8 worse, 29 tied · p = 0.23 |
+
+**The cost result holds.** A fifth of the context and **6.7× less prefill** — 19 minutes against 130 for
+the same forty questions — with the answer unchanged on 30 of 40 items and the same 9 exact answers as
+full context.
+
+**The accuracy result is a loss that does not reach significance, and it is reported as one.** Three items
+better, seven worse. On 40 items that is p = 0.34, so the honest sentence is "no difference we can
+detect" — but the point estimate is negative, and a project that only says "not significant" when the sign
+is against it is not measuring, it is advocating. Compression on this benchmark is level with truncation
+(6 better, 5 worse, p = 1.00) and slightly behind sending everything.
+
+**A finding from the first 20 items did not survive the second 20.** Those items suggested that truncation
+only competes when the answer sits near the front, and that question-aware selection is the difference
+where it does not. It replicated in the wrong direction:
+
+| answer beyond the first 20% of the context | full | Parsimony | truncate |
 |---|---|---|---|
-| full context | 31.9 | 100% | 230.7 s |
-| **Parsimony** | **37.5** | **19.8%** | **33.5 s** |
-| truncate to budget | 32.3 | 19.6% | 31.9 s |
+| items 1–20, where the hypothesis came from | 18.2 | **29.1** | 18.2 |
+| items 21–40, which it had never seen | 31.0 | **12.1** | 22.7 |
+| all 40 | 24.6 | 20.6 | 20.5 |
 
-A fifth of the context and **6.9× less prefill** — 11 minutes against 77 for the same twenty questions —
-with identical answers on 17 of 20 items. Two things must be said plainly. The F1 column looks like
-compression *improving* accuracy; it is 2 items better and 1 worse out of 20, which is nothing. And
-truncation is level with us overall, where on our own corpus it scored 16/45 against 40/45.
+Item by item on those late-answer items: 2–0 for Parsimony in the first half, 1–3 against in the second,
+3–3 over all 40. **The effect was twenty items of noise.** It is left here in full because the confirmation
+slice was run precisely to be allowed to say that, and because the same discipline rejected two of our own
+"improvements" on the long-context corpus (§13). The position split lives on in `by_position()` as an
+analysis, not as a result.
 
-That second one has an explanation, and we tested it rather than asserting it. Truncation's strategy is
-"keep the front", so it wins whenever the answer is already there. Splitting the items on where the answer
-actually sits — a property of the data, cutoff at the budget the compressed arms are held to:
-
-| | full | **Parsimony** | truncate |
-|---|---|---|---|
-| answer in the first 20% — 9 items | 48.7 | 47.8 | **49.6** |
-| answer beyond 20% — 11 items | 18.2 | **29.1** | 18.2 |
-
-Where position rescues truncation, nothing distinguishes the three arms. Where it does not, truncation
-falls to exactly the full-context score and Parsimony is ten points clear, ahead on 2 items and behind on
-0. So **question-aware selection buys nothing when the evidence is already at the front, and it is the
-difference between an answer and no answer when it is not** — and our corpus, which shuffles document
-order on purpose, is made almost entirely of the second case. Nine and eleven items is not much; the split
-was predicted from a design note written before this benchmark existed, then tested on a property of the
-data, which is why it is reported rather than buried. [§13](docs/09-findings.md) has the full argument.
 
 The difference is sharpest where the answer sentence begins with a pronoun. Truncation answers **0 of 9**
 such questions and Parsimony **9 of 9**, because a sentence inherits the name from the sentence before it,

@@ -1,4 +1,4 @@
 arm,items,F1,context kept %,context tokens,prefill s
-full,20,31.9,100.0,"7,481",230.7
-parsimony,20,37.5,19.8,"1,478",33.5
-truncate,20,32.3,19.6,"1,469",31.9
+full,40,35.2,100.0,"7,527",194.9
+parsimony,40,29.6,20.2,"1,523",29.0
+truncate,40,29.3,20.1,"1,512",28.1
