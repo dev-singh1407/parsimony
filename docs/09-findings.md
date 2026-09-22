@@ -701,6 +701,58 @@ point estimate is negative, and it would be easy to stop at "not significant" an
 says "not significant" only when the sign is unfavourable is advocating, not measuring. Parsimony is also
 level with plain truncation here (6 better, 5 worse, p = 1.00).
 
+#### Who is actually failing
+
+An accuracy tie between a compressor and truncation admits two readings, and they demand opposite work: the
+compressor threw the answer away, or it kept the answer and the model could not use it. Evidence recall
+settles it without a single model call — does the answer string still appear in what each arm sent?
+
+| arm | answer still present | context kept |
+|---|---|---|
+| full context | 39/39 — 100% | 100% |
+| **Parsimony** | **31/39 — 79.5%** | 20.2% |
+| truncate to budget | 16/39 — 41.0% | 20.1% |
+
+**The compressor keeps the answer nearly twice as often as truncation, on the same budget, and scores the
+same.** That is the whole result in one line, and it is not a flattering one for the accuracy column — it
+says the retention advantage is real and buys nothing here.
+
+The reason is the model. Conditioning each arm on whether it actually sent the answer:
+
+| arm | F1 when the answer was sent | F1 when it was not |
+|---|---|---|
+| full context | 36.1 | — |
+| Parsimony | 34.9 | 12.5 |
+| truncate | 44.2 | 20.3 |
+
+Even handed the answer in a fifth of the context, `qwen2.5:1.5b-instruct` scores **34.9** — and handed the
+whole document, **36.1**. It is not being starved of evidence; it is failing at multi-hop composition, which
+is what 2wikimqa asks for and what a 1.5B model is bad at before compression is involved at all. On the 31
+items where full context and Parsimony both sent the answer, the model produces **8 exact answers from the
+whole document and 8 from a fifth of it**.
+
+*Read truncation's 44.2 with care.* It is higher than ours and means less: it is conditioned on the 16
+items where truncation happened to keep the answer, which are the ones whose evidence sits near the front.
+Those are the easy items, and the number is a property of which items survived the condition, not of
+truncation. This is the same trap the answer-position split fell into, one column over.
+
+**And this explains the contrast with our own corpus** without needing the hypothesis that died. There,
+Parsimony scores 40/45 against truncation's 16/45. Those questions are single-hop lookups the model *can*
+answer once the evidence is in front of it, so retention converts into accuracy almost one for one. On
+2wikimqa it does not convert, because the bottleneck moved. Same compressor, same retention advantage, two
+different ceilings.
+
+So the defensible claim from a benchmark we did not write is narrower than "it keeps accuracy" and stronger
+than "it is level with truncation":
+
+> At a fifth of the context and a seventh of the prefill, the compressor retains the evidence 1.9× as often
+> as the obvious baseline. Whether that converts into answers depends on a model capable of using it, and
+> on multi-hop questions this one is not.
+
+That is a claim about our component, measured on someone else's data, with the model's limitation named
+rather than absorbed into our result. `parsimony longbench --recall` recomputes the whole table offline in
+seconds, and it is deterministic, so it cannot drift between runs the way an accuracy figure can.
+
 #### The finding that died
 
 The first twenty items suggested something clean: truncation only competes when the answer happens to sit

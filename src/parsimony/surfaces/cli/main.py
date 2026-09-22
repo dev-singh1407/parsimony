@@ -1444,6 +1444,9 @@ def longbench(
                                      "round: a window chosen to fit makes the benchmark easier "
                                      "and says nothing (ADR-045)."),
     out: Path = typer.Option(Path("figures/longbench_items.jsonl"), "--out"),
+    recall: bool = typer.Option(False, "--recall",
+                                help="Evidence recall only: does each arm still send the "
+                                     "answer? Deterministic, no model calls, seconds to run."),
 ) -> None:
     """Run the shipped configuration on LongBench, the set the literature reports.
 
@@ -1463,6 +1466,27 @@ def longbench(
              hint="extract LongBench's data.zip and pass the folder holding <task>.jsonl")
     if not (Path(data) / f"{task}.jsonl").exists():
         fail(f"no {task}.jsonl in {data}", hint=f"tasks available: {', '.join(lb.TASKS)}")
+    if recall:
+        # No model: this asks whether the answer SURVIVED compression, which is
+        # a property of the text. Separating that from whether the model then
+        # used it is the point -- an accuracy number alone cannot tell a
+        # compressor that dropped the evidence from one that kept it and was
+        # let down.
+        table = Table(title=f"Evidence recall — {task}, first {limit} items",
+                      header_style="bold")
+        table.add_column("arm")
+        table.add_column("answer still present", justify="right")
+        table.add_column("", justify="right")
+        for row in lb.recall_report(task, data, limit=limit):
+            table.add_row(row["arm"], f"{row['kept']}/{row['n']}",
+                          f"{row['recall_pct']:.1f}%" if not row["arm"].startswith("(") else "")
+        console.print(table)
+        console.print("[dim]The full-context arm is the control: below 100% means the "
+                      "instrument is broken, not the compressor. Items whose answer never "
+                      "appeared literally in the context are excluded rather than counted "
+                      "against every arm.[/dim]")
+        return
+
     if provider == "mock":
         fail("a mock cannot read a long document",
              hint="this study needs --provider ollama")

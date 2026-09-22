@@ -169,6 +169,22 @@ detect" — but the point estimate is negative, and a project that only says "no
 is against it is not measuring, it is advocating. Compression on this benchmark is level with truncation
 (6 better, 5 worse, p = 1.00) and slightly behind sending everything.
 
+**But the compressor is not what failed.** Evidence recall — does the answer still appear in what each arm
+sent? — is deterministic and needs no model:
+
+| arm | answer still present | context kept |
+|---|---|---|
+| full context | 39/39 — 100% | 100% |
+| **Parsimony** | **31/39 — 79.5%** | 20.2% |
+| truncate to budget | 16/39 — 41.0% | 20.1% |
+
+**It keeps the answer 1.9× as often as truncation on the same budget, and scores the same.** The bottleneck
+is the model: handed the answer in a fifth of the context it scores 34.9 F1, and handed the whole document,
+36.1. It is failing at multi-hop composition, not starving for evidence — on the 31 items where both arms
+sent the answer, it gives 8 exact answers from the whole document and 8 from a fifth of it. That also
+explains the contrast with our own corpus, where single-hop lookups let retention convert into accuracy
+(40/45 against truncation's 16/45). Same compressor, two different ceilings.
+
 **A finding from the first 20 items did not survive the second 20.** Those items suggested that truncation
 only competes when the answer sits near the front, and that question-aware selection is the difference
 where it does not. It replicated in the wrong direction:

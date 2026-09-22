@@ -326,6 +326,56 @@ def answer_position(item: BenchItem) -> float | None:
     return best
 
 
+def evidence_kept(item: BenchItem, documents: tuple[Document, ...]) -> bool | None:
+    """Does the answer still appear in what this arm sent?
+
+    `None` when the answer never appeared in the full context either -- those
+    items say nothing about a compressor, because there was nothing to keep.
+    Matching is on the normalised text, the same way `qa_f1` compares, so a
+    difference in punctuation or casing is not mistaken for a loss.
+    """
+    if answer_position(item) is None:
+        return None
+    sent = _normalise("\n\n".join(d.content for d in documents))
+    return any(_normalise(a) and _normalise(a) in sent for a in item.answers)
+
+
+def recall_report(task: str, data_dir: Path, *, limit: int = 40,
+                  cfg: ParsimonyConfig | None = None,
+                  budget_from: str = "parsimony") -> list[dict]:
+    """Evidence recall per arm, recomputed offline. No model calls.
+
+    Deterministic, so it is cheap to re-run and cannot disagree with itself
+    between runs the way an accuracy number can.
+    """
+    from parsimony.eval.longctx import Methods
+
+    methods = Methods(cfg)
+    items = load(task, data_dir, limit)
+    kept: dict[str, list[bool]] = {"full": [], "parsimony": [], "truncate": []}
+    skipped = 0
+    for item in items:
+        ours = _compress(methods, item, cfg)
+        budget = sum(methods.count(d.content) for d in ours)
+        arms = {"full": item.documents, "parsimony": ours,
+                "truncate": _truncate(methods, item, budget)}
+        verdicts = {name: evidence_kept(item, docs) for name, docs in arms.items()}
+        if verdicts["full"] is None:
+            skipped += 1
+            continue
+        for name, verdict in verdicts.items():
+            kept[name].append(bool(verdict))
+    out = []
+    for name, flags in kept.items():
+        if flags:
+            out.append({"arm": name, "n": len(flags), "kept": sum(flags),
+                        "recall_pct": round(100 * sum(flags) / len(flags), 1)})
+    if skipped:
+        out.append({"arm": "(excluded: answer not literally in the full context)",
+                    "n": skipped, "kept": 0, "recall_pct": 0.0})
+    return out
+
+
 def by_position(rows: list[dict], items: dict[str, BenchItem] | None = None, *,
                 cutoff: float = 0.20) -> dict[str, list[dict]]:
     """The same summary, split by whether keeping the front keeps the answer.

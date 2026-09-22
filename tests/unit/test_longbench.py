@@ -216,3 +216,76 @@ class TestTheAnswerPositionSplit:
                  "prefill_ms": 1, "answer_position": 0.9}]               # recorded late
         split = lb.by_position(rows, items)
         assert {c["group"]: c["n"] for c in split["counts"]} == {"early": 0, "late": 1}
+
+
+class TestEvidenceRecall:
+    """Did the arm still send the answer? Separates our bug from the model's.
+
+    An accuracy number cannot tell you whether a compressor threw the answer
+    away or kept it and the model fluffed the question, and those call for
+    opposite work. This needs no model at all, so it is deterministic and
+    cannot disagree with itself between runs.
+    """
+
+    @staticmethod
+    def _item(context: str, answers: list[str]):
+        from parsimony.eval.longbench import BenchItem, _as_documents
+
+        return BenchItem(item_id="x", task="t", question="q?", answers=tuple(answers),
+                         documents=_as_documents(context, "x"),
+                         context_words=len(context.split()))
+
+    def test_it_sees_the_answer_that_is_there(self):
+        item = self._item("Passage: A\nOzalj is a town in Croatia.", ["Ozalj"])
+        assert lb.evidence_kept(item, item.documents) is True
+
+    def test_it_sees_the_answer_that_is_gone(self):
+        from parsimony.core.types import Document
+
+        item = self._item("Passage: A\nOzalj is a town in Croatia.", ["Ozalj"])
+        assert lb.evidence_kept(item, (Document("d", "Nothing relevant here.", ""),)) is False
+
+    def test_punctuation_and_case_are_not_mistaken_for_a_loss(self):
+        """It compares the way qa_f1 does, or a comma would read as a deletion."""
+        from parsimony.core.types import Document
+
+        item = self._item("Passage: A\nThe answer is Cahiers du Cinema.",
+                          ["cahiers du cinema"])
+        kept = (Document("d", "the ANSWER is: Cahiers du Cinema!", ""),)
+        assert lb.evidence_kept(item, kept) is True
+
+    def test_an_item_whose_answer_was_never_in_the_context_is_excluded(self):
+        """Not a compressor failure, and scoring it as one would understate
+        every arm including the full-context control."""
+        item = self._item("Passage: A\nSomething unrelated.", ["Ozalj"])
+        assert lb.evidence_kept(item, item.documents) is None
+
+    def test_the_report_excludes_those_items_rather_than_counting_them(self, tmp_path):
+        import json
+
+        rows = [
+            {"_id": "keeps", "input": "where?", "answers": ["Ozalj"],
+             "context": "Passage: A\nOzalj is a town. " + "filler word " * 60},
+            {"_id": "absent", "input": "where?", "answers": ["Atlantis"],
+             "context": "Passage: B\nNothing about that here. " + "filler word " * 60},
+        ]
+        (tmp_path / "demo.jsonl").write_text(
+            "\n".join(json.dumps(r) for r in rows), encoding="utf-8")
+        report = {r["arm"]: r for r in lb.recall_report("demo", tmp_path, limit=2)}
+        assert report["full"]["n"] == 1, "the unanswerable item must not be scored"
+        assert report["full"]["recall_pct"] == 100.0
+        excluded = [k for k in report if k.startswith("(excluded")]
+        assert excluded and report[excluded[0]]["n"] == 1
+
+    def test_the_full_arm_is_a_control_and_must_score_perfectly(self, tmp_path):
+        """If the full-context arm ever drops below 100% the instrument is
+        broken, not the compressor."""
+        import json
+
+        rows = [{"_id": f"i{i}", "input": "where?", "answers": ["Ozalj"],
+                 "context": f"Passage: {i}\nOzalj is a town. " + "filler word " * 80}
+                for i in range(3)]
+        (tmp_path / "demo.jsonl").write_text(
+            "\n".join(json.dumps(r) for r in rows), encoding="utf-8")
+        report = {r["arm"]: r for r in lb.recall_report("demo", tmp_path, limit=3)}
+        assert report["full"]["recall_pct"] == 100.0
