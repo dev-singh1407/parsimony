@@ -753,6 +753,50 @@ That is a claim about our component, measured on someone else's data, with the m
 rather than absorbed into our result. `parsimony longbench --recall` recomputes the whole table offline in
 seconds, and it is deterministic, so it cannot drift between runs the way an accuracy figure can.
 
+#### Retention and conversion are different things, and only one of them is ours
+
+Measuring evidence recall the same way on both corpora separates what the compressor does from what the
+model does with it. `truncate` gets the same token budget in both.
+
+| | evidence still sent | accuracy |
+|---|---|---|
+| **our corpus** — 45 items, single-hop lookups | | |
+| full context | 100% | 41/45 — 91.1% |
+| **Parsimony** | **98.3%** | **40/45 — 88.9%** |
+| BM25 top sentences | 93.1% | 34/45 — 75.6% |
+| truncate to budget | 27.6% | 16/45 — 35.6% |
+| **LongBench 2wikimqa** — 40 items, multi-hop | | |
+| full context | 100% | F1 35.2 |
+| **Parsimony** | **79.5%** | F1 29.6 |
+| truncate to budget | 41.0% | F1 29.3 |
+
+**The retention advantage is consistent. The conversion is not.** Against truncation on the same budget the
+compressor sends the evidence 3.6× as often on our corpus and 1.9× as often on LongBench — the component
+behaves the same way on both. What changes is whether keeping the evidence is enough: on single-hop lookups
+98.3% retention becomes 88.9% accuracy against a 91.1% ceiling, and on multi-hop composition 79.5%
+retention becomes nothing at all over truncation, because the model fails either way.
+
+**Two things in that table are not flattering, and both matter more than the headline.**
+
+*Our retention drops on the harder corpus.* 98.3% to 79.5%. One item in five on 2wikimqa loses its answer
+to the compressor — real documents are longer, the evidence is spread across two passages rather than
+sitting in one sentence, and a sentence-level selector that keeps the top-scoring fifth will sometimes keep
+one hop and drop the other. That is a limitation of the method, not of the model, and it is the first place
+to look for the next improvement.
+
+*Retention does not rank the methods on its own.* BM25 keeps 93.1% of the evidence on our corpus and scores
+34/45; Parsimony keeps 98.3% and scores 40/45. Five points of retention do not explain six items. The rest
+is that BM25 sends its sentences in **rank order**, as chunks, while the compressor emits them in the
+document's own order with the sentence a pronoun depends on still in front of it. Same evidence, different
+arrangement, and the arrangement is worth items — which is the same finding as §5's prompt-ordering
+result, arriving from the other direction.
+
+So "the compressor works" decomposes into two claims that should never have been one:
+
+> It sends the evidence far more reliably than the obvious baseline, on both corpora, and that is measured
+> without a model and cannot drift. Whether that becomes a correct answer depends on the question being one
+> the model can compose, and on multi-hop questions this model cannot.
+
 #### The finding that died
 
 The first twenty items suggested something clean: truncation only competes when the answer happens to sit

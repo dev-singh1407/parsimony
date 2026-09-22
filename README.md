@@ -170,20 +170,34 @@ is against it is not measuring, it is advocating. Compression on this benchmark 
 (6 better, 5 worse, p = 1.00) and slightly behind sending everything.
 
 **But the compressor is not what failed.** Evidence recall — does the answer still appear in what each arm
-sent? — is deterministic and needs no model:
+sent? — is deterministic, needs no model, and can be measured the same way on both corpora:
 
-| arm | answer still present | context kept |
+| | evidence still sent | accuracy |
 |---|---|---|
-| full context | 39/39 — 100% | 100% |
-| **Parsimony** | **31/39 — 79.5%** | 20.2% |
-| truncate to budget | 16/39 — 41.0% | 20.1% |
+| **our corpus** — 45 items, single-hop | | |
+| full context | 100% | 41/45 — 91.1% |
+| **Parsimony** | **98.3%** | **40/45 — 88.9%** |
+| BM25 top sentences | 93.1% | 34/45 — 75.6% |
+| truncate to budget | 27.6% | 16/45 — 35.6% |
+| **LongBench 2wikimqa** — 40 items, multi-hop | | |
+| full context | 100% | F1 35.2 |
+| **Parsimony** | **79.5%** | F1 29.6 |
+| truncate to budget | 41.0% | F1 29.3 |
 
-**It keeps the answer 1.9× as often as truncation on the same budget, and scores the same.** The bottleneck
-is the model: handed the answer in a fifth of the context it scores 34.9 F1, and handed the whole document,
-36.1. It is failing at multi-hop composition, not starving for evidence — on the 31 items where both arms
-sent the answer, it gives 8 exact answers from the whole document and 8 from a fifth of it. That also
-explains the contrast with our own corpus, where single-hop lookups let retention convert into accuracy
-(40/45 against truncation's 16/45). Same compressor, two different ceilings.
+**The retention advantage is consistent; the conversion is not.** On the same budget the compressor sends
+the evidence 3.6× as often as truncation on our corpus and 1.9× as often on LongBench. What changes is
+whether that is enough: single-hop lookups turn 98.3% retention into 88.9% accuracy against a 91.1%
+ceiling, and multi-hop composition turns 79.5% retention into nothing over truncation, because
+`qwen2.5:1.5b-instruct` fails either way — handed the answer in a fifth of the context it scores 34.9 F1,
+handed the whole document, 36.1.
+
+Two things in that table are not flattering and matter more than the headline. **Our own retention falls
+from 98.3% to 79.5% on the harder corpus** — one item in five loses its answer to the compressor when the
+evidence is spread across two passages, which is a limitation of a sentence-level selector and the first
+place to look next. And **retention does not rank the methods on its own**: BM25 keeps 93.1% and scores
+34/45 where we keep 98.3% and score 40/45, because it sends its sentences in rank order while we emit them
+in the document's own, with the sentence a pronoun depends on still in front of it. Full argument in
+[§13](docs/09-findings.md).
 
 **A finding from the first 20 items did not survive the second 20.** Those items suggested that truncation
 only competes when the answer sits near the front, and that question-aware selection is the difference

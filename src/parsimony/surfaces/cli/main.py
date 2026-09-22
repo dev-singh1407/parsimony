@@ -1472,15 +1472,25 @@ def longbench(
         # used it is the point -- an accuracy number alone cannot tell a
         # compressor that dropped the evidence from one that kept it and was
         # let down.
+        report = lb.recall_report(task, data, limit=limit)
         table = Table(title=f"Evidence recall — {task}, first {limit} items",
                       header_style="bold")
         table.add_column("arm")
         table.add_column("answer still present", justify="right")
         table.add_column("", justify="right")
-        for row in lb.recall_report(task, data, limit=limit):
+        for row in report:
             table.add_row(row["arm"], f"{row['kept']}/{row['n']}",
                           f"{row['recall_pct']:.1f}%" if not row["arm"].startswith("(") else "")
         console.print(table)
+        # Written beside the accuracy rows so the report can show recall without
+        # the 110 MB of source data, exactly as it shows the accuracy table
+        # without re-running the model.
+        csv_path = out.parent / f"longbench_recall_{task}.csv"
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+        lines = ["arm,items,answer_present,recall_pct"]
+        lines += [f"\"{r['arm']}\",{r['n']},{r['kept']},{r['recall_pct']}" for r in report]
+        csv_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        console.print(f"[dim]wrote {csv_path}[/dim]")
         console.print("[dim]The full-context arm is the control: below 100% means the "
                       "instrument is broken, not the compressor. Items whose answer never "
                       "appeared literally in the context are excluded rather than counted "

@@ -372,6 +372,21 @@ def render_longbench(ctx: Context) -> str:
                      "reversed that, and over all 40 the two are level. Kept as an analysis, "
                      "not as a result:\n\n" + _table(head, body))
 
+    # Evidence recall, if a --recall run has written it. Deterministic and
+    # model-free, so it answers the question the F1 column cannot: did the
+    # compressor drop the answer, or keep it and get let down?
+    recall_csv = ctx.out / f"longbench_recall_{task}.csv"
+    if recall_csv.exists():
+        rows_r = [line.split(",") for line in
+                  recall_csv.read_text(encoding="utf-8").splitlines()[1:] if line.strip()]
+        body = [[c[0].strip('"'), f"{c[2]}/{c[1]}", f"{float(c[3]):.1f}%"]
+                for c in rows_r if not c[0].strip('"').startswith("(")]
+        if body:
+            text += ("\n\n**Evidence recall** — does the answer still appear in what each arm "
+                     "sent? No model involved, so this separates a compressor that dropped the "
+                     "answer from one that kept it and was let down by the reader:\n\n"
+                     + _table(["arm", "answer still present", ""], body))
+
     return text + (
         "\n\n**These F1 values are not comparable to published LongBench tables.** Those are "
         "produced by 7B-70B models; this is a 1.5B on a laptop CPU, which scores far lower before "

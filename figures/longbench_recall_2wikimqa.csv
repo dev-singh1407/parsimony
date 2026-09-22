@@ -1,0 +1,5 @@
+arm,items,answer_present,recall_pct
+"full",39,39,100.0
+"parsimony",39,31,79.5
+"truncate",39,16,41.0
+"(excluded: answer not literally in the full context)",1,0,0.0
