@@ -275,6 +275,26 @@ _ABBREV = frozenset({"e.g", "i.e", "etc", "vs", "mr", "mrs", "dr", "prof", "fig"
 _SENT_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 
 
+def _ends_mid_sentence(fragment: str) -> bool:
+    """Does this fragment obviously continue into the next one?
+
+    Two cases, both of which produced sentences with no subject and cost
+    evidence in the long-context study (ADR-048):
+
+      an abbreviation  "Humphrey de Bohun (c." | "1312 - 1360) was a nobleman"
+      an open bracket  the full stop inside a parenthetical is not a sentence
+                       boundary, whatever follows it
+
+    The bracket test is what catches the abbreviations nobody listed: a date
+    range, an initial, a citation. It counts rather than searches, so nesting
+    and a stray closing bracket in ordinary prose both behave.
+    """
+    words = fragment.rstrip(".").split()
+    if words and words[-1].lower() in _ABBREV and fragment.rstrip().endswith("."):
+        return True
+    return any(fragment.count(o) > fragment.count(c) for o, c in (("(", ")"), ("[", "]")))
+
+
 def split_sentences(text: str) -> tuple[str, ...]:
     """Regex sentence splitter with light abbreviation handling.
 
@@ -298,10 +318,13 @@ def split_sentences(text: str) -> tuple[str, ...]:
             parts = _SENT_SPLIT_RE.split(line.strip())
             merged: list[str] = []
             for p in parts:
-                tail = p.rstrip(".").split()[-1].lower() if p.rstrip(".").split() else ""
-                if merged and tail in _ABBREV:
-                    merged[-1] = merged[-1] + " " + p
-                elif merged and len(p) < 3:
+                # Whether this fragment continues the previous one is a property
+                # of the PREVIOUS one: "Contact Dr." | "Raman about the lab" is
+                # one sentence because the first half ends in an abbreviation.
+                # Testing the current fragment instead both missed every real
+                # case and joined genuinely separate sentences whenever the
+                # SECOND happened to end in one.
+                if merged and (_ends_mid_sentence(merged[-1]) or len(p) < 3):
                     merged[-1] = merged[-1] + " " + p
                 else:
                     merged.append(p)
