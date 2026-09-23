@@ -343,6 +343,7 @@ safety property is the constraint under which every optimisation must operate.
 | O4 | Show that no optimisation changes an answer that was previously correct | 40 gold items, paired per item |
 | O5 | Keep total middleware overhead under 120 ms per request | ledger timings on every stage |
 | O6 | Make every run reproducible from raw logs by one command | `reproduce.py`, ~100 s |
+| O7 | Measure the compressor on a public benchmark the project did not author | LongBench 2wikimqa, 40 items, LongBench's own prompt and metric |
 
 <div class="pagebreak"></div>
 
@@ -372,7 +373,20 @@ behind them do not** — one of our own two explanations for an effect proved sp
 Separately, mined-policy transfer is shown to be a function of traffic repetition: **+0.00 pp at 0% recurrence,
 +17.83 pp at 57%**, with zero fidelity violations at any level. *(Answers RQ4, closes Gaps 5 and 6.)*
 
+**Contribution 5 — External validation, and the separation of retention from conversion.** The shipped
+configuration measured on **LongBench 2wikimqa**, with LongBench's prompt and F1 metric, items in file
+order: a fifth of the context, **6.7× less prefill**, and an accuracy difference too small to detect on 40
+items. Evidence recall then separates two things an accuracy column cannot: the compressor **retains the
+answer 1.9× as often as truncation** there and **3.6× as often** on our own corpus, while the conversion of
+retention into accuracy depends entirely on whether the model can compose the answer — 34.9 F1 with the
+evidence in a fifth of the context against 36.1 with the whole document. The claim the project defends is
+therefore about retention, measured without a model and unable to drift, with the reader's limitation named
+rather than absorbed. Running it also surfaced three silent failures invisible to our own corpus
+(ADR-045, ADR-047, and an embedding batch limit). *(Answers RQ1 from outside; addresses the validity threat
+that a self-authored corpus cannot.)*
+
 <div class="pagebreak"></div>
+
 
 # 5. Proposed Method
 
@@ -713,7 +727,73 @@ The exact zero at 0% recurrence is what makes the rest credible.
 | Middleware overhead per request | — | under 120 ms |
 | Mined-policy transfer at 57% recurrence | — | **+17.83 pp** |
 
-## 7.7 Threats to validity
+## 7.7 External validation: a benchmark we did not write
+
+Every result above is measured on corpora authored for this project. That is the right instrument for the
+questions only we ask — whether the tier stays quiet on an unanswerable question, whether a pronoun-opening
+answer survives — and it cannot answer the first question an examiner asks: *did you only do well because
+you set the exam?*
+
+`eval/longbench.py` runs the shipped configuration, unchanged, on **LongBench 2wikimqa** (Bai et al., ACL
+2024) — multi-hop QA, LongBench's own prompt and F1 metric transcribed and unit-tested, the first 40 items
+in file order, never sampled. Run in two halves on purpose: the first twenty produced a hypothesis, the
+second twenty had not been run when it was stated.
+
+| arm | F1 | context kept | prefill per item | vs full, paired |
+|---|---|---|---|---|
+| full context | 35.2 | 100% | 194.9 s | — |
+| **Parsimony** | **29.6** | **20.2%** | **29.0 s** | 3 better, 7 worse, 30 tied · p = 0.34 |
+| truncate to budget | 29.3 | 20.1% | 28.1 s | 3 better, 8 worse · p = 0.23 |
+
+**The cost result holds**: a fifth of the context, 6.7× less prefill — 19 minutes against 130 for the same
+forty questions — and the same nine exact answers as full context. **The accuracy result is a loss that
+does not reach significance**, and is reported as one: the point estimate is negative, and stopping at "not
+significant" only when the sign is unfavourable would be advocacy rather than measurement.
+
+**The compressor is not what failed.** Evidence recall — does the answer still appear in what each arm
+sent? — is deterministic, needs no model, and is measurable the same way on both corpora:
+
+| | evidence still sent | accuracy |
+|---|---|---|
+| **our corpus** — 45 single-hop items | | |
+| full context | 100% | 41/45 — 91.1% |
+| **Parsimony** | **98.3%** | **40/45 — 88.9%** |
+| BM25 top sentences | 93.1% | 34/45 — 75.6% |
+| truncate | 27.6% | 16/45 — 35.6% |
+| **LongBench 2wikimqa** — 40 multi-hop items | | |
+| full context | 100% | F1 35.2 |
+| **Parsimony** | **79.5%** | F1 29.6 |
+| truncate | 41.0% | F1 29.3 |
+
+The retention advantage is consistent — 3.6× truncation on our corpus, 1.9× on LongBench — and the
+conversion is not. Single-hop lookups turn 98.3% retention into 88.9% accuracy against a 91.1% ceiling;
+multi-hop composition turns 79.5% into nothing over truncation, because `qwen2.5:1.5b-instruct` scores 34.9
+F1 handed the answer in a fifth of the context and 36.1 handed the whole document. It is failing at
+composition, not starving for evidence.
+
+So the claim this project can defend from a benchmark it did not write is narrower than "compression keeps
+accuracy" and stronger than "it ties with truncation":
+
+> At a fifth of the context and a seventh of the prefill, the compressor retains the evidence 1.9× as often
+> as the obvious baseline. Whether that converts into answers depends on a model capable of using it, and
+> on multi-hop questions this one is not.
+
+**A finding that did not survive.** The first twenty items suggested truncation only competes when the
+answer sits near the front. It reversed on the confirmation half — 2–0 in our favour, then 1–3 against,
+3–3 over all forty — and is recorded as a rejected hypothesis rather than quietly dropped (ADR-046 for the
+analogous case in the ablation arms; the full account is §13 of `09-findings.md`). It is the third post-hoc
+improvement in this project to fail on held-out data.
+
+**What running someone else's data cost, and bought.** Three silent failures surfaced within a day of
+pointing the compressor at documents it had not been designed against: the model server was truncating any
+prompt over ~2,048 tokens and reporting the truncated count as the whole one (ADR-045); the fidelity gate
+refused every extraction from a document with headings, because its matcher consumed a greedy prefix
+(ADR-047); and the embedding server silently refuses a batch above ~256 inputs. None was reachable from our
+own corpus, whose documents are short, heading-free prose. That is the argument for external validation
+independent of what its F1 column says.
+
+
+## 7.8 Threats to validity
 
 1. **Single hardware configuration.** The 8.5 ms/token rate is not claimed to generalise.
 2. **Small gold set.** 40 items; after a grading fix only two defeat both models, and both are arithmetic
@@ -721,6 +801,16 @@ The exact zero at 0% recurrence is what makes the rest credible.
 3. **Lexical encoder.** Operating points shift with the encoder; rankings do not.
 4. **Corpus recurrence is 1.9%**, which is why §7.5 reports a curve over synthetic traffic rather than a single
    number. The repetition structure is synthetic; every question and answer in it is real.
+5. **Our corpus has blind spots we can name.** Its documents are prose we wrote: no headings, no
+   abbreviations, no parentheticals, and short enough that the largest prompt it has ever produced is 869
+   tokens. Three real defects (§7.7) were invisible to it for exactly that reason, and a sentence-splitter
+   bug that fragments any text containing "Dr." or "(c. 1312 – 1360)" changes nothing measurable on it.
+6. **The external benchmark is 40 items.** Enough to say the cost result holds and that the accuracy
+   difference is undetectable; not enough to settle a subgroup analysis, which is why one was rejected
+   rather than reported.
+7. **The model is a ceiling on the external benchmark.** On multi-hop questions `qwen2.5:1.5b-instruct`
+   scores 36.1 F1 with the whole document in front of it. No compressor can be measured above that, so
+   §7.7's accuracy column says more about the reader than about the reading.
 
 <div class="pagebreak"></div>
 
