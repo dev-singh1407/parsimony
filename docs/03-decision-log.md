@@ -2091,3 +2091,70 @@ correct, and the system was quietly declining to compress the kind of document i
 **The lesson is about the corpus, not the regex.** A benchmark authored alongside the system inherits the
 system's blind spots. That is not an argument against writing one — ours asks questions LongBench cannot —
 but it is a reason never to let it be the only thing the system is measured on.
+
+
+---
+
+### ADR-048 — Second-hop bridging: implemented, measured, rejected
+
+**Status.** Rejected, 23 September 2026. The code is not in the tree; this record is the deliverable.
+
+**Context.** Evidence recall is 98.3% on our own corpus and **79.5% on LongBench 2wikimqa** (§13). One item
+in five loses its answer to the compressor, and the gap is a question type. A two-hop question names one
+entity and asks about another:
+
+> *Where was the wife of Francis I Rákóczi born?*
+> hop 1 — "Ilona Zrínyi was the wife of Francis I Rákóczi."  ← the question names this
+> hop 2 — "Ilona Zrínyi was born in Ozalj."                  ← the question names nothing in it
+
+Nothing in hop 2 matches the question. BM25 cannot see it, the anchor guarantee protects the wrong
+sentence, and dependency closure only walks back through pronouns. The bridge is the entity hop 1
+introduced.
+
+**What was built.** After the ordinary selection, take the names appearing in kept sentences that the
+question did **not** name, score the unselected sentences against those with the same BM25 the first pass
+uses, and spend whatever the budget has left — capped at three sentences, floored at 0.30 of the bridge
+score. Behind `context_second_hop`, off by default. A second iteration added surname matching, because a
+person introduced as "Edward Buzzell" is afterwards written "Buzzell" and requiring the full string to
+reappear is an over-restriction.
+
+**What it measured**, on the first 20 items, evidence recall, no model involved:
+
+| | recall | context kept |
+|---|---|---|
+| second hop off | 80.0% (16/20) | 19.8% |
+| second hop on | 80.0% (16/20) | 20.4% |
+
+**No change in recall, 0.6% more context.** The surname iteration did not move it either. It was not taken
+to the confirmation half: there was nothing to confirm, and running the second twenty in the hope of a win
+is the fishing this project's split exists to prevent.
+
+**Why it fails, which is the useful part.** The four items that lose their answer on the development half
+fail for four different reasons, and only one of them is about name matching:
+
+1. **The carrier sentence uses a pronoun.** *"After moving to Paris in 1995, **he** wrote articles in Les
+   Cahiers du Cinéma."* The bridge is the director's name and the sentence does not contain it. Name
+   bridging cannot reach this; coreference resolution could.
+2. **The carrier has no entity at all.** *"1312 – 16 September 1360) was an English nobleman and military
+   commander."* The sentence splitter cut mid-parenthesis and the subject is in the previous fragment.
+   Nothing to bridge to.
+3. **The bridge itself is wrong.** When hop 1 is not selected, the names offered come from whatever else
+   was kept — for *"the director of film Man At Bath"* the candidates were `Peter Levin`, `Television`,
+   `Man Apart`. Bridging from the wrong sentence cannot find the right one.
+4. **Full name against surname** — the one real defect, fixed, and worth nothing on its own.
+
+**And the baseline is better at this than expected.** A constructed two-hop case was solved without the
+feature, because the second sentence usually shares *some* term with the question — "born" appears in both
+*"Where was … born?"* and *"… was born in Ozalj."* The genuinely hard cases are the ones above, where the
+carrier shares nothing at all, and those are not name-shaped.
+
+**Decision.** Rejected and removed. The obstacle to multi-hop extraction here is **coreference, not
+retrieval**: three of four failures are sentences whose subject is a pronoun or lives in a neighbouring
+fragment. A future attempt should resolve pronouns to entities before scoring, not add a second scoring
+pass — which is a larger change than this project's remaining scope, and is recorded as such rather than
+half-built.
+
+**Consequence.** The fourth post-hoc improvement in this project to fail on data it was tested against, and
+the second to be rejected before reaching the confirmation split. The pattern is worth naming: every one of
+them was plausible, every one had a mechanism, and the measurement was cheap enough to settle it in an hour
+because evidence recall needs no model. Cheap measurement is what makes it affordable to be wrong.
