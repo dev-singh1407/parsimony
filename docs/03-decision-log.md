@@ -2230,3 +2230,72 @@ different algorithm, not a rule, and it is out of scope here rather than half-bu
 the third rejected before reaching a confirmation split. The cost of being wrong five times was about a day,
 because evidence recall needs no model and runs in seconds — which is the argument for building the cheap
 deterministic instrument before reaching for the expensive one.
+
+
+---
+
+### ADR-050 — The relevance floor is the binding constraint, and its right value depends on the question
+
+**Status.** Accepted as a finding; **the default is unchanged**, deliberately. 25 September 2026.
+
+**Context.** Six interventions had failed to move multi-hop evidence recall off 80.0%: second-hop bridging
+and surname matching (ADR-048), fronted-pronoun inheritance (ADR-049), and iterative retrieval at one, two
+and four rounds — the last being the algorithm ADR-049 itself named as the thing that would be required.
+Every one of them fired correctly on the data. None changed recall by a single item.
+
+Six null results with correct mechanisms is not six failures; it is a signal that the question was wrong.
+So instead of a seventh mechanism, the two constraints were swept directly.
+
+| target ratio | recall | | relevance floor | recall | context sent |
+|---|---|---|---|---|---|
+| 20% | 70.0% | | **0.15 (shipped)** | **80.0%** | **20.1%** |
+| 30% | 80.0% | | 0.10 | 80.0% | 25.0% |
+| 40% | 85.0% | | 0.05 | 90.0% | 32.7% |
+| 60–80% | 85.0% | | 0.00 | 90.0% | 39.1% |
+
+**The floor, not the budget, and not detection.** Raising the budget saturates at 85%. Lowering the floor
+reaches 90%. The sentences every rejected mechanism was trying to *find* were being found and then
+discarded: selection stops when the best remaining candidate scores below the floor, and second-hop
+evidence legitimately scores low **against the question**, because it matches what the first hop said.
+
+That is why six correct mechanisms changed nothing. They were all improving recall of a candidate that was
+already in the list and already being thrown away.
+
+**It replicates.** The first intervention in six to move the number, so it earned the confirmation half the
+others did not:
+
+| | floor 0.15 | floor 0.05 |
+|---|---|---|
+| items 1–20, development | 80.0% (16/20) | **90.0%** (18/20) |
+| items 21–40, confirmation | 78.9% (15/19) | **89.5%** (17/19) |
+| all 40 | 79.5% | **89.7%**, context 20.2% → 34.2% |
+
+**+10.2 pp of evidence recall for +14.0 pp of context**, consistent across both halves.
+
+**And the floor is not doing the job it was built for.** ADR-042 introduced it alongside the off-topic work,
+so the obvious objection is that lowering it would break restraint on unanswerable questions. Measured, it
+does not: on the 12 off-topic items, dropping the floor from 0.15 to 0.05 moves context from **4.1% to
+5.2%**. That protection comes from the absolute topical check — term coverage below 0.5 *and* dense cosine
+below 0.35 — which is a different mechanism entirely. The floor is a pure accuracy-against-cost dial.
+
+**Decision: publish the curve, do not move the default.**
+
+On our own corpus the same change buys far less: evidence recall 94.8% → 96.6% for +7 pp of context, and
+accuracy there is already 40/45 against full context's 41/45, so there is almost nothing left to buy. The
+trade is good for multi-hop and poor for single-hop, which means **there is no single correct value** — and
+re-tuning the shipped default to whichever benchmark was measured most recently is precisely the failure
+this project is written against. The 45-item corpus did not stop being evidence because a 40-item one
+disagreed.
+
+What ships instead is the number and its cost, on both corpora, so an operator with multi-hop traffic can
+move `context_relevance_floor` knowingly rather than discovering it.
+
+**Consequence, and the reason this ADR matters more than the six it closes.** The project's recurring
+finding has been that *published* operating points are configuration-specific. This is the same finding one
+level in: **our own operating point is question-type-specific**, and the constant we chose on our own corpus
+is wrong by 10 points of recall on a question type that corpus does not contain. The honest form of a
+tuned threshold is a curve with its trade-off attached, which is what §13 now carries.
+
+An adaptive floor — lower it when the question looks multi-hop — is the obvious next move and is **not**
+proposed here, because both halves of the LongBench data have now been spent and there is nothing left to
+confirm it on. Proposing it untested is the thing the last six entries in this log exist to discourage.

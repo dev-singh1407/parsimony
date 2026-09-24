@@ -3,7 +3,7 @@
 **Status:** all eight modules built · **1,132 tests passing** · every number below regenerates with
 `python reproduce.py`
 
-This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (49 ADRs);
+This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (50 ADRs);
 this document is what those decisions *found*.
 
 **Which numbers came from where.** Sections 1–7 and 9 run against `MockProvider`, a deterministic stand-in:
@@ -783,24 +783,58 @@ to the compressor — real documents are longer, the evidence is spread across t
 sitting in one sentence, and a sentence-level selector that keeps the top-scoring fifth will sometimes keep
 one hop and drop the other. That is a limitation of the method, not of the model.
 
-**It was the first place we looked, and it did not yield.** Two attempts, both measured on evidence recall,
-both rejected on the development half before reaching a confirmation split:
+**Six mechanisms failed, and then the question turned out to be wrong.** Each of these was implemented,
+measured on evidence recall, and rejected on the development half:
 
 | attempt | what it does | recall, off → on |
 |---|---|---|
 | second-hop bridging (ADR-048) | re-score on names the kept sentences introduced | 80.0% → 80.0% |
+| surname matching (ADR-048) | "Edward Buzzell" also matches "Buzzell" | 80.0% → 80.0% |
 | fronted-pronoun inheritance (ADR-049) | inherit a subject through "After …, he …" | 80.0% → 80.0% |
+| iterative retrieval, 1 / 2 / 4 rounds (ADR-050) | re-query with the selected text until it stops growing | 80.0% → 80.0% |
 
-The second is the informative one, because it is **not inert**. It marks 248 more sentences as dependent,
-including **11 that actually carry an answer**, every one a true positive on inspection — and recall does
-not move by a single item. Marking a sentence dependent lets it inherit the *previous* sentence's anchors,
-and in a two-hop question the entity the question named is one hop further back again. Every mechanism here
-walks exactly one link of a chain that needs two.
+The last is the algorithm ADR-049 had itself named as the thing that would be required. All of them fire
+correctly on the data — the pronoun rule alone marks 248 more sentences as dependent, 11 of which carry an
+answer, every one a true positive on inspection. Not one changes recall by a single item.
 
-So the gap is not in detecting the dependency. A single-pass, sentence-level selector cannot follow a
-chain, and no local rule repairs that: the problem wants iterative retrieval, re-querying with what has
-been selected until the set stops growing. That is a different algorithm, named here as out of scope rather
-than half-built.
+Six correct mechanisms changing nothing is not six failures. It is a signal that the question was wrong,
+so the two constraints were swept directly instead of writing a seventh:
+
+| target ratio | recall | | relevance floor | recall | context sent |
+|---|---|---|---|---|---|
+| 20% | 70.0% | | **0.15 (shipped)** | **80.0%** | **20.1%** |
+| 30% | 80.0% | | 0.10 | 80.0% | 25.0% |
+| 40% | 85.0% | | 0.05 | 90.0% | 32.7% |
+| 60–80% | 85.0% | | 0.00 | 90.0% | 39.1% |
+
+**The floor was the constraint all along — not the budget, and not detection.** Raising the budget saturates
+at 85%; lowering the floor reaches 90%. The sentences every mechanism was trying to find were being found
+and then discarded: selection stops when the best remaining candidate scores below the floor, and
+second-hop evidence legitimately scores low *against the question*, because it matches what the first hop
+said instead. Six mechanisms spent their effort improving the recall of a candidate that was already in the
+list and already being thrown away.
+
+**It replicates**, which none of the six earned the right to be tested for:
+
+| | floor 0.15 | floor 0.05 |
+|---|---|---|
+| items 1–20, development | 80.0% | **90.0%** |
+| items 21–40, confirmation | 78.9% | **89.5%** |
+| all 40 | 79.5% | **89.7%**, context 20.2% → 34.2% |
+
+**+10.2 pp of recall for +14.0 pp of context**, consistent across both halves.
+
+**The default is not changed, and that is the point.** On our own corpus the same move buys 94.8% → 96.6%
+for +7 pp of context, against an accuracy that is already 40/45 where full context scores 41/45 — nearly
+nothing left to buy. The trade is good for multi-hop and poor for single-hop, so there is no single correct
+value, and re-tuning the shipped default to whichever benchmark was measured last is the failure this
+project is written against. What ships is the curve and its cost on both corpora (ADR-050).
+
+This is the project's recurring finding one level in. *Published* operating points being
+configuration-specific is the claim in §1; here **our own** operating point turns out to be
+question-type-specific, and the constant we chose on our own corpus is wrong by ten points of recall on a
+question type that corpus does not contain.
+
 
 *Retention does not rank the methods on its own.* BM25 keeps 93.1% of the evidence on our corpus and scores
 34/45; Parsimony keeps 98.3% and scores 40/45. Five points of retention do not explain six items. The rest

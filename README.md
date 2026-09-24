@@ -192,9 +192,27 @@ ceiling, and multi-hop composition turns 79.5% retention into nothing over trunc
 handed the whole document, 36.1.
 
 Two things in that table are not flattering and matter more than the headline. **Our own retention falls
-from 98.3% to 79.5% on the harder corpus** — one item in five loses its answer to the compressor when the
-evidence is spread across two passages, which is a limitation of a sentence-level selector and the first
-place to look next. And **retention does not rank the methods on its own**: BM25 keeps 93.1% and scores
+from 98.3% to 79.5% on the harder corpus** — one item in five loses its answer when the evidence is spread
+across two passages.
+
+We spent six attempts on that, and the sixth one answered it by asking a different question. Second-hop
+bridging, surname matching, pronoun inheritance and iterative retrieval at one, two and four rounds all
+fire correctly on the data and **not one moves recall by a single item**. So the two constraints were swept
+directly, and the binding one is the **relevance floor**, not the budget and not detection — the sentences
+were being found and then discarded, because second-hop evidence scores low against the *question* while
+matching what the first hop said:
+
+| relevance floor | evidence recall | context sent |
+|---|---|---|
+| **0.15 (shipped)** | **79.5%** | **20.2%** |
+| 0.05 | **89.7%** | 34.2% |
+
+**+10.2 pp of recall for +14.0 pp of context**, and it replicates: 80.0% → 90.0% on the twenty items the
+finding came from, 78.9% → 89.5% on the twenty it had never seen. **The default is unchanged anyway** — on
+our own corpus the same move buys 94.8% → 96.6% against an accuracy already at 40/45, so the trade is good
+for multi-hop and poor for single-hop. There is no single right value, and re-tuning the default to
+whichever benchmark was measured last is the failure this project is written against. The curve ships
+instead (ADR-050). And **retention does not rank the methods on its own**: BM25 keeps 93.1% and scores
 34/45 where we keep 98.3% and score 40/45, because it sends its sentences in rank order while we emit them
 in the document's own, with the sentence a pronoun depends on still in front of it. Full argument in
 [§13](docs/09-findings.md).
@@ -352,7 +370,7 @@ module — the same distinction as ADR-028.
 | [`docs/00-architecture.md`](docs/00-architecture.md) | Layering, core data model, orchestrator, stage ordering, repo layout, cross-cutting concerns |
 | [`docs/01-pipeline-stages.md`](docs/01-pipeline-stages.md) | The eight processing stages, each with objective / inputs / outputs / techniques / libraries / pros / cons / alternatives / recommendation / integration |
 | [`docs/02-module-specs.md`](docs/02-module-specs.md) | M1–M8 internals and ablation wiring |
-| [`docs/03-decision-log.md`](docs/03-decision-log.md) | 49 ADRs with justification and consequences. **The intellectual core** — several record where measurement contradicted the plan |
+| [`docs/03-decision-log.md`](docs/03-decision-log.md) | 50 ADRs with justification and consequences. **The intellectual core** — several record where measurement contradicted the plan |
 | [`docs/04-roadmap.md`](docs/04-roadmap.md) | Re-planned 12-week schedule, sprint plan, milestone gates, scope-cut order, risks |
 | [`docs/05-evaluation-harness.md`](docs/05-evaluation-harness.md) | The compute budget problem and its fix; sweep runner; four quality measures; statistics; validity threats |
 | [`docs/06-contracts.md`](docs/06-contracts.md) | Complete L0 type and protocol definitions + the ledger schema. **Review this first** |
