@@ -950,6 +950,11 @@ function renderMap(data) {
   }
   $("map-doc").innerHTML = html;
   drawProfile(data);
+  if (typeof data.floor === "number") {
+    $("floor").value = data.floor;
+    $("floor-v").textContent = Number(data.floor).toFixed(2);
+    floorLabel(data);
+  }
   refreshSession();
 }
 
@@ -980,6 +985,55 @@ addEventListener("mousemove", (e) => {
   if (y + h > innerHeight - 8) y = e.clientY - h - pad;
   tip.style.left = x + "px"; tip.style.top = y + "px";
 });
+
+/* Dragging the floor re-runs the selection at that threshold and nothing else.
+   The request is debounced because the encoder is the expensive part and a
+   slider emits an event per pixel; the last position always wins. */
+let floorTimer = null;
+let lastMap = null;
+
+function floorLabel(data) {
+  const kept = data.units.filter((u) => u.kept).length;
+  const shipped = data.shipped_floor;
+  const at = Math.abs(data.floor - shipped) < 1e-9;
+  $("floor-read").innerHTML =
+    `<b>${kept}</b> of ${data.units.length} sentences kept · `
+    + `<b>${fmt(data.tokens_after)}</b> tokens sent · `
+    + `<i>${data.removed_pct.toFixed(0)}% removed</i>`
+    + (at ? " · this is the shipped setting"
+          : ` · shipped is ${shipped} (unchanged; this page only)`);
+}
+
+async function runMap(floor) {
+  const question = $("q").value.trim(), text = $("text").value;
+  if (!question || !text.trim()) return;
+  $("dial") && $("dial").classList.add("busy");
+  try {
+    const r = await fetch("/api/compress", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, text, floor }),
+    });
+    const data = await r.json();
+    if (data.error) { $("map-err").textContent = data.error; return; }
+    lastMap = data;
+    renderMap(data);
+    floorLabel(data);
+  } catch (e) { $("map-err").textContent = String(e); }
+  $("dial") && $("dial").classList.remove("busy");
+}
+
+$("floor").oninput = () => {
+  const v = parseFloat($("floor").value);
+  $("floor-v").textContent = v.toFixed(2);
+  clearTimeout(floorTimer);
+  floorTimer = setTimeout(() => runMap(v), 260);
+};
+$("floor-reset").onclick = () => {
+  const shipped = lastMap ? lastMap.shipped_floor : 0.15;
+  $("floor").value = shipped;
+  $("floor-v").textContent = Number(shipped).toFixed(2);
+  runMap(shipped);
+};
 
 $("run-map").onclick = async () => {
   const question = $("q").value.trim(), text = $("text").value;

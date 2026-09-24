@@ -173,15 +173,29 @@ class Visualiser:
 
     # -- heatmap ---------------------------------------------------------
 
-    def compress(self, question: str, text: str, name: str = "pasted text") -> dict:
+    def compress(self, question: str, text: str, name: str = "pasted text",
+                 floor: float | None = None) -> dict:
+        """One question against one document, with the decision on every sentence.
+
+        `floor` overrides the relevance floor for this call only, so the page
+        can sweep it without restarting anything. The shipped value is 0.15 and
+        is NOT changed by asking for another one here (ADR-050): this shows the
+        curve, it does not re-tune the system.
+        """
+        from dataclasses import replace as _replace
+
         from parsimony.modules.m1_context import audit as audit_context
         from parsimony.pipeline.orchestrator import Pipeline
 
+        cfg = self.cfg
+        if floor is not None:
+            cfg = _replace(cfg, compression=_replace(cfg.compression,
+                                                     context_relevance_floor=floor))
         documents = split_into_documents(text, name)
-        pipe = Pipeline(self.cfg, provider=self.provider, cache=self.cache)
+        pipe = Pipeline(cfg, provider=self.provider, cache=self.cache)
         started = time.perf_counter()
         ctx = pipe.build_context(question, documents=documents)
-        report = audit_context(ctx, self.cfg)
+        report = audit_context(ctx, cfg)
         took_ms = (time.perf_counter() - started) * 1000
         encoder_ms = getattr(ctx.derived, "embed_ns", 0) / 1e6
         return {
@@ -194,11 +208,12 @@ class Visualiser:
             "coverage": report.coverage,
             "encoder_ms": encoder_ms,
             "decide_ms": max(0.0, took_ms - encoder_ms),
-            "encoder": self.cfg.embedder_id,
+            "encoder": cfg.embedder_id,
             # The thresholds the page draws its lines at. Sent rather than
             # hard-coded in the script: a page that draws a boundary the
             # configuration has moved is worse than one that draws none.
-            "floor": self.cfg.compression.context_relevance_floor,
+            "floor": cfg.compression.context_relevance_floor,
+            "shipped_floor": self.cfg.compression.context_relevance_floor,
             "budget": report.budget,
             "anchors": sorted(str(a) for a in report.anchors),
             "units": [
@@ -631,8 +646,14 @@ def make_handler(vis: Visualiser):
                 if not question or not text.strip():
                     self._json({"error": "a question and some text are both required"}, 400)
                     return
+                floor = payload.get("floor")
                 try:
-                    self._json(vis.compress(question, text, payload.get("name") or "pasted text"))
+                    floor = None if floor is None else max(0.0, min(1.0, float(floor)))
+                except (TypeError, ValueError):
+                    floor = None
+                try:
+                    self._json(vis.compress(question, text,
+                                            payload.get("name") or "pasted text", floor))
                 except Exception as exc:                      # a visualiser must not 500 silently
                     self._json({"error": f"{type(exc).__name__}: {exc}"}, 500)
             else:

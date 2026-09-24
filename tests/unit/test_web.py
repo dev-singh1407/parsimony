@@ -592,3 +592,48 @@ class TestTheDemoScreenCounts:
         for key in ("requests", "tokens_pruned", "seconds_saved", "timed_here",
                     "without_model", "gate_checked", "gate_refused", "kv_mb_saved"):
             assert key in snap, key
+
+
+class TestTheFloorDial:
+    """The page can sweep the relevance floor; it must not re-tune the system.
+
+    ADR-050 found the floor is what decides how much survives, with a measured
+    curve behind it. Making it draggable turns that table into something a
+    reader can check -- but a control that quietly changed the shipped default
+    would turn a demonstration into a configuration change nobody recorded.
+    """
+
+    def test_a_lower_floor_keeps_more(self, vis, handbook_text):
+        high = vis.compress(QUESTION, handbook_text, 'h.md', 0.15)
+        low = vis.compress(QUESTION, handbook_text, 'h.md', 0.05)
+        assert sum(u['kept'] for u in low['units']) > sum(u['kept'] for u in high['units'])
+        assert low['tokens_after'] > high['tokens_after']
+
+    def test_the_shipped_default_is_never_mutated(self, vis, handbook_text):
+        before = vis.cfg.compression.context_relevance_floor
+        vis.compress(QUESTION, handbook_text, 'h.md', 0.0)
+        assert vis.cfg.compression.context_relevance_floor == before
+
+    def test_the_payload_reports_both_floors(self, vis, handbook_text):
+        data = vis.compress(QUESTION, handbook_text, 'h.md', 0.05)
+        assert data['floor'] == 0.05
+        assert data['shipped_floor'] == vis.cfg.compression.context_relevance_floor
+        assert data['floor'] != data['shipped_floor'], 'the page must be able to say so'
+
+    def test_omitting_it_uses_the_shipped_value(self, vis, handbook_text):
+        data = vis.compress(QUESTION, handbook_text, 'h.md')
+        assert data['floor'] == vis.cfg.compression.context_relevance_floor
+
+    def test_a_nonsense_floor_is_ignored_rather_than_crashing(self, server, handbook_text):
+        status, payload = post_json(server, '/api/compress',
+                                    {'question': QUESTION, 'text': handbook_text,
+                                     'floor': 'banana'})
+        assert status == 200
+        assert payload['floor'] == payload['shipped_floor']
+
+    def test_a_floor_out_of_range_is_clamped(self, server, handbook_text):
+        for sent, expect in ((5.0, 1.0), (-2.0, 0.0)):
+            status, payload = post_json(server, '/api/compress',
+                                        {'question': QUESTION, 'text': handbook_text,
+                                         'floor': sent})
+            assert status == 200 and payload['floor'] == expect
