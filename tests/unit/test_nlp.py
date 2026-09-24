@@ -69,3 +69,53 @@ class TestTheSplitterKnowsWhereASentenceContinues:
         text = "Run this:\n```\nx = 1. y = 2.\n```\nThen continue."
         got = split_sentences(text)
         assert any(g.startswith("```") and "x = 1. y = 2." in g for g in got)
+
+
+class TestTheTokenizerLoadsWithoutTheNetwork:
+    """The project's claim is that it runs on a laptop with the network off.
+
+    Tokenizer.from_pretrained contacts the hub on every construction, even
+    with the vocabulary already on disk, and announces it:
+
+        Warning: You are sending unauthenticated requests to the HF Hub.
+
+    Printing that at the start of a demo says the opposite of the thing being
+    demonstrated. The cache is tried first now, and the hub is a fallback.
+    """
+
+    def test_it_reads_the_cache_rather_than_the_hub(self):
+        import os
+
+        from parsimony.infra.tokenization import HFTokenizer
+
+        # If this needed the network it would fail here rather than warn.
+        os.environ['HF_HUB_OFFLINE'] = '1'
+        try:
+            tok = HFTokenizer('Qwen/Qwen2.5-1.5B-Instruct')
+            assert tok.count('The Tallinn office employs 58 people.') > 0
+        finally:
+            os.environ.pop('HF_HUB_OFFLINE', None)
+
+    def test_it_leaves_the_environment_as_it_found_it(self):
+        """Setting a process-global for the duration of a load is acceptable;
+        leaving it set is not, since it would silently break anything that
+        legitimately needs the hub later."""
+        import os
+
+        from parsimony.infra.tokenization import HFTokenizer
+
+        before = os.environ.get('HF_HUB_OFFLINE')
+        HFTokenizer('Qwen/Qwen2.5-1.5B-Instruct')
+        assert os.environ.get('HF_HUB_OFFLINE') == before
+
+    def test_a_preexisting_setting_is_preserved_not_clobbered(self):
+        import os
+
+        from parsimony.infra.tokenization import HFTokenizer
+
+        os.environ['HF_HUB_OFFLINE'] = '0'
+        try:
+            HFTokenizer('Qwen/Qwen2.5-1.5B-Instruct')
+            assert os.environ['HF_HUB_OFFLINE'] == '0'
+        finally:
+            os.environ.pop('HF_HUB_OFFLINE', None)

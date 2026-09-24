@@ -172,6 +172,14 @@ switch ($act) {
         Run-Cli followups @rest
     }
 
+    "recall" {
+        # No model: seconds, deterministic, identical every time. The best act
+        # to run when the room is impatient or Ollama is busy.
+        Show-Banner "R" "Did the answer survive?" `
+            "Evidence recall separates our failure from the model's. We keep the answer 1.9x as often as truncation on the same budget - and score the same, because the model cannot use it either way."
+        Run-Cli longbench --recall @rest
+    }
+
     "longbench" {
         # Needs LongBench's data.zip extracted somewhere and passed with --data.
         # Long prompts on a CPU take minutes each; the run is resumable.

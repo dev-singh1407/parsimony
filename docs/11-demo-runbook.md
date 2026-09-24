@@ -248,7 +248,7 @@ instead, or run them beforehand and show the scrollback.
 > corpus couldn't reveal, and fixed that too. And when we finally swapped in a neural encoder, it broke the
 > safety design — which is the most useful thing we found all month.
 
-**"You're still using a lexical encoder — why not a real embedding model?"**
+**"You upgraded the encoder and it made the system less safe. Explain that."** - *they will see `all-minilm` in the header, so this is the question, not the old one about lexical scoring.*
 > We did, and it is installed: MiniLM, 45 MB, served by the same local runtime, no PyTorch. It fixes what a
 > lexical encoder cannot see, and it took our false-answer rate from **0% to 17.8%**. The reason is the part
 > worth hearing: our design skipped verification when similarity was overwhelming, and the lexical encoder
@@ -316,19 +316,47 @@ caught by it.*
 > either: the strand documents compression-induced hallucination as a finding to report, where we built a
 > gate against it and measured what it costs us.
 
-**"Your corpus is your own. Did you only do well because you set the exam?"**
-> A fair challenge, and why `eval/longbench.py` exists. It runs the shipped configuration, unchanged, on
-> **LongBench** - the benchmark the compression literature actually reports - with LongBench's own prompt
-> and its own F1 metric, transcribed and unit-tested against worked examples. Items are taken in file
-> order, never sampled, because choosing them by length would be setting the exam again.
+**"Your corpus is your own. Did you only do well because you set the exam?"** - *the sharpest question you
+will get, and the answer includes a loss. Give the loss first.*
+> Fair, and it is why `eval/longbench.py` exists: the shipped configuration, unchanged, on **LongBench
+> 2wikimqa**, with LongBench's own prompt and F1 metric, the first 40 items in file order, never sampled.
 >
-> Two caveats, stated before anyone asks. The absolute scores are not comparable to published LongBench
-> tables: those come from 7B-70B models and ours is a 1.5B on a laptop CPU, which scores lower before
-> compression is involved at all. And the full-context arm is the only baseline that means anything here,
-> which is why it runs on every item.
+> **It costs us accuracy there.** Full context scores 35.2, we score 29.6 - three items better, seven
+> worse, thirty tied. On 40 items that is p = 0.34, so it is not a detectable difference, but the point
+> estimate is against us and we report it that way. We are also level with plain truncation.
 >
-> Our own corpus still earns its place: it asks things LongBench cannot, such as whether the tier stays
-> quiet on a question the documents cannot answer at all.
+> What we keep is the cost: a fifth of the context, **6.7x less prefill** - 19 minutes against 130 for the
+> same forty questions - and the same nine exact answers as full context.
+>
+> **Then the part that matters.** An accuracy tie does not say who failed, so we measured evidence recall:
+> does the answer still appear in what each arm sent? No model, deterministic, and it runs in seconds.
+>
+> | | evidence sent | accuracy |
+> |---|---|---|
+> | our corpus, single-hop | Parsimony 98.3%, truncate 27.6% | 40/45 against 16/45 |
+> | LongBench, multi-hop | Parsimony 79.5%, truncate 41.0% | F1 29.6 against 29.3 |
+>
+> The compressor sends the evidence **3.6x as often as truncation on our corpus and 1.9x as often on
+> LongBench**. The retention advantage is consistent; what changes is whether it converts. Single-hop
+> lookups turn retention into accuracy almost one for one. Multi-hop composition does not, because the
+> model scores 34.9 with the answer in a fifth of the context and 36.1 with the whole document in front of
+> it - it is failing at composition, not starving for evidence.
+>
+> So the claim we defend is narrower than "compression keeps accuracy" and stronger than "it ties with
+> truncation": at a fifth of the context it retains the evidence nearly twice as reliably as the obvious
+> baseline, and whether that becomes an answer depends on a model capable of composing one.
+
+**"So your compressor does not help on the public benchmark?"** - *the follow-up. Do not retreat from it.*
+> On the accuracy column, no - and the reason is measurable rather than a guess. The ceiling is 36.1 F1,
+> which is what the model scores with the entire document. Nothing a compressor does can be observed above
+> a ceiling that low. What is observable there is the cost, and the retention, and both are ours.
+>
+> The honest version of the limitation is on our side too: our own retention falls from 98.3% to 79.5% on
+> multi-hop documents. One item in five loses its answer, because the evidence sits across two passages and
+> a sentence-level selector keeping the top-scoring fifth will sometimes keep one hop and drop the other.
+> We tried to fix that - second-hop bridging, ADR-048 - measured it on twenty items, found no gain, and
+> removed it. The obstacle turned out to be coreference, not retrieval.
+
 
 **"How do you know your measurements are real?"**
 > Because three times they were not, and each was found by measuring rather than reasoning. `localhost`

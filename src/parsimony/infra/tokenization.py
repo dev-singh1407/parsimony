@@ -17,14 +17,53 @@ import warnings
 _MISSING = object()
 
 
+def _load(model_id: str):
+    """The cached tokenizer, without touching the network to find out it is cached.
+
+    `Tokenizer.from_pretrained` contacts the hub on every construction, even
+    with the vocabulary already on disk, and prints
+
+        Warning: You are sending unauthenticated requests to the HF Hub.
+
+    on the way past. For a project whose claim is that it runs on a laptop with
+    the network off, a startup warning about unauthenticated requests to a
+    remote hub is worse than noise: it says the opposite of the thing being
+    demonstrated, in front of whoever is watching.
+
+    So the cache is tried first and the hub is a fallback, announced once,
+    because a one-time download is a fact worth stating rather than hiding
+    inside a two-second pause.
+    """
+    import os
+
+    from tokenizers import Tokenizer as _HF  # imported lazily: infra, not core
+
+    previous = os.environ.get("HF_HUB_OFFLINE")
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    try:
+        return _HF.from_pretrained(model_id)
+    except Exception:
+        pass
+    finally:
+        if previous is None:
+            os.environ.pop("HF_HUB_OFFLINE", None)
+        else:
+            os.environ["HF_HUB_OFFLINE"] = previous
+
+    warnings.warn(
+        f"downloading the {model_id!r} vocabulary once; every later run reads it from the "
+        f"local cache and needs no network",
+        RuntimeWarning, stacklevel=2,
+    )
+    return _HF.from_pretrained(model_id)
+
+
 class HFTokenizer:
     """Wraps a Hugging Face fast tokenizer. Counts are memoised: count() is on
     the hot path and the same strings recur constantly within a request."""
 
     def __init__(self, model_id: str) -> None:
-        from tokenizers import Tokenizer as _HF  # imported lazily: infra, not core
-
-        self._tok = _HF.from_pretrained(model_id)
+        self._tok = _load(model_id)
         self._model_id = model_id
         self._count_cache: dict[str, int] = {}
 
