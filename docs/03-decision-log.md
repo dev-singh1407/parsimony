@@ -2158,3 +2158,75 @@ half-built.
 the second to be rejected before reaching the confirmation split. The pattern is worth naming: every one of
 them was plausible, every one had a mechanism, and the measurement was cheap enough to settle it in an hour
 because evidence recall needs no model. Cheap measurement is what makes it affordable to be wrong.
+
+
+---
+
+### ADR-049 — Pronoun inheritance beyond the first word: fires correctly, changes nothing
+
+**Status.** Rejected, 25 September 2026. Second attempt at the gap ADR-048 opened, and the pair of results
+says more than either does alone.
+
+**Context.** Evidence recall is 98.3% on our corpus and 79.5% on LongBench 2wikimqa. ADR-048 rejected name
+bridging and concluded the obstacle was **coreference**: three of four failures were sentences whose
+subject is a pronoun. This is the attempt to act on that conclusion.
+
+`_DEPENDENT_OPENING` only matches a pronoun in the **first** position — "It employs 58 people". The failing
+shape has the pronoun after a fronted clause:
+
+> "After moving to Paris in 1995, **he** wrote articles in Les Cahiers du Cinéma."
+
+**What was built.** `depends_on_previous()`, extending the existing relation with one rule: a short opening
+clause followed immediately by a pronoun subject. Used in both places the old rule was — anchor
+inheritance, and the closure walk. Behind `context_pronoun_anywhere`, off by default.
+
+A first version tried "contains a pronoun and names no entity of its own" and was **wrong**: the sentence
+above names Paris and a magazine, neither of which is its subject. "Names nobody" is far too strict, and
+catching that before measuring anything is the reason the boundary cases were written down first.
+
+**What it measured.**
+
+| | recall | context kept |
+|---|---|---|
+| items 1–20, rule off | 80.0% (16/20) | 20.1% |
+| items 1–20, rule on | 80.0% (16/20) | 20.7% |
+| our 45-item corpus, off | 98.3% | 26.1% |
+| our 45-item corpus, on | 98.3% | 26.1% |
+
+No change either way. Not taken to the confirmation half.
+
+**The part that makes this worth an ADR.** The rule is not inert — it fires, correctly, and often:
+
+| | sentences |
+|---|---|
+| total across the 20 items | 6,152 |
+| marked dependent, old rule | 1,150 (18.7%) |
+| marked dependent, new rule | 1,398 (22.7%) |
+| **answer-carrying sentences newly marked** | **11** (42 → 53) |
+
+Eleven sentences that carry an answer are now correctly identified as depending on their predecessor, and
+recall does not move by one item. Every newly-marked example is a true positive on inspection — *"After her
+husband's death, she returned to Catholicism…"*, *"Unusually for the time, she had been vaccinated…"*.
+
+**So the problem is not detection.** Marking a sentence dependent only makes it *inherit the previous
+sentence's anchor mentions*, and that helps only if the previous sentence names something the question
+named. In a two-hop question it usually does not: the entity the question named is one further hop back
+again, and a single step of inheritance cannot reach it.
+
+**Decision.** Rejected and removed. Taken with ADR-048, three distinct interventions — name bridging,
+surname matching, and fronted-pronoun inheritance — each fire as designed on this data and none moves
+evidence recall by a single item. That is a stronger statement than any of them alone:
+
+> The multi-hop retention gap is not reachable by local, rule-based repairs to a sentence-level selector.
+> The information needed is a chain — question → entity → entity → answer — and every mechanism here walks
+> exactly one link of it.
+
+**What would actually be required**, stated so the next person does not repeat this: iterative retrieval,
+where the selected set is re-queried and re-scored until it stops growing, which is what LooComp and the
+multi-hop retrieval literature do and what none of our single-pass mechanisms approximate. That is a
+different algorithm, not a rule, and it is out of scope here rather than half-built.
+
+**Consequence.** Fifth post-hoc improvement in this project to fail against the data it was tested on, and
+the third rejected before reaching a confirmation split. The cost of being wrong five times was about a day,
+because evidence recall needs no model and runs in seconds — which is the argument for building the cheap
+deterministic instrument before reaching for the expensive one.

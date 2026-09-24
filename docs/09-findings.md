@@ -3,7 +3,7 @@
 **Status:** all eight modules built · **1,132 tests passing** · every number below regenerates with
 `python reproduce.py`
 
-This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (48 ADRs);
+This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (49 ADRs);
 this document is what those decisions *found*.
 
 **Which numbers came from where.** Sections 1–7 and 9 run against `MockProvider`, a deterministic stand-in:
@@ -781,8 +781,26 @@ retention becomes nothing at all over truncation, because the model fails either
 *Our retention drops on the harder corpus.* 98.3% to 79.5%. One item in five on 2wikimqa loses its answer
 to the compressor — real documents are longer, the evidence is spread across two passages rather than
 sitting in one sentence, and a sentence-level selector that keeps the top-scoring fifth will sometimes keep
-one hop and drop the other. That is a limitation of the method, not of the model, and it is the first place
-to look for the next improvement.
+one hop and drop the other. That is a limitation of the method, not of the model.
+
+**It was the first place we looked, and it did not yield.** Two attempts, both measured on evidence recall,
+both rejected on the development half before reaching a confirmation split:
+
+| attempt | what it does | recall, off → on |
+|---|---|---|
+| second-hop bridging (ADR-048) | re-score on names the kept sentences introduced | 80.0% → 80.0% |
+| fronted-pronoun inheritance (ADR-049) | inherit a subject through "After …, he …" | 80.0% → 80.0% |
+
+The second is the informative one, because it is **not inert**. It marks 248 more sentences as dependent,
+including **11 that actually carry an answer**, every one a true positive on inspection — and recall does
+not move by a single item. Marking a sentence dependent lets it inherit the *previous* sentence's anchors,
+and in a two-hop question the entity the question named is one hop further back again. Every mechanism here
+walks exactly one link of a chain that needs two.
+
+So the gap is not in detecting the dependency. A single-pass, sentence-level selector cannot follow a
+chain, and no local rule repairs that: the problem wants iterative retrieval, re-querying with what has
+been selected until the set stops growing. That is a different algorithm, named here as out of scope rather
+than half-built.
 
 *Retention does not rank the methods on its own.* BM25 keeps 93.1% of the evidence on our corpus and scores
 34/45; Parsimony keeps 98.3% and scores 40/45. Five points of retention do not explain six items. The rest
