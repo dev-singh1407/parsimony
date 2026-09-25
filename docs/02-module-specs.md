@@ -31,6 +31,7 @@ anchors    = numbers, names, codes, quoted strings the question names;
              and any sentence inherits what its own heading names (ADR-044)
 doc prior  = scale by the source's best sentence or its title
 select     = anchor guarantee, then MMR under budget, stop at a relevance floor
+             -- set (0.15), or read off the sorted scores (ADR-051, off by default)
 closure    = keep the sentence before any kept sentence that opens dependently
 emit       = kept sentences in original order; empty documents dropped
 ```
@@ -47,9 +48,20 @@ fluently. It regresses nothing across 104 items on five splits and gains one ans
 context tokens on `test`; ADR-044 states plainly why that is weaker evidence than the rest of this tier
 rests on, and `context_section_anchors=False` restores the previous behaviour exactly.
 
+**The relevance floor is the constraint that binds**, not the budget: sweeping both showed that raising
+the budget saturates while lowering the floor keeps going, and that six mechanisms built to *find* more
+evidence had been finding it and then discarding it below the floor (ADR-050). No single value of the floor
+is right — 0.15 suits a question whose evidence is concentrated under one high score and refuses the second
+hop of a multi-hop one, which scores low against the question by construction. So `context_adaptive_floor`
+stops setting it: `elbow_floor` finds the steepest **fall** between adjacent ranks among the sentences the
+budget could afford — a ratio, not a difference — and puts the floor in the middle of it; where the scores
+are a smooth ramp the constant stands, because a ramp says nothing. It is off by default and the reading it
+made travels on the result, because nothing outside `select()` can recompute it (ADR-051).
+
 *Measured:* on the long-context benchmark (`corpus/longctx_*.jsonl`, `parsimony longctx`) against
 truncation, BM25 top-k, random sentences and stopword removal at a matched token budget — see
-docs/09-findings.md §13.
+docs/09-findings.md §13. The three floor rules against each other: `parsimony floor` for one
+encoder, `figures/adaptive_floor.csv` for both.
 
 ### Tier 1 — Lossless normalisation
 Collapse runs of whitespace; strip markdown scaffolding (`###`, `**`, table pipes) where it carries no

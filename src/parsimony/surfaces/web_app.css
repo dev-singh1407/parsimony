@@ -320,14 +320,40 @@ button.ghost.tiny { padding: 3px 10px; font-size: 11.5px; border-radius: 6px; }
                    font-style: normal; }
 .dial.busy .dialv { opacity: .45; }
 
+/* ── fixed floor, or a floor read off the distribution ────── */
+.modebar { display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+           margin-bottom: 9px; }
+.modelab { font-size: 12.5px; color: var(--dim); }
+.mode { background: var(--panel2); border: 1px solid var(--line); color: var(--dim);
+        border-radius: 7px; padding: 5px 11px; font-size: 12.5px; cursor: pointer;
+        transition: color .18s, border-color .18s, background .18s; }
+.mode:hover { color: var(--ink); border-color: var(--accent); }
+.mode.on { color: #06101f; background: var(--warn); border-color: var(--warn);
+           font-weight: 650; }
+.modewhy { font-family: var(--mono); font-size: 12px; color: var(--keep); flex: 1 1 100%; }
+/* In adaptive mode the slider is an OUTPUT, not an input: the rule decides the
+   value and the page reports it. Leaving it draggable would invite a reader to
+   move a line the run did not use. */
+.dial.reading input[type=range] { pointer-events: none; opacity: .5; }
+.dial.reading label[for=floor]::after { content: " — computed"; color: var(--keep); }
+
 /* ── the score profile ──────────────────────────────────────────── */
 .profilewrap { overflow-x: auto; }
-#profile { display: block; width: 100%; min-width: 320px; }
+/* Sized by the script to the space it is given, 1:1 with its viewBox, so
+   nothing on the chart is stretched. It overflows only when there are more
+   sentences than pixels, and then `.profilewrap` scrolls. */
+#profile { display: block; }
 #profile .bar { transition: height .4s, y .4s; }
 #profile .floorline { stroke: var(--warn); stroke-width: 1.5; stroke-dasharray: 5 4; }
 #profile .axis { stroke: var(--line); stroke-width: 1; }
 #profile text { font-family: var(--mono); font-size: 10px; fill: var(--faint); }
 #profile text.lab { fill: var(--warn); }
+/* The cliff the adaptive rule found: the one adjacent pair the floor is read
+   from. Drawn as the gap itself rather than a line, because the claim is about
+   the fall between two ranks, not about a level. */
+#profile .cliff { fill: var(--keep); opacity: .16; }
+#profile .cliffedge { stroke: var(--keep); stroke-width: 1.5; stroke-dasharray: 3 3; }
+#profile text.clab { fill: var(--keep); }
 
 /* ── tables ──────────────────────────────────────────────────────── */
 table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12.5px; }
@@ -426,7 +452,9 @@ td .mark { font-family: var(--mono); }
           margin-top: 11px; font-family: var(--mono); }
 .swatch { display: inline-block; width: 24px; height: 9px; border-radius: 2px;
           vertical-align: middle; margin-right: 5px; }
-canvas { width: 100%; height: 250px; display: block; }
+/* The script sizes the backing store to this box, so the two cannot disagree
+   and stretch the drawing between them. */
+canvas { width: 100%; height: 280px; display: block; }
 .answer { font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap;
           background: var(--panel2); border: 1px solid var(--line); border-radius: 8px;
           padding: 11px 13px; min-height: 56px; color: #cdd6e3; }

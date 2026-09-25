@@ -13,6 +13,10 @@ dist/
 .mypy_cache/
 .ruff_cache/
 
+# `parsimony floor --encoder X` writes one encoder's rows; the committed table
+# figures/adaptive_floor.csv carries both and is written by reproduce.py.
+figures/adaptive_floor_*.csv
+
 # Run artefacts — regenerable, and large. Never sync these.
 runs/
 blobs/

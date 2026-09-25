@@ -1,0 +1,19 @@
+encoder,split,floor,items,spans,spans_kept,span_recall_pct,items_complete,items_with_evidence,context_pct
+ollama:all-minilm,development,0.15 (shipped),23,25,25,100.0,23,23,30.2
+ollama:all-minilm,development,0.05 (ADR-050),23,25,25,100.0,23,23,34.4
+ollama:all-minilm,development,read off the scores,23,25,25,100.0,23,23,29.7
+ollama:all-minilm,held out,0.15 (shipped),81,101,100,99.0,80,81,27.0
+ollama:all-minilm,held out,0.05 (ADR-050),81,101,100,99.0,80,81,33.8
+ollama:all-minilm,held out,read off the scores,81,101,100,99.0,80,81,26.6
+ollama:all-minilm,off topic,0.15 (shipped),12,0,0,,0,0,5.3
+ollama:all-minilm,off topic,0.05 (ADR-050),12,0,0,,0,0,6.5
+ollama:all-minilm,off topic,read off the scores,12,0,0,,0,0,4.2
+content-v1,development,0.15 (shipped),23,25,25,100.0,23,23,28.7
+content-v1,development,0.05 (ADR-050),23,25,25,100.0,23,23,33.2
+content-v1,development,read off the scores,23,25,25,100.0,23,23,28.4
+content-v1,held out,0.15 (shipped),81,101,97,96.0,77,81,22.4
+content-v1,held out,0.05 (ADR-050),81,101,98,97.0,78,81,29.7
+content-v1,held out,read off the scores,81,101,98,97.0,78,81,24.1
+content-v1,off topic,0.15 (shipped),12,0,0,,0,0,4.1
+content-v1,off topic,0.05 (ADR-050),12,0,0,,0,0,5.2
+content-v1,off topic,read off the scores,12,0,0,,0,0,3.4

@@ -871,7 +871,11 @@ function drawProfile(data) {
   const units = data.units.slice().sort((a, b) => b.score - a.score);
   if (!units.length) { svg.innerHTML = ""; return; }
 
-  const W = Math.max(340, units.length * 9), H = 190;
+  // 1:1 with the panel it sits in, so no axis is stretched against the other;
+  // wider only when there are more sentences than the panel has room for, and
+  // then the wrapper scrolls.
+  const avail = Math.max(340, (svg.parentElement && svg.parentElement.clientWidth) || 900);
+  const W = Math.max(avail, units.length * 9), H = 190;
   const pad = { l: 34, r: 8, t: 12, b: 26 };
   const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
   const bw = Math.max(1.5, plotW / units.length - 1);
@@ -898,13 +902,37 @@ function drawProfile(data) {
     + ` opacity="${v === 0 ? 1 : 0.35}"/>`
     + `<text x="${pad.l - 6}" y="${Y(v) + 3}" text-anchor="end">${v.toFixed(2)}</text>`).join("");
 
+  /* The cliff the adaptive rule read the floor from. Drawn as the SPAN
+     between two adjacent ranks rather than a line, because the claim is about
+     a fall between them and a line would read as one more threshold. */
+  let cliff = "";
+  const drawn = data.adaptive && data.cliff_rank >= 0 && data.cliff_rank + 1 < units.length;
+  $("legend-cliff").hidden = !drawn;
+  if (drawn) {
+    const step = plotW / units.length;
+    const x0 = pad.l + data.cliff_rank * step;
+    const yHi = Y(units[data.cliff_rank].score);
+    const yLo = Y(units[data.cliff_rank + 1].score);
+    // Centre of the last kept bar to centre of the first dropped one: the band
+    // is the fall between two ranks, so it spans both of them.
+    cliff = `<rect class="cliff" x="${(x0 + bw / 2).toFixed(1)}" y="${yHi.toFixed(1)}" `
+          + `width="${step.toFixed(1)}" `
+          + `height="${(yLo - yHi).toFixed(1)}"/>`
+          + `<line class="cliffedge" x1="${pad.l}" y1="${yHi.toFixed(1)}" `
+          + `x2="${(x0 + step * 2).toFixed(1)}" y2="${yHi.toFixed(1)}"/>`
+          + `<text class="clab" x="${(x0 + step * 2 + 5).toFixed(1)}" `
+          + `y="${((yHi + yLo) / 2 + 3).toFixed(1)}">`
+          + `↓ ${data.cliff_fall.toFixed(1)}×</text>`;
+  }
+
   const floorMark = floor === null ? "" :
     `<line class="floorline" x1="${pad.l}" y1="${Y(floor)}" x2="${W - pad.r}" y2="${Y(floor)}"/>`
     + `<text class="lab" x="${W - pad.r}" y="${Y(floor) - 5}" text-anchor="end">`
-    + `relevance floor ${floor}</text>`;
+    + `${data.adaptive ? "floor read at" : "relevance floor"} ${floor}</text>`;
 
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-  svg.innerHTML = ticks + bars + floorMark
+  svg.setAttribute("width", String(W));
+  svg.innerHTML = ticks + cliff + bars + floorMark
     + `<text x="${pad.l}" y="${H - 8}">highest scoring</text>`
     + `<text x="${W - pad.r}" y="${H - 8}" text-anchor="end">lowest</text>`;
 
@@ -995,11 +1023,29 @@ addEventListener("mousemove", (e) => {
    slider emits an event per pixel; the last position always wins. */
 let floorTimer = null;
 let lastMap = null;
+/* The last answer from each mode, so switching can state the difference. Keyed
+   by question and budget: a delta against a different question would be a
+   comparison of two unrelated things wearing the same label. */
+const mapByMode = { fixed: null, adaptive: null };
+
+function modeDelta(data) {
+  const other = mapByMode[data.adaptive ? "fixed" : "adaptive"];
+  if (!other || other.question !== data.question
+      || Math.abs(other.ratio - data.ratio) > 1e-9) return "";
+  const keptNow = data.units.filter((u) => u.kept).length;
+  const keptThen = other.units.filter((u) => u.kept).length;
+  const ds = keptNow - keptThen, dt = data.tokens_after - other.tokens_after;
+  if (!ds && !dt) return " · same selection as the constant";
+  const word = (n, one, many) => `${Math.abs(n)} ${Math.abs(n) === 1 ? one : many}`;
+  return ` · <b>${word(ds, "sentence", "sentences")} ${ds < 0 ? "fewer" : "more"}, `
+       + `${word(dt, "token", "tokens")} ${dt < 0 ? "fewer" : "more"}</b> than the `
+       + `${data.adaptive ? "constant" : "reading"}`;
+}
 
 function floorLabel(data) {
   const kept = data.units.filter((u) => u.kept).length;
   const shipped = data.shipped_floor;
-  const at = Math.abs(data.floor - shipped) < 1e-9;
+  const at = !data.adaptive && Math.abs(data.floor - shipped) < 1e-9;
   const atRatio = Math.abs(data.ratio - data.shipped_ratio) < 1e-9;
   $("floor-read").innerHTML =
     `<b>${kept}</b> of ${data.units.length} sentences kept · `
@@ -1018,22 +1064,60 @@ function floorLabel(data) {
     exhausted: "neither dial stopped it: everything above the floor already fit",
   }[data.stopped_by] || esc(data.stopped_by);
   $("binding").innerHTML = "Selection ended because " + why + ".";
+
+  // In adaptive mode the slider reports rather than asks, so it is driven from
+  // the answer -- and the reading that produced it is stated in full. A page
+  // that showed the computed number without the reading would be asking to be
+  // trusted about the one thing worth checking.
+  $("dial").classList.toggle("reading", !!data.adaptive);
+  $("floor").value = data.floor;
+  $("floor-v").textContent = Number(data.floor).toFixed(2);
+  // Three states, not two: a cliff was found, the scores were read and had no
+  // cliff in them, or the floor was never reached at all. Told apart by the
+  // flags the run sends, never by the wording of the sentence.
+  const tail = data.cliff_rank >= 0 ? ""
+    : data.floor_read ? `, so the constant ${shipped} stands`
+    : "";
+  $("mode-why").innerHTML = data.adaptive
+    ? `floor ${Number(data.floor).toFixed(2)} — ${esc(data.floor_why)}${tail}`
+      + modeDelta(data)
+    : "";
 }
+
+let adaptiveFloor = false;
+
+function setMode(on) {
+  adaptiveFloor = on;
+  $("mode-fixed").classList.toggle("on", !on);
+  $("mode-adaptive").classList.toggle("on", on);
+  $("mode-fixed").setAttribute("aria-pressed", String(!on));
+  $("mode-adaptive").setAttribute("aria-pressed", String(on));
+  $("adaptive-note").hidden = !on;
+  if (!on) $("mode-why").textContent = "";
+  $("dial").classList.toggle("reading", on);
+  if (lastMap) runMap();
+}
+$("mode-fixed").onclick = () => setMode(false);
+$("mode-adaptive").onclick = () => setMode(true);
 
 async function runMap(floor, ratio) {
   const question = $("q").value.trim(), text = $("text").value;
   if (!question || !text.trim()) return;
   if (floor === undefined) floor = parseFloat($("floor").value);
   if (ratio === undefined) ratio = parseFloat($("ratio").value);
+  // Adaptive mode computes the floor, so sending a slider position would draw
+  // a line the run did not use.
+  if (adaptiveFloor) floor = null;
   $("dial") && $("dial").classList.add("busy");
   try {
     const r = await fetch("/api/compress", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, text, floor, ratio }),
+      body: JSON.stringify({ question, text, floor, ratio, adaptive: adaptiveFloor }),
     });
     const data = await r.json();
     if (data.error) { $("map-err").textContent = data.error; return; }
     lastMap = data;
+    mapByMode[data.adaptive ? "adaptive" : "fixed"] = data;
     renderMap(data);
     floorLabel(data);
   } catch (e) { $("map-err").textContent = String(e); }
@@ -1041,6 +1125,7 @@ async function runMap(floor, ratio) {
 }
 
 function dialsChanged() {
+  if (adaptiveFloor) { $("mode-fixed").click(); return; }   // dragging means you want it
   $("floor-v").textContent = parseFloat($("floor").value).toFixed(2);
   $("ratio-v").textContent = Math.round(parseFloat($("ratio").value) * 100) + "%";
   clearTimeout(floorTimer);
@@ -1067,14 +1152,9 @@ $("run-map").onclick = async () => {
   }
   $("run-map").disabled = true;
   $("run-map").innerHTML = '<span class="spinner"></span>working';
-  try {
-    const r = await fetch("/api/compress", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, text }),
-    });
-    const data = await r.json();
-    if (data.error) $("map-err").textContent = data.error; else renderMap(data);
-  } catch (e) { $("map-err").textContent = String(e); }
+  // Through `runMap`, not around it: the dials and the floor mode are part of
+  // the request, and a second fetch here is a second thing to keep in step.
+  await runMap();
   $("run-map").disabled = false;
   $("run-map").textContent = "Compress";
 };
@@ -1105,9 +1185,31 @@ $("ab-sample").onclick = async () => {
   $("ab-sample").disabled = false;
 };
 
+/* Match the backing store to the box the stylesheet gives the canvas, in
+   device pixels, and then draw in CSS pixels. Without this the store's fixed
+   1200x500 is stretched across and squashed down by whatever the panel happens
+   to be -- labels twice as wide as they are tall, round markers as ellipses --
+   and blurred on any screen with a pixel ratio above 1. */
+function canvasBox(c) {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = c.getBoundingClientRect();
+  const W = Math.max(320, Math.round(rect.width) || 320);
+  const H = Math.max(160, Math.round(rect.height) || 250);
+  if (c.width !== Math.round(W * dpr) || c.height !== Math.round(H * dpr)) {
+    c.width = Math.round(W * dpr);
+    c.height = Math.round(H * dpr);
+  }
+  const g = c.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { g, W, H };
+}
+
 function drawChart() {
-  const c = $("chart"), g = c.getContext("2d");
-  const W = c.width, H = c.height, pad = { l: 66, r: 20, t: 20, b: 42 };
+  const c = $("chart");
+  const { g, W, H } = canvasBox(c);
+  // Top padding leaves room for the axis title ABOVE the highest gridline;
+  // at 20 the title and the top tick label sat on top of each other.
+  const pad = { l: 66, r: 20, t: 34, b: 42 };
   g.clearRect(0, 0, W, H);
   const all = [...series.parsimony, ...series.baseline];
   const maxT = Math.max(1, ...all.map((p) => p[0]));
@@ -1126,7 +1228,7 @@ function drawChart() {
     const t = maxT * i / 4;
     g.fillText(t.toFixed(1) + "s", X(t), H - pad.b + 20);
   }
-  g.textAlign = "left"; g.fillText("answer tokens", pad.l - 56, pad.t - 4);
+  g.textAlign = "left"; g.fillText("answer tokens", pad.l - 56, pad.t - 14);
   for (const [arm, pts] of Object.entries(series)) {
     if (!pts.length) continue;
     g.strokeStyle = COLOUR[arm]; g.lineWidth = 2.5; g.beginPath();
@@ -1142,6 +1244,14 @@ function drawChart() {
   }
 }
 drawChart();
+// The store is sized from the element's box, so the box changing invalidates
+// it. Debounced: a drag emits an event per pixel and the last one is the one
+// that matters.
+let chartResize = null;
+addEventListener("resize", () => {
+  clearTimeout(chartResize);
+  chartResize = setTimeout(drawChart, 120);
+});
 
 $("run-ab").onclick = () => {
   const question = $("abq").value.trim() || $("pq").value.trim() || $("q").value.trim();

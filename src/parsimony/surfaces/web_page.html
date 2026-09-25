@@ -48,6 +48,12 @@
               data-note="The repeat remover wants to delete the second date as a duplicate. The
               fidelity gate refuses, because the two dates differ. A saving correctly declined.">
         watch the gate refuse</button>
+      <button class="chip-b" data-q="When does the office close for Christmas?"
+              data-doc="1" data-note="Open the Heatmap and switch the floor to &ldquo;read off the
+              scores&rdquo;. Three sentences score 3.3x above the rest, the rule cuts there
+              instead of at 0.15, and the prompt loses a quarter of its tokens with the answer
+              still in it.">
+        read the floor off the scores</button>
       <button class="chip-b" data-q="What is the travel budget for Porto?"
               data-note="Run this twice. The first is a miss; the second is served from the
               cache, word for word, with the model never called. Then reword it slightly and
@@ -239,6 +245,13 @@
     <h2>The selection rule, and every exception to it
       <span class="hint">sentences sorted by score · the line is the relevance floor</span></h2>
 
+    <div class="modebar" id="modebar">
+      <span class="modelab">The floor is</span>
+      <button class="mode on" id="mode-fixed" aria-pressed="true">a constant you choose</button>
+      <button class="mode" id="mode-adaptive" aria-pressed="false">read off the scores</button>
+      <span class="modewhy" id="mode-why"></span>
+    </div>
+
     <div class="dial" id="dial">
       <label for="floor">Relevance floor</label>
       <input type="range" id="floor" min="0" max="0.30" step="0.01" value="0.15">
@@ -266,7 +279,35 @@
       the sentences were being found and then discarded. Move both and watch which one is
       actually biting.
     </div>
-    <div class="profilewrap"><svg id="profile" height="190" preserveAspectRatio="none"></svg></div>
+    <div class="note" id="adaptive-note" hidden>
+      <b>Why a rule beats a number.</b> ADR-050 measured that no single constant is right: 0.15
+      suits a question whose evidence is concentrated under one high score, and refuses the
+      second hop of a multi-hop question, which scores low <i>against the question</i> because it
+      matches what the first hop said. So the floor stops being a number and becomes a reading of
+      the sorted scores &mdash; find where they <b>fall off a cliff</b>, measured as a ratio
+      between adjacent ranks rather than a difference. A collapse from 0.22 to 0.03 is a
+      difference of only 0.19; a flat band of strong sentences, 1.00 to 0.75, is a bigger one.
+      Differences near the top of the range swamp collapses near the bottom, which is backwards.
+      A halving is a halving wherever it lands.
+      <br><br>
+      No cliff means the scores are a smooth ramp, and the honest reading of that is not
+      &ldquo;be permissive&rdquo; but &ldquo;this says nothing&rdquo; &mdash; so the constant is
+      used. The rule only ever departs from measured behaviour where it has something to depart
+      on.
+      <br><br>
+      <b>Measured, model-free, on 81 held-out corpus items with evidence</b> (<code>parsimony
+      floor</code>). Under the encoder that ships, it keeps <b>exactly the same evidence</b> as
+      the constant &mdash; 100 of 101 answer spans, both &mdash; while sending <b>26.6% of the
+      context against 27.0%</b>, and on questions the documents cannot answer, <b>4.2% against
+      5.3%</b>: a fifth less, because nothing there produces a cliff worth cutting at. Lowering
+      the constant to 0.05, which is what ADR-050 recommended, buys <b>nothing</b> here and costs
+      6.8 points.
+      <br><br>
+      It is <b>off by default</b>, and that is the honest part: 0.4 points of context is not a
+      reason to move a default four ADRs of measurement sit behind. What it replaces is the
+      <i>remedy</i> &mdash; reach for this instead of the lower constant (ADR-051).
+    </div>
+    <div class="profilewrap"><svg id="profile" height="190"></svg></div>
     <div class="legend">
       <span><span class="swatch" style="background:var(--keep)"></span>kept</span>
       <span><span class="swatch" style="background:#3a4150"></span>dropped</span>
@@ -274,6 +315,9 @@
         anchor, or pulled in by dependency closure</span>
       <span><span class="swatch" style="background:var(--drop)"></span>dropped above it — the budget
         ran out</span>
+      <span id="legend-cliff" hidden><span class="swatch"
+        style="background:var(--keep);opacity:.4"></span>the cliff the floor was read from — the
+        steepest fall between two adjacent ranks</span>
     </div>
     <div class="note" id="profile-note"></div>
   </div>
@@ -322,7 +366,9 @@
 
   <div class="panel">
     <h2>Answer tokens produced over time</h2>
-    <canvas id="chart" width="1200" height="500"></canvas>
+    <!-- Sized by the script from its own box, in device pixels; the attributes
+         here are only what it draws at before the first frame. -->
+    <canvas id="chart"></canvas>
     <div class="legend">
       <span><span class="swatch" style="background:var(--keep)"></span>parsimony</span>
       <span><span class="swatch" style="background:var(--warn)"></span>baseline (full context)</span>

@@ -385,6 +385,23 @@ rather than absorbed. Running it also surfaced three silent failures invisible t
 (ADR-045, ADR-047, and an embedding batch limit). *(Answers RQ1 from outside; addresses the validity threat
 that a self-authored corpus cannot.)*
 
+**Contribution 6 — A tuned threshold replaced by a rule that reads its own trade-off.** Sweeping the two
+constraints of the context selector showed that the **relevance floor**, not the token budget and not
+detection, was what bound multi-hop recall, and that no single value of it is right: 0.15 suits a question
+whose evidence is concentrated under one high score and refuses the second hop of a multi-hop one, which
+scores low against the question by construction (ADR-050). Six mechanisms built to *find* those sentences
+had already failed, because the sentences were being found and then discarded. The response was not a
+seventh mechanism or a re-tuned constant but to stop treating the threshold as a number: the floor is read
+off the sorted scores, at the steepest **fall** between adjacent ranks — a ratio, not a difference, which is
+the distinction the first version got backwards — and where there is no such break the measured constant
+stands, because a smooth ramp says nothing. On 81 held-out corpus items it keeps **exactly the same
+evidence** as the constant while sending **less context on every split**, including a fifth less on
+questions the documents cannot answer; and it shows that the remedy the previous entry published, lowering
+the constant, buys **nothing** under the encoder that ships while costing 6.8 points of context. The
+default is unchanged, because a 0.4-point saving is not a reason to move one (ADR-051). *(Answers RQ1;
+demonstrates the project's governing method — that the honest form of a tuned threshold is a rule with its
+trade-off attached.)*
+
 <div class="pagebreak"></div>
 
 

@@ -1526,6 +1526,82 @@ def longbench(
 
 
 @app.command()
+def floor(
+    encoder: str = typer.Option("best", "--encoder",
+                                help="best: the neural encoder when Ollama is reachable, which "
+                                     "is what ships. lexical: content-v1, for the comparison -- "
+                                     "the encoder decides the scores the floor is read from, so "
+                                     "a table that does not name it says nothing (ADR-046)."),
+    out: Path = typer.Option(None, "--out",
+                             help="Where to write this encoder's rows. The default is named "
+                                  "after the encoder, because the committed table "
+                                  "figures/adaptive_floor.csv carries BOTH and belongs to "
+                                  "reproduce.py."),
+) -> None:
+    """The relevance floor set, lowered, and read off the scores (ADR-050, ADR-051).
+
+    No model: this asks whether the answer SURVIVED selection and what it cost
+    in context, both of which are properties of the text. Deterministic, so it
+    cannot disagree with itself between runs the way accuracy can.
+
+    The measurement itself lives in `eval.longctx.floor_rows`, shared with the
+    reproduction run -- an experiment with two implementations is two
+    experiments.
+    """
+    import csv
+
+    from parsimony.eval import longctx as lc
+    from parsimony.eval.stats import mcnemar_exact
+
+    base = (replace(full_stack(), embedder_id="content-v1") if encoder == "lexical"
+            else pick_encoder(full_stack()))
+    console.print(f"[dim]Encoder: {base.embedder_id}. The floor is read off the scores this "
+                  f"encoder produces, so these rows belong to it and to nothing else "
+                  f"(ADR-046). Run `--encoder lexical` for the other half.[/dim]")
+    with console.status("[bold green]selecting under each floor rule"):
+        rows, complete = lc.floor_rows(base)
+
+    table = Table(title=f"The relevance floor: set, lowered, and read — {base.embedder_id}",
+                  header_style="bold")
+    for col, just in (("split", "left"), ("floor", "left"), ("answer spans kept", "right"),
+                      ("items with every span", "right"), ("context sent", "right")):
+        table.add_column(col, justify=just)
+    seen = None
+    for r in rows:
+        table.add_row("" if r["split"] == seen else r["split"], r["floor"],
+                      f"{r['spans_kept']}/{r['spans']}" if r["spans"] else "-",
+                      f"{r['items_complete']}/{r['items_with_evidence']}"
+                      if r["items_with_evidence"] else "-",
+                      f"{r['context_pct']}%",
+                      end_section=r["floor"].startswith("read"))
+        seen = r["split"]
+    console.print(table)
+
+    # The shipped arm by position, not by rebuilding its label: two places
+    # formatting the same string is one reword away from a KeyError here.
+    shipped, reading = list(lc.floor_arms(base))[0], list(lc.floor_arms(base))[-1]
+    was, now = complete[("held out", shipped)], complete[("held out", reading)]
+    gained = sum(1 for x, y in zip(was, now) if y and not x)
+    lost = sum(1 for x, y in zip(was, now) if x and not y)
+    console.print(f"[dim]Held out: the reading recovers {gained} item(s) the constant lost and "
+                  f"loses {lost}. McNemar exact p = {mcnemar_exact(gained, lost):.3f} - on its "
+                  f"own that is not evidence, and it is not claimed as any. What is not a coin "
+                  f"flip is the PRICE: lowering the constant buys the same evidence for several "
+                  f"times the context, and on off-topic questions the reading is cheaper than "
+                  f"shipped where the lower constant is dearer. The default is unchanged "
+                  f"(ADR-051).[/dim]")
+
+    destination = out or Path("figures") / f"adaptive_floor_{base.embedder_id.replace(':', '_')}.csv"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    console.print(f"[dim]wrote {destination}; figures/adaptive_floor.csv, which carries both "
+                  f"encoders, is written by reproduce.py[/dim]")
+
+
+@app.command()
 def longctx(
     provider: str = typer.Option("mock", "--provider",
                                  help="mock: which answers survive compression, no model needed. "

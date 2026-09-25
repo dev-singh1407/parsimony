@@ -2299,3 +2299,118 @@ tuned threshold is a curve with its trade-off attached, which is what §13 now c
 An adaptive floor — lower it when the question looks multi-hop — is the obvious next move and is **not**
 proposed here, because both halves of the LongBench data have now been spent and there is nothing left to
 confirm it on. Proposing it untested is the thing the last six entries in this log exist to discourage.
+
+
+### ADR-051 — The floor stops being a number and becomes a reading of the score distribution
+
+**Status.** Accepted as a mechanism; **off by default**, and recommended in place of lowering the constant
+for anyone whose traffic is multi-hop. 25 September 2026.
+
+**Context, and the objection this has to answer first.** ADR-050 ends by naming an adaptive floor as the
+obvious next move and refusing to propose it, on the grounds that both halves of the LongBench data had
+been spent. That objection stands, and it shapes this entry:
+
+* **No question-type detector.** ADR-050's sketch was “lower it when the question looks multi-hop”. That
+  needs a classifier, and a classifier is a seventh mechanism of the kind the six before it were. The rule
+  here never looks at the question. It looks at the shape of the scores, which is *where the multi-hop
+  problem shows up* — ADR-050's own diagnosis was that second-hop evidence scores low against the question
+  because it matches what the first hop said, and a flat band is what that produces.
+* **No LongBench.** Nothing below was measured on it. The corpus's own `dev`, `test`, `test2` and
+  `offtopic` splits are unspent for this change, and they contain 15 `two_hop` items of their own.
+
+**The rule.** Sort the scores. Take the head — the sentences the budget could actually afford, since the
+floor decides nothing outside it. Find the steepest fall between adjacent ranks. If it is steep enough, put
+the floor in the middle of it; otherwise use the constant.
+
+**A fall, not a gap, and that is the whole finding.** The first version measured the drop as a subtraction
+and made things worse, costing as much as floor 0.05 for the recall of 0.15. Reading the development items'
+score profiles said why:
+
+| profile | largest subtractive gap | largest fall |
+|---|---|---|
+| `1.00 0.29 0.22 \| 0.03 0.03 0.02` — a collapse into noise | 0.19 | **7.3×** |
+| `1.00 0.94 0.89 0.73 0.72 0.69` — a flat band of strong sentences | **0.25** | 1.3× |
+
+Differences near the top of the range swamp collapses near the bottom, so the additive rule was cutting the
+flat band and keeping the noise — exactly backwards. A halving is a halving wherever it lands.
+
+**No cliff means the constant, not permissiveness.** The first version dropped to its minimum whenever it
+failed to find a break, which made “I cannot read this” both the commonest branch (85% of calls) and the
+most expensive one. The honest reading of a smooth ramp is that it says nothing, so the measured constant
+stands and the rule departs from shipped behaviour only where it has something positive to depart on.
+
+**Measured.** Evidence recall and context cost, model-free and deterministic: `parsimony floor`,
+seconds, no model calls. The threshold was fixed at 2.0× — “the score halves” — before the held-out
+splits were run. **Both encoders are reported, because the encoder produces the scores the floor is read
+from and a floor table that does not name it says nothing (ADR-046).**
+
+Both encoders are in `figures/adaptive_floor.csv`, which `reproduce.py` writes;
+`parsimony floor` runs one at a time. Under the encoder that ships, `ollama:all-minilm`:
+
+| | | spans kept | items with every span | context sent |
+|---|---|---|---|---|
+| **development**, 23 items | floor 0.15 (shipped) | 25/25 | 23/23 | 30.2% |
+| | floor 0.05 | 25/25 | 23/23 | 34.4% |
+| | **read off the scores** | 25/25 | 23/23 | **29.7%** |
+| **held out**, 81 items with evidence | floor 0.15 (shipped) | 100/101 | 80/81 | 27.0% |
+| | floor 0.05 | 100/101 | 80/81 | 33.8% |
+| | **read off the scores** | 100/101 | 80/81 | **26.6%** |
+| **off topic**, 12 items | floor 0.15 (shipped) | — | — | 5.3% |
+| | floor 0.05 | — | — | 6.5% |
+| | **read off the scores** | — | — | **4.2%** |
+
+**Recall is identical across all three, on every split, and the reading is the cheapest of the three on
+every split.** Held out it sends 26.6% where the constant sends 27.0%; on questions the documents cannot
+answer it sends **4.2% against 5.3%, a fifth less**, because a question with nothing to match produces no
+cliff worth cutting at and the rule tightens where the constant cannot.
+
+The sharper result is what it says about ADR-050's own remedy: **under the encoder we ship, lowering the
+constant to 0.05 buys nothing at all on this corpus and costs 6.8 points of context.** ADR-050 measured
+that trade on LongBench and said it was poor for single-hop; this says how poor, on our own data, under the
+configuration that actually runs.
+
+Under the lexical encoder, `content-v1` (`parsimony floor --encoder lexical`), the picture is
+different and worth keeping:
+
+| held out, 81 items | spans kept | items with every span | context sent |
+|---|---|---|---|
+| floor 0.15 (shipped) | 97/101 | 77/81 | 22.4% |
+| floor 0.05 | 98/101 | 78/81 | 29.7% |
+| **read off the scores** | **98/101** | **78/81** | **24.1%** |
+
+Here the constant does lose an item, and both remedies recover it — the reading for **+1.7 points of
+context where lowering the constant needs +7.3**. That one item is a single discordant pair, McNemar
+p = 1.000, and is not claimed as a result on its own; the price of it is a deterministic token count and is.
+
+**The two encoders disagree about which problem the floor has**, and both agree about the fix. On the
+neural scores the constant is not losing evidence, only over-spending; on the lexical scores it is doing
+both. The reading is the cheaper answer either way, which is more than could be said for it if only one
+encoder had been run — and running only one is how this was nearly reported wrong.
+
+**It is not a knife edge, and the same value survives both encoders.** Sweeping the threshold on the
+held-out splits after the fact, every value tried above 1.5× holds recall exactly — 1.8× to 6.0× under
+the neural encoder (99.0%, 100 of 101 spans) and 1.8× to 4.0× under the lexical one (97.0%, 98 of 101). Cost
+rises smoothly back toward the constant as the threshold rises, because a stricter definition of a cliff
+finds fewer of them.
+
+**Only 1.5× loses an answer — and 1.5× is the value the development sweep preferred**, because recall was
+saturated on those 23 items and cost was the only criterion visible there. Choosing the principled value,
+“the score halves”, over the development-optimal one is the single decision this result rests on.
+
+**Decision: ship the mechanism, leave the default off.** The saving under the shipped encoder is real and
+consistent — cheaper on all three splits, never at a cost in recall — but on the split that decides things
+it is **0.4 points of context**, and four tenths of a point is not a reason to move a default that four
+ADRs of measurement sit behind. The number that would justify moving it, a recall gain, is not there under
+the encoder that ships. The one place the saving is worth having on its own — off-topic questions, 1.1
+points, a fifth of what that arm sends — is also the place the system is already cheapest in absolute
+terms.
+
+Where it is decisive is against *floor 0.05*, and floor 0.05 is exactly what ADR-050 tells an operator with
+multi-hop traffic to reach for. So `context_adaptive_floor` is what they should reach for instead: the same
+recall for a quarter of the extra context on the lexical scores, and nothing to pay at all on the neural
+ones, where the lower constant is pure cost.
+
+**Consequence.** ADR-050 said the honest form of a tuned threshold is a curve with its trade-off attached.
+This is the next form after that: a threshold that reads its own trade-off off the data in front of it. The
+Heatmap tab carries both — the floor as a dial you drag, and the floor as a reading, with the cliff it was
+taken from drawn on the score profile and the difference between the two stated in sentences.

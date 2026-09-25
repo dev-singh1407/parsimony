@@ -220,6 +220,7 @@ Counter-intuitive, and it is what separates a project from a report. Pick **one*
 | `.\demo.ps1 demo` | 19 s | The older scripted walkthrough, six sections |
 | `.\demo.ps1 web` | live | The visualiser in a browser: sentence heatmap, A/B against the real model, demo counters |
 | `.\demo.ps1 proof` | 10 s | A PDF of the compressed prompt, every removal struck through and labelled |
+| `.\demo.ps1 floor` | 90 s | The relevance floor set, lowered, and read off the score distribution (ADR-051) |
 
 **The visualiser, if the room has a projector.** `.\demo.ps1 web` opens a local page — no install, no
 network. Paste or load a document, ask a question, and every sentence is shaded by the score the encoder
@@ -229,6 +230,30 @@ loud that they run **one after the other**, because two generations on one CPU w
 rather than compression, and that the model is warmed first so neither arm pays the weight load. The Demo
 tab is two counters large enough to read from the back — and the seconds counter says *estimated* unless
 this machine timed the rate itself, which is worth pointing at rather than hiding.
+
+**The strongest ninety seconds on that page.** Open the Heatmap, pick the chip **read the floor off the
+scores**, press Compress, then switch *The floor is* from **a constant you choose** to **read off the
+scores**. The chart keeps its bars; a green band appears between two of them, labelled with how steeply the
+score fell there, and the line moves from 0.15 to 0.35. The page states the difference in a sentence: three
+sentences fewer, 56 tokens fewer, with the answer still in the prompt.
+
+> “The threshold here was 0.15. We measured that no single value is right — it suits a question whose
+> evidence is concentrated and refuses the second hop of a multi-hop one, which scores low against the
+> question by construction. So we stopped setting it. The rule looks at the sorted scores, finds where they
+> fall off a cliff, and cuts there; where there is no cliff it uses the constant, because a smooth ramp
+> tells you nothing. On 81 held-out items it keeps exactly the same evidence as the constant and sends less
+> context than either the constant or the lower one — and on questions the documents cannot answer, a fifth
+> less. It is still *off by default*, because the saving is 0.4 points and that is not a reason to move a
+> default four ADRs of measurement sit behind.”
+
+**The best question they can ask is why it is off by default, and the answer is the strongest thing here:**
+the mechanism wins decisively against *the remedy we ourselves published* — ADR-050 told an operator to
+lower the constant, and under the encoder we ship that buys nothing on this corpus and costs 6.8 points of
+context. So it is documented as the thing to reach for instead of that remedy, not as a new default.
+
+Run `.\demo.ps1 floor` for the table, and run it twice — `--encoder lexical` gives different numbers,
+because the encoder produces the scores the floor is read from. The two encoders disagree about what is
+wrong with the constant and agree about the fix, and saying so out loud is worth more than either table.
 
 **Do not run live:** `latency` (3–4 min) and `judge` (5–10 min). Quote their numbers from §8 of the findings
 instead, or run them beforehand and show the scrollback.

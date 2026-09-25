@@ -463,6 +463,14 @@ def context_panel(outcome) -> Panel | None:
     if before_t:
         notes.append(f"{before_t} -> {after_t} tokens of context "
                      f"({100 * (before_t - after_t) / before_t:.0f}% removed); {stop}.")
+    # Only when the floor was READ rather than configured (ADR-051). Printing
+    # "the floor was 0.15" on every request would be noise: 0.15 is what the
+    # settings already say. A floor taken off this question's own scores is not
+    # recoverable from anything else the reader can see.
+    if ev.get("floor_read"):
+        why = ev.get("floor_why") or ""
+        notes.append(f"The relevance floor was read off this question's own scores rather "
+                     f"than set: {ev['relevance_floor']:.2f}, because {why}.")
     notes.append("No sentence was reworded, and the safety check confirmed it.")
 
     return Panel(Group(body, Text(""), Text("\n".join(notes), style="dim")),

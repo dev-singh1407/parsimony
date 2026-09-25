@@ -21,7 +21,7 @@ VIT University · B.Tech BCSE497J Project I · Guide: Dr Sathya K
 python reproduce.py --out figures
 ```
 
-**1,190 tests passing.** Every table below regenerates from a live run in ~40 s. Setup and commands:
+**1,217 tests passing.** Every table below regenerates from a live run in ~40 s. Setup and commands:
 [`docs/08-setup.md`](docs/08-setup.md).
 
 | Module | State |
@@ -212,7 +212,30 @@ finding came from, 78.9% → 89.5% on the twenty it had never seen. **The defaul
 our own corpus the same move buys 94.8% → 96.6% against an accuracy already at 40/45, so the trade is good
 for multi-hop and poor for single-hop. There is no single right value, and re-tuning the default to
 whichever benchmark was measured last is the failure this project is written against. The curve ships
-instead (ADR-050). And **retention does not rank the methods on its own**: BM25 keeps 93.1% and scores
+instead (ADR-050).
+
+**So the next entry stopped treating it as a number.** If no constant is right, the floor should be read
+off the data: sort the scores, look only at what the budget could afford, find the steepest *fall* between
+adjacent ranks — a ratio, not a difference — and cut there; where the scores are a smooth ramp with no
+break in them, use the constant, because a ramp says nothing. Model-free, deterministic,
+`parsimony floor`, on 81 held-out corpus items with evidence:
+
+| under `ollama:all-minilm`, what ships | spans kept | items with every span | context sent |
+|---|---|---|---|
+| floor 0.15 (shipped) | 100/101 | 80/81 | 27.0% |
+| floor 0.05 (ADR-050's remedy) | 100/101 | 80/81 | 33.8% |
+| **read off the scores** | 100/101 | 80/81 | **26.6%** |
+
+**Identical recall, and the cheapest arm on every split** — including off-topic questions, where it sends
+**4.2% against the constant's 5.3%**, because nothing there produces a cliff worth cutting at. It also puts
+a number on ADR-050's own remedy: under the encoder we ship, lowering the constant buys **nothing** on this
+corpus and costs 6.8 points. Under the lexical encoder the constant does lose an item, and the reading
+recovers it for +1.7 points where the lower constant needs +7.3 — the two encoders disagree about what is
+wrong with the constant and agree about the fix. The default still does not move, because 0.4 points is not
+a reason to move one; `context_adaptive_floor` is what to reach for instead of the lower constant
+(ADR-051). The Heatmap tab draws the cliff it was read from.
+
+And **retention does not rank the methods on its own**: BM25 keeps 93.1% and scores
 34/45 where we keep 98.3% and score 40/45, because it sends its sentences in rank order while we emit them
 in the document's own, with the sentence a pronoun depends on still in front of it. Full argument in
 [§13](docs/09-findings.md).
@@ -370,7 +393,7 @@ module — the same distinction as ADR-028.
 | [`docs/00-architecture.md`](docs/00-architecture.md) | Layering, core data model, orchestrator, stage ordering, repo layout, cross-cutting concerns |
 | [`docs/01-pipeline-stages.md`](docs/01-pipeline-stages.md) | The eight processing stages, each with objective / inputs / outputs / techniques / libraries / pros / cons / alternatives / recommendation / integration |
 | [`docs/02-module-specs.md`](docs/02-module-specs.md) | M1–M8 internals and ablation wiring |
-| [`docs/03-decision-log.md`](docs/03-decision-log.md) | 50 ADRs with justification and consequences. **The intellectual core** — several record where measurement contradicted the plan |
+| [`docs/03-decision-log.md`](docs/03-decision-log.md) | 51 ADRs with justification and consequences. **The intellectual core** — several record where measurement contradicted the plan |
 | [`docs/04-roadmap.md`](docs/04-roadmap.md) | Re-planned 12-week schedule, sprint plan, milestone gates, scope-cut order, risks |
 | [`docs/05-evaluation-harness.md`](docs/05-evaluation-harness.md) | The compute budget problem and its fix; sweep runner; four quality measures; statistics; validity threats |
 | [`docs/06-contracts.md`](docs/06-contracts.md) | Complete L0 type and protocol definitions + the ledger schema. **Review this first** |

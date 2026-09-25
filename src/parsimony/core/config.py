@@ -87,6 +87,30 @@ class CompressionConfig:
     # even when the budget has room: padding a narrow answer with noise costs
     # prefill and gives a small model more to be distracted by.
     context_relevance_floor: float = 0.15
+    # ...and the same threshold read off the distribution instead (ADR-051).
+    # ADR-050 measured that no single constant is right: 0.15 suits the peaked
+    # score profile of a single-hop question and refuses second-hop evidence,
+    # which sits in a flat band by construction. `elbow_floor` looks for the
+    # cliff instead, so it tightens where the evidence is concentrated and
+    # stands down where it is spread.
+    #
+    # OFF by default, having been measured: on 81 held-out corpus items it keeps
+    # exactly the same evidence as the constant while sending less context on
+    # every split (26.6% against 27.0% held out, 4.2% against 5.3% off-topic) --
+    # real, consistent, and too small to move a default that four ADRs sit
+    # behind. Turn it on in place of LOWERING the constant, which is the
+    # comparison it wins outright: floor 0.05 buys nothing here and costs 6.8
+    # points. `parsimony floor` regenerates both tables.
+    context_adaptive_floor: bool = False
+    #: How steeply the scores must fall between adjacent ranks to count as a
+    #: cliff rather than noise, as a RATIO -- 2.0 means the score halves.
+    context_elbow_min_fall: float = 2.0
+    #: The cliff may not fall before this rank, so one dominant sentence cannot
+    #: collapse the context to itself.
+    context_elbow_min_keep: int = 3
+    #: The adaptive floor is clamped to the range the constant was measured over.
+    context_elbow_floor_min: float = 0.02
+    context_elbow_floor_max: float = 0.35
     context_mmr_lambda: float = 0.75
     # Blend of embedder cosine into the BM25 score. Lexical encoders mostly
     # restate BM25, so the weight is small until a neural encoder is attached.

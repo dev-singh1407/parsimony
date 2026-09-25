@@ -174,13 +174,16 @@ class Visualiser:
     # -- heatmap ---------------------------------------------------------
 
     def compress(self, question: str, text: str, name: str = "pasted text",
-                 floor: float | None = None, ratio: float | None = None) -> dict:
+                 floor: float | None = None, ratio: float | None = None,
+                 adaptive: bool | None = None) -> dict:
         """One question against one document, with the decision on every sentence.
 
         `floor` overrides the relevance floor for this call only, so the page
-        can sweep it without restarting anything. The shipped value is 0.15 and
-        is NOT changed by asking for another one here (ADR-050): this shows the
-        curve, it does not re-tune the system.
+        can sweep it without restarting anything, and `adaptive` asks for it to
+        be read off the score distribution instead of set at all (ADR-051).
+        Neither changes what the system ships -- the shipped floor is 0.15 and
+        the shipped mode is the constant. This page shows the curve and the
+        rule; it does not re-tune anything.
         """
         from dataclasses import replace as _replace
 
@@ -193,6 +196,11 @@ class Visualiser:
             overrides["context_relevance_floor"] = floor
         if ratio is not None:
             overrides["context_target_ratio"] = ratio
+        if adaptive is not None:
+            # In adaptive mode the floor slider stops being an input: the rule
+            # reads it off the score distribution and the page shows where it
+            # landed. Sending one anyway would draw a line the run did not use.
+            overrides["context_adaptive_floor"] = bool(adaptive)
         if overrides:
             cfg = _replace(cfg, compression=_replace(cfg.compression, **overrides))
         documents = split_into_documents(text, name)
@@ -216,7 +224,16 @@ class Visualiser:
             # The thresholds the page draws its lines at. Sent rather than
             # hard-coded in the script: a page that draws a boundary the
             # configuration has moved is worse than one that draws none.
-            "floor": cfg.compression.context_relevance_floor,
+            # The floor in force, which in adaptive mode is a reading of THIS
+            # question's scores and cannot be recomputed anywhere else.
+            "floor": round(report.floor.value, 4),
+            "floor_why": report.floor.why,
+            "floor_read": report.floor.read,
+            "cliff_rank": report.floor.rank,
+            "cliff_fall": round(report.floor.fall, 2),
+            "adaptive": cfg.compression.context_adaptive_floor,
+            "shipped_adaptive": self.cfg.compression.context_adaptive_floor,
+            "fixed_floor": cfg.compression.context_relevance_floor,
             "shipped_floor": self.cfg.compression.context_relevance_floor,
             "ratio": cfg.compression.context_target_ratio,
             "shipped_ratio": self.cfg.compression.context_target_ratio,
@@ -661,10 +678,12 @@ def make_handler(vis: Visualiser):
 
                 floor = _dial("floor", 0.0, 1.0)
                 ratio = _dial("ratio", 0.01, 1.0)
+                adaptive = payload.get("adaptive")
+                adaptive = None if adaptive is None else bool(adaptive)
                 try:
                     self._json(vis.compress(question, text,
                                             payload.get("name") or "pasted text",
-                                            floor, ratio))
+                                            floor, ratio, adaptive))
                 except Exception as exc:                      # a visualiser must not 500 silently
                     self._json({"error": f"{type(exc).__name__}: {exc}"}, 500)
             else:

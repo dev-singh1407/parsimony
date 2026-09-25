@@ -114,3 +114,106 @@ class TestUnknownProviderIsReportedNotRaised:
         blob = result.output + str(result.exception or "")
         assert "bogus" in blob
         assert "mock" in blob and "ollama" in blob
+
+
+class TestTheLauncherAndTheCliAgree:
+    """`demo.ps1` is what runs in the room, and it reaches the CLI by name.
+
+    Nothing in the build could notice a launcher act invoking a command that
+    does not exist, or a help line advertising an act the switch does not
+    handle -- a PowerShell switch falls through to its default and a typo
+    becomes a stack trace in front of the guide.
+    """
+
+    LAUNCHER = ROOT / "demo.ps1"
+
+    def _text(self):
+        if not self.LAUNCHER.exists():
+            pytest.skip("demo.ps1 not present")
+        return self.LAUNCHER.read_text(encoding="utf-8")
+
+    def test_every_command_the_launcher_invokes_exists(self):
+        text = self._text()
+        invoked = {m.group(1) for m in re.finditer(r"Run-Cli ([a-z][\w-]*)", text)}
+        invoked -= {"@args"}
+        missing = invoked - cli_commands()
+        assert not missing, (
+            f"demo.ps1 runs {sorted(missing)}, which the CLI does not provide. "
+            f"Available: {sorted(cli_commands())}")
+
+    def test_every_act_the_help_advertises_is_handled(self):
+        text = self._text()
+        advertised = {m.group(1) for m in re.finditer(r"demo\.ps1 ([a-z0-9]+)", text)}
+        assert advertised, "no help lines found; this test would assert nothing"
+        handled = {m.group(1) for m in re.finditer(r'^\s{4}"([a-z0-9]*)" \{', text, re.M)}
+        # A name the switch does not handle is fine IF the CLI provides it:
+        # `default` forwards anything unrecognised straight through. What must
+        # not happen is a name that is neither, which reaches the CLI as an
+        # unknown command in front of the room.
+        missing = advertised - handled - cli_commands()
+        assert not missing, (
+            f"the launcher mentions {sorted(missing)}, which is neither an act it "
+            f"handles nor a command the CLI provides, so `default` would forward it "
+            f"and it would fail as an unknown command")
+
+
+class TestOneFloorExperimentNotTwo:
+    """`parsimony floor` and the reproduction run both report ADR-051's
+    comparison. They each computed it themselves at first, and had already
+    drifted -- different column names, and both writing
+    `figures/adaptive_floor.csv`, so whichever ran last decided what the
+    committed table meant.
+    """
+
+    def test_both_entry_points_call_the_shared_measurement(self):
+        from pathlib import Path
+
+        import parsimony.surfaces.cli.main as cli
+
+        root = Path(cli.__file__).resolve().parents[4]
+        for path in (Path(cli.__file__), root / "reproduce.py"):
+            if not path.exists():
+                pytest.skip(f"{path.name} not present")
+            source = path.read_text(encoding="utf-8")
+            assert "floor_rows" in source, (
+                f"{path.name} must go through longctx.floor_rows, not measure it again")
+
+    def test_the_splits_are_named_once(self):
+        from parsimony.eval.longctx import FLOOR_SPLITS
+
+        assert set(FLOOR_SPLITS) == {"development", "held out", "off topic"}
+        # Every split the corpus has is accounted for, so no items are quietly
+        # left out of the comparison.
+        from parsimony.eval.longctx import load_longctx
+
+        named = {s for names in FLOOR_SPLITS.values() for s in names}
+        present = {i.split for i in load_longctx()}
+        assert not present - named - {"offtopic_dev"}, (
+            f"these splits are in the corpus and in no floor group: "
+            f"{sorted(present - named - {'offtopic_dev'})}")
+
+    def test_the_shipped_arm_is_labelled_from_the_configuration(self):
+        """A literal "0.15 (shipped)" would keep that name after the default
+        moved, which is the one thing a results table must never do."""
+        from dataclasses import replace
+
+        from parsimony.core.config import full_stack
+        from parsimony.eval.longctx import floor_arms
+
+        cfg = full_stack()
+        moved = replace(cfg, compression=replace(cfg.compression,
+                                                 context_relevance_floor=0.22))
+        assert any("0.22" in label for label in floor_arms(moved))
+        assert not any("0.15" in label for label in floor_arms(moved))
+
+    def test_the_two_callers_cannot_write_the_same_file(self):
+        """The committed table carries both encoders; the command runs one. A
+        single path for both is how the committed one lost half its rows."""
+        from pathlib import Path
+
+        import parsimony.surfaces.cli.main as cli
+
+        source = Path(cli.__file__).read_text(encoding="utf-8")
+        assert 'Path("figures/adaptive_floor.csv")' not in source, (
+            "the command must not default to the path reproduce.py writes")
+        assert "adaptive_floor_{base.embedder_id" in source

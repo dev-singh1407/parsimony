@@ -63,6 +63,7 @@ switch ($act) {
         Write-Host "  .\demo.ps1 proof     the proof PDF, every removal labelled  ~10 s" -ForegroundColor Cyan
         Write-Host "  .\demo.ps1 tour      every module, one at a time, before/after" -ForegroundColor Cyan
         Write-Host "  .\demo.ps1 ask       type questions freely, no quotes" -ForegroundColor Cyan
+        Write-Host "  .\demo.ps1 floor     the threshold that reads itself          ~90 s" -ForegroundColor Cyan
         Write-Host ""
         Write-Host "  .\demo.ps1 1         what the system does          ~40 s"
         Write-Host "  .\demo.ps1 2         the gate blocking a bad edit  ~5 s"
@@ -170,6 +171,16 @@ switch ($act) {
         # Instant without a model: it reports which history strategy keeps the
         # fact the final question needs. With --provider ollama it also asks.
         Run-Cli followups @rest
+    }
+
+    "floor" {
+        # No model and deterministic, but not instant: three floor rules over
+        # three splits with the neural encoder scoring every sentence is ~90 s.
+        # The one act that shows a threshold being replaced by a rule rather
+        # than re-tuned.
+        Show-Banner "F" "A threshold that reads itself" `
+            "0.15 was a choice with a measured price. This reads the floor off the score distribution instead - same evidence, less context, and a fifth less on questions the documents cannot answer."
+        Run-Cli floor @rest
     }
 
     "recall" {

@@ -134,6 +134,10 @@ class Selection:
     stopped_by: StopReason
     coverage: float = 1.0                # question terms present in the context
     off_topic: bool = False
+    #: The floor this selection actually used, and the reading that produced it.
+    #: Constant when `context_adaptive_floor` is off; when it is on, nothing
+    #: outside `select()` can recompute it, so it travels with the result.
+    floor: "FloorReading" = field(default_factory=lambda: FloorReading(0.0, "not applicable"))
     #: unit index -> (tag, detail). Every unit appears exactly once, so a
     #: surface can state WHY each sentence went or stayed instead of showing a
     #: kept set and leaving the reader to guess. Tags name decisions this
@@ -176,6 +180,8 @@ class ContextAudit:
     anchors: dict
     applied: bool
     note: str = ""
+    #: The floor in force for this request -- see `Selection.floor`.
+    floor: "FloorReading" = field(default_factory=lambda: FloorReading(0.0, "not applicable"))
 
     @property
     def removed_tokens(self) -> int:
@@ -296,6 +302,86 @@ def _mentions(value: str, text: str) -> bool:
     return re.search(f"{left}{re.escape(value)}{right}", text, re.IGNORECASE) is not None
 
 
+@dataclass(frozen=True, slots=True)
+class FloorReading:
+    """The floor in force for one request, and the reading that produced it."""
+
+    value: float
+    #: One sentence, for a reader. Never parsed: everything a surface needs to
+    #: draw the reading is a field of its own.
+    why: str
+    #: 0-based rank the cliff falls after, in score order; -1 when there is none.
+    rank: int = -1
+    #: How steeply the scores fell there, as a ratio. 0.0 when there is no cliff.
+    fall: float = 0.0
+    #: True when this came from reading a distribution -- including a reading
+    #: that found no cliff and fell back to the constant, which is a result.
+    #: False for the configured constant, and for paths that never reach the
+    #: floor at all. Surfaces branch on this, never on the wording of `why`.
+    read: bool = False
+
+
+def elbow_floor(rel: list[float], units: list["Unit"], budget: int, c) -> FloorReading:
+    """Where the sorted scores fall off a cliff, as a floor.
+
+    The floor only ever decides between sentences the budget could afford, so
+    the shape that matters is the shape of that head -- not of the several
+    hundred sentences below it, which are near zero on any long document and
+    would drag every summary statistic to the same place.
+
+    Within the head, the cliff is the steepest FALL between adjacent ranks --
+    a ratio, not a difference. That distinction is the whole rule: measured on
+    the development items, `1.00 0.29 0.22 | 0.03` is a collapse into noise
+    whose largest additive gap is only 0.19, while `1.00 0.94 0.89 0.73` is a
+    flat band of strong sentences whose largest additive gap is 0.25 -- bigger.
+    Differences near the top of the range swamp collapses near the bottom,
+    which is exactly backwards. A halving is a halving wherever it happens.
+
+    A cliff means the evidence is concentrated and the rest is padding, so the
+    floor goes into the middle of the fall and selection stops early, under
+    budget -- the middle rather than the lower lip because no score lies
+    strictly between two adjacent ranks, so both keep the same sentences and
+    the midpoint sits furthest from either. No
+    cliff means the scores are a smooth ramp with no natural break in it, and
+    the honest reading of that is not "be permissive" but "this says nothing":
+    the constant is what gets used, so the rule only ever departs from measured
+    behaviour where it has something positive to depart on.
+
+    Two guards keep it from being clever at the wrong moment. The cliff must be
+    at rank `context_elbow_min_keep` or later, so one dominant sentence cannot
+    collapse the context to itself; and the result is clamped, so an unusual
+    distribution cannot produce a floor outside the range the constant was
+    ever measured over.
+    """
+    order = sorted(range(len(rel)), key=lambda i: rel[i], reverse=True)
+    head, used = [], 0
+    for i in order:
+        if used and used + units[i].tokens > budget:
+            break
+        head.append(rel[i])
+        used += units[i].tokens
+    lo, hi = c.context_elbow_floor_min, c.context_elbow_floor_max
+    fixed = min(hi, max(lo, c.context_relevance_floor))
+    if len(head) < c.context_elbow_min_keep + 2:
+        # Too few candidates to read a shape from; the constant is as good a
+        # guess as any and is what the rest of the system was measured with.
+        return FloorReading(fixed, f"only {len(head)} candidates fit the budget, "
+                                   f"too few to read a shape from", read=True)
+    falls = [(head[k] / head[k + 1] if head[k + 1] > 0 else float("inf"), k)
+             for k in range(c.context_elbow_min_keep - 1, len(head) - 1)]
+    fall, k = max(falls)
+    if fall < c.context_elbow_min_fall:
+        return FloorReading(fixed, f"no cliff: the steepest fall over {len(head)} candidates "
+                                   f"is {fall:.1f}x, under the {c.context_elbow_min_fall:.1f}x "
+                                   f"a break has to be", read=True)
+    # The midpoint of the cliff, not its lower lip: no score lies strictly
+    # between two adjacent ranks, so this keeps exactly the same sentences
+    # while sitting as far from either as it can.
+    return FloorReading(min(hi, max(lo, (head[k] + head[k + 1]) / 2.0)),
+                        f"the scores fall {fall:.1f}x after rank {k + 1} of {len(head)}",
+                        k, fall, read=True)
+
+
 def select(query: str, units: list[Unit], cfg: ParsimonyConfig,
            dense: list[float] | None = None,
            titles: dict[tuple[str, int], str] | None = None) -> Selection:
@@ -388,8 +474,10 @@ def select(query: str, units: list[Unit], cfg: ParsimonyConfig,
         if top is not None:
             why[top] = ("MATCH", "kept as the single closest sentence, so the context is not empty")
         return Selection(frozenset() if top is None else frozenset({top}), tuple(rel), {}, 0,
-                         budget, StopReason.OFF_TOPIC,
-                         coverage, True, why)
+                         budget, StopReason.OFF_TOPIC, coverage, True,
+                         floor=FloorReading(c.context_relevance_floor,
+                                            "not reached: the context is off topic"),
+                         reasons=why)
 
     kept: set[int] = set()
     used = 0
@@ -410,7 +498,10 @@ def select(query: str, units: list[Unit], cfg: ParsimonyConfig,
 
     stopped_by = StopReason.EXHAUSTED
     refused_for_room = 0
-    floor = c.context_relevance_floor
+    reading = (elbow_floor(rel, units, budget, c) if c.context_adaptive_floor
+               else FloorReading(c.context_relevance_floor, "the configured constant"))
+    floor = reading.value
+
     lam = c.context_mmr_lambda
     remaining = [i for i in range(len(units)) if i not in kept]
     while remaining:
@@ -485,7 +576,8 @@ def select(query: str, units: list[Unit], cfg: ParsimonyConfig,
 
     return Selection(frozenset(kept), tuple(rel),
                      {a: units[i].text for a, i in guaranteed.items()},
-                     closure_added, budget, stopped_by, coverage, False, why)
+                     closure_added, budget, stopped_by, coverage, False,
+                     floor=reading, reasons=why)
 
 
 def render_source(units: list[Unit], kept: frozenset[int]) -> str:
@@ -571,7 +663,9 @@ def audit(ctx: RequestContext, cfg: ParsimonyConfig) -> ContextAudit:
                         bool(selection and selection.off_topic),
                         selection.stopped_by if selection else "not applicable",
                         dict(selection.anchors) if selection else {},
-                        applied=selection is not None, note=note)
+                        applied=selection is not None, note=note,
+                        floor=selection.floor if selection
+                        else FloorReading(0.0, "selection did not run"))
 
 
 class ContextCompressor:
@@ -667,6 +761,12 @@ class ContextCompressor:
                 "anchors": dict(sel.anchors),
                 "closure_added": sel.closure_added,
                 "budget_tokens": sel.budget,
+                # The floor in force and how it was arrived at. Constant unless
+                # `context_adaptive_floor` is on, and then not recomputable from
+                # anything else in this row (ADR-051).
+                "relevance_floor": round(sel.floor.value, 4),
+                "floor_why": sel.floor.why,
+                "floor_read": sel.floor.read,
                 "stopped_by": sel.stopped_by,
                 "topical_coverage": round(sel.coverage, 3),
                 "off_topic": sel.off_topic,

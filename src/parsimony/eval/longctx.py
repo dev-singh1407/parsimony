@@ -268,6 +268,13 @@ def ablations(cfg: ParsimonyConfig) -> dict[str, ParsimonyConfig]:
         "no_doc_prior": replace(cfg, compression=replace(c, context_doc_weight=0.0)),
         "no_mmr": replace(cfg, compression=replace(c, context_mmr_lambda=1.0)),
         "no_floor": replace(cfg, compression=replace(c, context_relevance_floor=0.0)),
+        # The floor read off the score distribution instead of set (ADR-051),
+        # and the constant ADR-050 compared it against. Both arms are named so
+        # the comparison in that ADR regenerates from a sweep rather than being
+        # quoted from one.
+        "adaptive_floor": replace(cfg, compression=replace(c, context_adaptive_floor=True)),
+        "floor_005": replace(cfg, compression=replace(
+            c, context_relevance_floor=ADR050_FLOOR)),
     }
 
 
@@ -527,6 +534,81 @@ ARM_LABELS = {
     "random": "random sentences",
     "stopwords": "stopword removal",
 }
+
+
+# ------------------------------------------------- the relevance floor --
+
+#: How ADR-051 splits the corpus for the floor comparison. Named once, because
+#: a CLI table and a report table measured over different sets would be two
+#: different claims wearing one name.
+FLOOR_SPLITS: dict[str, tuple[str, ...]] = {
+    "development": ("dev", "sections"),
+    "held out": ("test", "test2", "sections2"),
+    "off topic": ("offtopic",),
+}
+
+#: The constant ADR-050 recommends to an operator with multi-hop traffic, and
+#: the thing ADR-051's reading is really competing against.
+ADR050_FLOOR = 0.05
+
+
+def floor_arms(cfg: ParsimonyConfig) -> dict[str, ParsimonyConfig]:
+    """The three floor rules ADR-051 compares, under one encoder.
+
+    The shipped arm is labelled from the configuration rather than from a
+    literal, so moving the default cannot leave the table calling the new value
+    by the old name -- and it is FIRST, so a caller that needs to find it can
+    take the first key instead of rebuilding the label and hoping they match.
+    """
+    c = cfg.compression
+    return {
+        f"{c.context_relevance_floor} (shipped)": cfg,
+        f"{ADR050_FLOOR} (ADR-050)": replace(cfg, compression=replace(
+            c, context_relevance_floor=ADR050_FLOOR)),
+        "read off the scores": replace(cfg, compression=replace(
+            c, context_adaptive_floor=True)),
+    }
+
+
+def floor_rows(cfg: ParsimonyConfig, items=None
+               ) -> tuple[list[dict], dict[tuple[str, str], list[bool]]]:
+    """Evidence kept and context sent, per split, under each floor rule.
+
+    Model-free and deterministic: both are properties of the text, so this
+    cannot disagree with itself between runs the way an accuracy number can.
+
+    Returns the rows, and the per-item "every span survived" flags, which the
+    rows cannot carry and a paired significance test needs.
+    """
+    everything = items if items is not None else load_longctx()
+    rows: list[dict] = []
+    flags: dict[tuple[str, str], list[bool]] = {}
+    for split, names in FLOOR_SPLITS.items():
+        chosen = [i for i in everything if i.split in names]
+        if not chosen:
+            continue
+        for arm, arm_cfg in floor_arms(cfg).items():
+            methods = Methods(arm_cfg)
+            found = total = kept_ctx = full_ctx = 0
+            whole: list[bool] = []
+            for item in chosen:
+                got = methods.parsimony(item)
+                a, b = evidence_kept(item, got.documents)
+                found += a
+                total += b
+                whole.append(b > 0 and a == b)
+                kept_ctx += methods.context_tokens(got.documents)
+                full_ctx += methods.context_tokens(item.documents)
+            flags[(split, arm)] = whole
+            rows.append({
+                "encoder": cfg.embedder_id, "split": split, "floor": arm,
+                "items": len(chosen), "spans": total, "spans_kept": found,
+                "span_recall_pct": round(100 * found / total, 1) if total else "",
+                "items_complete": sum(whole),
+                "items_with_evidence": sum(1 for i in chosen if i.evidence),
+                "context_pct": round(100 * kept_ctx / full_ctx, 1) if full_ctx else "",
+            })
+    return rows, flags
 
 
 def summarise_offline(results: list[ArmResult]) -> list[dict]:

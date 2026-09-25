@@ -841,6 +841,50 @@ def render_middleware(ctx: Context) -> str:
     )
 
 
+def render_adaptive_floor(ctx: Context) -> str:
+    """The relevance floor set, lowered, and read off the scores (ADR-050, ADR-051).
+
+    Deterministic and model-free: whether the answer survived selection, and
+    what it cost in context, are both properties of the text.
+
+    Both encoders, because the encoder produces the scores the floor is read
+    from and a floor table that does not name its encoder says nothing
+    (ADR-046). The measurement is `longctx.floor_rows`, shared with the
+    `parsimony floor` command, so the two cannot report different experiments.
+    """
+    from dataclasses import replace as _replace
+
+    from parsimony.core.config import full_stack
+    from parsimony.eval import longctx as lc
+    from parsimony.infra.embedding import best_config
+
+    neural = best_config(full_stack())
+    lexical = _replace(full_stack(), embedder_id="content-v1")
+    configs = [neural] if neural.embedder_id == lexical.embedder_id else [neural, lexical]
+    rows: list[dict] = []
+    for cfg in configs:
+        rows += lc.floor_rows(cfg)[0]
+
+    headers = ["encoder", "split", "floor", "answer spans kept",
+               "items with every span", "context sent"]
+    table = [[r["encoder"], r["split"], r["floor"],
+              f"{r['spans_kept']}/{r['spans']}" if r["spans"] else "-",
+              f"{r['items_complete']}/{r['items_with_evidence']}"
+              if r["items_with_evidence"] else "-",
+              f"{r['context_pct']}%"] for r in rows]
+    _write_csv(ctx.out / "adaptive_floor.csv", list(rows[0]),
+               [[str(r[h]) for h in rows[0]] for r in rows])
+    gap = "\n\n"
+    return ("The floor the context tier stops at, as a constant and as a reading of the "
+            "score distribution. No model: this is whether the answer survived selection "
+            "and what it cost." + gap + _table(headers, table) + gap
+            + "The reading keeps the same evidence as the constant and sends less "
+              f"context; lowering the constant to {lc.ADR050_FLOOR}, which "
+              "ADR-050 recommends for multi-hop traffic, costs several times "
+              "as much for the same or no gain here. It is off by default "
+              "(ADR-051).")
+
+
 SECTIONS: tuple[Section, ...] = (
     Section("ablation", "Factorial ablation",
             ("tokens_in_final", "tokens_out", "cache_hit", "route_tier", "gate_fired",
@@ -870,6 +914,7 @@ SECTIONS: tuple[Section, ...] = (
             ("tokenizer_id", "tokens_in_final", "tokens_out"), render_generalisation),
     Section("tokenprobe", "Negative-yield probe", (), render_tokenprobe),
     Section("longctx", "Long-context compression", (), render_longctx),
+    Section("adaptive_floor", "The relevance floor, set and read", (), render_adaptive_floor),
     Section("longbench", "A benchmark we did not write", (), render_longbench),
     Section("followups", "Conversations: does the needed fact survive?", (), render_followups),
     Section("middleware", "Middleware overhead and prefix reuse",

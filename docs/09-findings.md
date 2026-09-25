@@ -3,7 +3,7 @@
 **Status:** all eight modules built · **1,132 tests passing** · every number below regenerates with
 `python reproduce.py`
 
-This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (50 ADRs);
+This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (51 ADRs);
 this document is what those decisions *found*.
 
 **Which numbers came from where.** Sections 1–7 and 9 run against `MockProvider`, a deterministic stand-in:
@@ -962,6 +962,68 @@ the model knew, and the context talked it out of knowing. Compression here is no
 what protects the answer.
 
 The check fires on **0 of 75** answerable questions, and evidence recall on the on-topic splits is unchanged.
+
+### The threshold that reads itself
+
+ADR-050 ended on *there is no single correct value*: the relevance floor at 0.15 suits a question whose
+evidence sits under one high score and refuses the second hop of a multi-hop question, which scores low
+against the question by construction. ADR-050's remedy was to publish the curve and let an operator lower
+the constant. ADR-051 asks a different question — why is it a constant?
+
+Sort the scores, look only at the sentences the budget could afford, find the steepest **fall** between
+adjacent ranks, and put the floor in the middle of it. No fall steep enough, no reading: the constant
+stands.
+
+The first version measured the fall as a subtraction and made things worse. Reading the development
+profiles said why: `1.00 0.29 0.22 | 0.03 0.03` is a collapse into noise whose largest gap is 0.19, while
+`1.00 0.94 0.89 0.73 0.72` is a flat band of strong sentences whose largest gap is 0.25 — *bigger*.
+Differences near the top of the range swamp collapses near the bottom, so the rule was cutting the band and
+keeping the noise. A halving is a halving wherever it lands.
+
+Measured model-free with `parsimony floor`, threshold fixed at 2.0× before the held-out items were run.
+**The encoder produces the scores the floor is read from, so both are reported** — a floor table that does
+not name its encoder is ADR-046's mistake again.
+
+Under `ollama:all-minilm`, which is what runs when Ollama is reachable:
+
+| split | floor | spans kept | items with every span | context sent |
+|---|---|---|---|---|
+| **held out**, 81 items | 0.15 (shipped) | 100/101 | 80/81 | 27.0% |
+| | 0.05 (ADR-050's remedy) | 100/101 | 80/81 | 33.8% |
+| | **read off the scores** | 100/101 | 80/81 | **26.6%** |
+| **off topic**, 12 items | 0.15 (shipped) | — | — | 5.3% |
+| | 0.05 | — | — | 6.5% |
+| | **read off the scores** | — | — | **4.2%** |
+
+**Identical recall, and the reading is the cheapest arm on every split** — development, held out and
+off-topic alike. The largest saving is on questions the documents cannot answer, **4.2% against 5.3%**,
+because nothing there produces a cliff worth cutting at and the rule tightens where a constant cannot.
+
+It also puts a number on ADR-050's own remedy: **under the encoder we ship, lowering the constant to 0.05
+buys nothing at all on this corpus and costs 6.8 points of context.**
+
+Under `content-v1`, the lexical encoder, the constant *does* lose an item, and both remedies recover it:
+
+| held out, 81 items | spans kept | items with every span | context sent |
+|---|---|---|---|
+| floor 0.15 (shipped) | 97/101 | 77/81 | 22.4% |
+| floor 0.05 | 98/101 | 78/81 | 29.7% |
+| **read off the scores** | **98/101** | **78/81** | **24.1%** |
+
+**+1.7 points of context where lowering the constant needs +7.3.** That item is one discordant pair,
+McNemar p = 1.000, and is not claimed as a result on its own — its price is a deterministic token count
+and is.
+
+**The two encoders disagree about what is wrong with the constant and agree about the fix.** On the neural
+scores it is not losing evidence, only over-spending; on the lexical scores it is doing both. Running only
+one encoder is how this was nearly reported wrong — the first draft of this section quoted the lexical
+numbers as the system's.
+
+The default does not move: 0.4 points of context on the held-out split is not a reason to move a default
+four ADRs of measurement sit behind. But `context_adaptive_floor` is now what an operator should reach for
+instead of the lower constant, which is the comparison the mechanism wins outright (ADR-051). Regenerate
+both with `parsimony floor` and `parsimony floor --encoder lexical`; `reproduce.py` writes them
+together as `figures/adaptive_floor.csv`.
 
 ## 14. Keeping the last few turns answers none of them
 

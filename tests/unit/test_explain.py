@@ -23,9 +23,11 @@ from parsimony.core.config import baseline, full_stack
 from parsimony.core.types import Turn
 from parsimony.infra.tokenization import get_tokenizer
 from parsimony.pipeline.orchestrator import Pipeline
+from parsimony.surfaces.cli import explain
 from parsimony.surfaces.cli.explain import (
     LAYERS,
     Session,
+    context_panel,
     layers_table,
     memory_panel,
     question_panel,
@@ -216,3 +218,91 @@ class TestTheWholeReportRenders:
         turn_report(console, outcome, question, counter,
                     cache=pipeline.cache, cfg=CFG, session=Session())
         assert console.export_text().strip()
+
+class TestAFloorThatWasReadIsExplained:
+    """ADR-051: the floor can now be computed per request, and a number the
+    system computed that no surface reports is one it cannot account for."""
+
+    # Chosen because it produces a cliff under the lexical encoder the test
+    # environment falls back to, not only under a neural one.
+    QUESTION = "What is the annual travel budget for the Tallinn office?"
+
+    @staticmethod
+    def _outcome(adaptive, tok):
+        from dataclasses import replace
+        from pathlib import Path
+
+        from parsimony.core.types import split_into_documents
+
+        text = (Path(__file__).resolve().parents[2]
+                / "examples/staff-handbook.md").read_text(encoding="utf-8")
+        docs = split_into_documents(text, "staff-handbook.md")
+        cfg = full_stack()
+        cfg = replace(cfg, compression=replace(cfg.compression,
+                                               context_adaptive_floor=adaptive))
+        pipe = Pipeline(cfg, tokenizer=tok)
+        return pipe.run(TestAFloorThatWasReadIsExplained.QUESTION, (),
+                        conversation_id="c-floor", turn_index=0, documents=tuple(docs))
+
+    @staticmethod
+    def _evidence(outcome):
+        trace = next(t for t in outcome.traces if t.name == "m1_context")
+        return dict(trace.evidence)
+
+    def test_the_ledger_row_carries_the_floor_and_the_reading(self, tok):
+        ev = self._evidence(self._outcome(True, tok))
+        assert ev["relevance_floor"] > 0
+        assert ev["floor_why"]
+
+    def test_a_read_floor_is_stated_in_the_terminal_panel(self, tok):
+        outcome = self._outcome(True, tok)
+        ev = self._evidence(outcome)
+        assert ev["floor_read"], (
+            "this question must produce a reading or the test asserts nothing")
+        text = render(context_panel(outcome))
+        assert "read off" in text
+        assert f"{ev['relevance_floor']:.2f}" in text
+
+    def test_a_configured_floor_is_not_narrated_on_every_request(self, tok):
+        """0.15 on every line is noise: the settings already say 0.15."""
+        outcome = self._outcome(False, tok)
+        assert self._evidence(outcome)["floor_read"] is False
+        assert "read off" not in render(context_panel(outcome))
+
+    def test_it_decides_by_the_flag_and_not_by_the_wording(self):
+        """The first version compared `floor_why` against two known sentences.
+        The off-topic path never reaches the floor, its sentence matched
+        neither, and the terminal duly announced a reading that never happened.
+        Whether the floor was read is a property of the run."""
+        from pathlib import Path
+
+        source = (Path(explain.__file__)).read_text(encoding="utf-8")
+        assert 'ev.get("floor_read")' in source
+        assert '"the configured constant"' not in source, (
+            "branching on the wording is how the off-topic path was mis-narrated")
+
+    def test_every_reading_is_narrated_and_stays_inside_its_clamp(self, tok):
+        """Whichever branch fires -- a cliff, a smooth ramp, or too few
+        candidates to judge -- it is a reading, it is reported, and it lands in
+        the range the constant was measured over. Which branch a given question
+        takes depends on the tokenizer, because the budget decides how many
+        candidates there are, so the branch is not what this asserts."""
+        from dataclasses import replace
+        from pathlib import Path
+
+        from parsimony.core.types import split_into_documents
+
+        text = (Path(__file__).resolve().parents[2]
+                / "examples/staff-handbook.md").read_text(encoding="utf-8")
+        docs = tuple(split_into_documents(text, "staff-handbook.md"))
+        cfg = full_stack()
+        cfg = replace(cfg, compression=replace(cfg.compression,
+                                               context_adaptive_floor=True))
+        outcome = Pipeline(cfg, tokenizer=tok).run(
+            "Who manages the Porto office?", (), conversation_id="c-ramp",
+            turn_index=0, documents=docs)
+        ev = self._evidence(outcome)
+        c = cfg.compression
+        assert ev["floor_read"] and ev["floor_why"]
+        assert c.context_elbow_floor_min <= ev["relevance_floor"] <= c.context_elbow_floor_max
+        assert "read off" in render(context_panel(outcome))

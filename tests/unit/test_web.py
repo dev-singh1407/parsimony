@@ -637,3 +637,83 @@ class TestTheFloorDial:
                                         {'question': QUESTION, 'text': handbook_text,
                                          'floor': sent})
             assert status == 200 and payload['floor'] == expect
+
+
+class TestTheFloorModeOnThePage:
+    """ADR-051 put a rule behind the floor, and a rule has to be legible or it
+    is just a number the page cannot account for."""
+
+    @staticmethod
+    def _sources():
+        from pathlib import Path
+
+        here = Path(web.__file__).parent
+        return (
+            (here / "web_page.html").read_text(encoding="utf-8"),
+            (here / "web_app.js").read_text(encoding="utf-8"),
+            (here / "web_app.css").read_text(encoding="utf-8"),
+        )
+
+    def test_one_request_path_so_the_dials_cannot_be_left_out_of_one(self):
+        """The Compress button used to issue its own fetch. It sent neither
+        dial and never recorded the result, so the button ran at the shipped
+        settings whatever the sliders said and switching the floor mode
+        afterwards did nothing at all -- silently, because both paths worked."""
+        _html, js, _css = self._sources()
+        assert js.count('fetch("/api/compress"') == 1, (
+            "two paths issuing the same request is two things to keep in step")
+
+    def test_the_page_asks_for_the_mode_it_offers(self):
+        html, js, _css = self._sources()
+        assert 'id="mode-adaptive"' in html and 'id="mode-fixed"' in html
+        assert "adaptive: adaptiveFloor" in js
+
+    def test_the_computed_floor_is_reported_rather_than_drawn_from_the_slider(self):
+        """In adaptive mode the slider is an output. A page that drew a line the
+        run did not use would be worse than one that drew none."""
+        _html, js, css = self._sources()
+        assert "if (adaptiveFloor) floor = null;" in js
+        assert ".dial.reading input[type=range]" in css
+
+    def test_the_canvas_is_sized_from_its_box_not_from_fixed_attributes(self):
+        """The backing store was 1200x500 against a stylesheet box of 100% by
+        250: every label came out twice as wide as it was tall, the markers were
+        ellipses, and the whole thing was blurred on any HiDPI screen. Nothing
+        failed, so nothing noticed."""
+        import re
+
+        html, js, _css = self._sources()
+        canvas = re.search(r"<canvas[^>]*>", html)
+        assert canvas, "the A/B tab must still have a canvas"
+        assert "width=" not in canvas.group(0), (
+            "a fixed backing-store width is what the stylesheet then stretches")
+        assert "canvasBox" in js and "devicePixelRatio" in js
+        assert "setTransform(dpr, 0, 0, dpr, 0, 0)" in js, (
+            "the context has to be scaled or every coordinate below is in the "
+            "wrong units")
+
+    def test_the_endpoint_reports_the_reading_it_used(self, vis, handbook_text):
+        data = vis.compress("When does the office close for Christmas?", handbook_text,
+                            "handbook", None, None, True)
+        assert data["adaptive"] is True
+        assert data["floor_why"]
+        assert data["floor"] > 0
+        # A rank the page can draw, or -1 meaning there was nothing to draw.
+        assert data["cliff_rank"] >= -1
+
+    def test_a_reading_and_a_constant_are_told_apart_in_what_is_sent(self, vis,
+                                                                     handbook_text):
+        q = "When does the office close for Christmas?"
+        fixed = vis.compress(q, handbook_text, "handbook", None, None, False)
+        read = vis.compress(q, handbook_text, "handbook", None, None, True)
+        assert fixed["adaptive"] is False and read["adaptive"] is True
+        assert fixed["floor_why"] != read["floor_why"]
+
+    def test_asking_for_the_mode_does_not_change_what_the_system_ships(self, vis,
+                                                                       handbook_text):
+        """The same guarantee the floor slider carries: this page sweeps, it
+        does not re-tune."""
+        data = vis.compress("What is the travel budget for Porto?", handbook_text,
+                            "handbook", None, None, True)
+        assert data["shipped_adaptive"] is False
+        assert vis.cfg.compression.context_adaptive_floor is False

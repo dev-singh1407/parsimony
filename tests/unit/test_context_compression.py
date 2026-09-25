@@ -513,3 +513,102 @@ class TestSectionAnchors:
             report = audit(pipe.build_context("When is the deadline?", documents=docs), cfg)
             seen.append([(u.text, u.kept) for u in report.units])
         assert seen[0] == seen[1]
+
+
+class TestTheFloorReadOffTheDistribution:
+    """ADR-051. The constant was measured to be wrong in a way no constant can
+    fix: 0.15 suits a peaked score profile and refuses the flat band a
+    multi-hop question produces. These pin the rule's shape, not its results --
+    the results live in the evaluation, where they can be re-measured.
+    """
+
+    @staticmethod
+    def _units(scores, tokens=10):
+        from parsimony.modules.m1_context import Unit
+
+        return [Unit(("doc", 0), i, i, f"sentence {i}", tokens, ("w",))
+                for i, _ in enumerate(scores)]
+
+    def _read(self, scores, **over):
+        from parsimony.modules.m1_context import elbow_floor
+
+        c = full_stack().compression
+        if over:
+            c = replace(c, **over)
+        return elbow_floor(list(scores), self._units(scores), 10 * len(scores), c)
+
+    def test_a_collapse_into_noise_is_a_cliff_however_small_the_difference(self):
+        """The rule that was tried first measured the gap as a subtraction, and
+        this is the profile that showed it was the wrong reading: the drop is
+        only 0.19, and it is obviously where the evidence stops."""
+        reading = self._read([1.0, 0.29, 0.22, 0.03, 0.03, 0.02, 0.02, 0.01])
+        assert reading.rank == 2 and reading.fall > 7
+        assert 0.03 < reading.value < 0.22
+
+    def test_a_flat_band_of_strong_sentences_is_not_a_cliff(self):
+        """...and its largest SUBTRACTIVE gap, 0.25, is bigger than the one
+        above. Under the old reading this profile was cut and that one was not,
+        which is exactly backwards."""
+        reading = self._read([1.0, 0.94, 0.89, 0.73, 0.72, 0.69, 0.68, 0.65])
+        assert reading.rank == -1
+        assert reading.value == full_stack().compression.context_relevance_floor
+
+    def test_no_cliff_falls_back_to_the_constant_rather_than_to_permissiveness(self):
+        """The first version dropped to the minimum when it could not read a
+        shape, which made "I do not know" the most expensive branch and the
+        commonest one."""
+        c = full_stack().compression
+        reading = self._read([1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3])
+        assert reading.value == c.context_relevance_floor
+        assert reading.value > c.context_elbow_floor_min
+
+    def test_one_dominant_sentence_cannot_collapse_the_context_to_itself(self):
+        """The steepest fall here is at rank 1. Cutting there would send a
+        single sentence and call it a reading."""
+        c = full_stack().compression
+        reading = self._read([1.0, 0.02, 0.02, 0.01, 0.01, 0.01, 0.01, 0.01])
+        kept = sum(s >= reading.value for s in [1.0, 0.02, 0.02, 0.01, 0.01, 0.01, 0.01, 0.01])
+        assert reading.rank in (-1, c.context_elbow_min_keep - 1)
+        assert kept >= 1
+
+    def test_the_reading_is_clamped_to_the_range_the_constant_was_measured_over(self):
+        c = full_stack().compression
+        reading = self._read([1.0, 0.99, 0.98, 0.97, 0.10, 0.09, 0.08, 0.07])
+        assert c.context_elbow_floor_min <= reading.value <= c.context_elbow_floor_max
+
+    def test_too_few_candidates_to_read_a_shape_from_uses_the_constant(self):
+        c = full_stack().compression
+        reading = self._read([1.0, 0.2, 0.02])
+        assert reading.value == c.context_relevance_floor
+        assert "too few" in reading.why
+
+    def test_the_floor_sits_in_the_middle_of_the_cliff(self):
+        """No score lies strictly between two adjacent ranks, so the midpoint
+        keeps exactly what the lower lip would and sits furthest from either.
+        A floor AT the lower score would keep the sentence it means to refuse."""
+        scores = [1.0, 0.8, 0.6, 0.5, 0.1, 0.09, 0.08, 0.07]
+        reading = self._read(scores)
+        assert reading.rank == 3
+        assert 0.1 < reading.value < 0.5
+        assert sum(s >= reading.value for s in scores) == 4
+
+    def test_it_is_off_by_default_so_the_shipped_numbers_still_describe_it(self):
+        assert full_stack().compression.context_adaptive_floor is False
+
+    def test_the_selection_carries_the_reading_that_produced_it(self, tok):
+        """Nothing outside select() can recompute an adaptive floor, so a
+        surface that draws the line has to be given it."""
+        from parsimony.core.types import split_into_documents
+        from parsimony.modules.m1_context import audit
+
+        text = (Path(__file__).resolve().parents[2]
+                / "examples/staff-handbook.md").read_text(encoding="utf-8")
+        docs = split_into_documents(text, "staff-handbook.md")
+        cfg = full_stack()
+        cfg = replace(cfg, compression=replace(cfg.compression, context_adaptive_floor=True))
+        pipe = Pipeline(cfg, provider=MockProvider(), tokenizer=tok)
+        report = audit(pipe.build_context("When does the office close for Christmas?",
+                                          documents=docs), cfg)
+        assert report.floor.why and report.floor.value > 0
+        if report.floor.rank >= 0:
+            assert report.floor.fall >= cfg.compression.context_elbow_min_fall
