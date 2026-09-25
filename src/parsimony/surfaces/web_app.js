@@ -54,6 +54,27 @@ for (const k of Object.keys(TABS)) $("tab-" + k).onclick = () => show(k);
 async function refreshSession() {
   try {
     const t = await (await fetch("/api/session")).json();
+    // Before the first request every one of these is an em dash, not a zero:
+    // the line under them already says nothing has run, and six counters
+    // claiming to have counted nothing contradicted it. After a run a zero is
+    // a real measurement and stays -- no edits refused is a result.
+    if (!t.requests) {
+      for (const id of ["c-tokens", "c-secs", "d-requests", "d-nomodel",
+                        "d-gate", "d-refused", "d-kv"]) {
+        $(id).textContent = "—";
+      }
+      $("demo-sub").textContent = "nothing run yet — use the Pipeline or A/B tab";
+      // What the counters will mean is worth having before they mean anything;
+      // whether the rate was timed here or estimated needs a run to answer, so
+      // that half waits.
+      $("demo-basis").innerHTML =
+        "<b>Tokens pruned</b> will be measured exactly: what the prompt was written with, "
+        + "minus what was sent. <b>Seconds saved</b> is those pruned tokens at the prefill "
+        + "rate, and this line will say whether that rate was timed on this machine or "
+        + "taken from the project's recorded one.";
+      $("demo-extra").innerHTML = "";
+      return;
+    }
     $("c-tokens").textContent = fmt(t.tokens_pruned);
     $("c-secs").textContent = t.seconds_saved.toFixed(1) + "s";
     $("c-secs-k").textContent = t.timed_here ? "seconds saved" : "seconds saved (estimated)";
@@ -1062,10 +1083,17 @@ function renderMap(data) {
 
 const tip = $("tip");
 function tipFor(el, kept) {
+  const detail = el.dataset.detail || "";
+  // The second line is the selector's own account of the decision, and for a
+  // MATCH that account is the relevance -- so repeating it underneath, less
+  // roundly, said the same thing twice. Where the account says something else
+  // (an anchor, a closure, a budget) the number still earns its place.
+  const parts = [];
+  if (!/relevance/i.test(detail)) parts.push("relevance " + el.dataset.score);
+  if (el.dataset.tokens) parts.push(el.dataset.tokens + " tokens");
   tip.innerHTML = `<b>[${kept ? "KEEP" : "DROP"}: ${esc(el.dataset.tag)}]</b><br>`
-    + `${esc(el.dataset.detail)}<br><span class="dimtext">relevance `
-    + `${el.dataset.score}${el.dataset.tokens ? " · " + el.dataset.tokens + " tokens" : ""}`
-    + `</span>`;
+    + esc(detail)
+    + (parts.length ? `<br><span class="dimtext">${esc(parts.join(" · "))}</span>` : "");
   tip.style.display = "block";
 }
 function wireTips(host, sel, keptClass) {

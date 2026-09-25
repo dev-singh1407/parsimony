@@ -852,6 +852,39 @@ class TestWhatAReaderMeetsBeforeAndBetweenRuns:
         _html, js, _css = self._sources()
         assert "flex:1 1 ${pct}%" in js
 
+    def test_the_demo_counters_do_not_count_before_anything_has_run(self):
+        """The panel meant to be read from the back of a room had six counters
+        reading 0 directly under a line saying nothing had run. A zero is a
+        measurement; after a run they stay zeros, because no edits refused is a
+        result worth showing."""
+        import re
+
+        html, js, _css = self._sources()
+        for metric in ("c-tokens", "c-secs", "d-requests", "d-nomodel", "d-gate", "d-refused"):
+            cell = re.search(rf'id="{metric}"[^>]*>([^<]*)<', html)
+            assert cell, metric
+            assert cell.group(1).strip() == "—", (
+                f"{metric} starts at {cell.group(1)!r}, which claims a measurement")
+        assert "if (!t.requests)" in js, (
+            "and the script has to put them back to a dash when the session is empty")
+
+    def test_the_heatmap_document_is_bounded_like_the_other_one(self):
+        """Unbounded, a 30 KB paste -- small beside the documents the external
+        benchmark uses -- made the panel 8,126px and the page ten screens, with
+        the score profile and both dials scrolled off above the text they
+        describe. The Pipeline tab had already settled this for its own."""
+        _html, _js, css = self._sources()
+        rule = css.split("#map-doc {")[1].split("}")[0]
+        assert "max-height" in rule and "overflow: auto" in rule
+
+    def test_the_tooltip_does_not_state_the_relevance_twice(self):
+        """It read "relevance 0.23" from the selector's own account and then
+        "relevance 0.234" underneath -- the same fact, less roundly. Where the
+        account says something else, an anchor or a closure, the number still
+        earns its place."""
+        _html, js, _css = self._sources()
+        assert "if (!/relevance/i.test(detail))" in js
+
     def test_the_lane_and_the_word_cap_are_one_number(self):
         """They were two constants that had to agree and did not: a 78px lane
         with a 13-character cap admits a 94px chip, which has slack at 1440 and
