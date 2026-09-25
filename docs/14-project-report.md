@@ -839,6 +839,26 @@ independent of what its F1 column says.
 
 <div class="pagebreak"></div>
 
+## 7.9 What this leaves open, and what would close it
+
+Each of these is open because a measurement made it open, and each names the thing that would settle it.
+The list is kept against the figures rather than against intentions — three earlier entries had to be
+removed from it because the work had been done and the list had not noticed (§12 of the findings).
+
+| Open | Why it is open | What would close it |
+|---|---|---|
+| **The factorial sweep under a real provider** | Token counts do not depend on who answers, so the ablation is measured with a deterministic stand-in and converted to wall clock at the measured 8.5 ms/token. What that cannot show is the *interaction*: whether a shorter prompt changes the answer's length enough to move the output side. | The two-pass harness is built — a memoised quality pass and an unmemoised timing pass. It needs machine time, not new code. |
+| **Energy** | The joules column is arithmetic on a nameplate TDP. | Socket-level or RAPL instrumentation, ≥30 repetitions per configuration. The per-row estimate and its coverage are already recorded. |
+| **A second model in the calibration table** | Vocabulary transfer is measured (GPT-2's 50,257 entries, ratios within 0.1 pp). A second *model* has been run only as judge and escalation target — `llama3.2:3b`, 36/40 against 36/40, item for item identical. | Re-running the calibration protocol, not the sweep, against a second model. The project's own repeated finding is that thresholds are encoder- and model-specific, so this is the claim most in need of it. |
+| **A usable judge** | Shown the same answer in both slots, the judge picks the same slot every time: **50.0 pp position bias**. Its verdicts carry no information about quality. | A larger or differently-prompted judge, re-run through the same swap-disagreement calibration — which is the deliverable here, and which worked. |
+| **The adaptive floor on multi-hop data** | It keeps identical evidence for less context on every split of our corpus. The problem it was built for is multi-hop recall, and both halves of the LongBench data were spent establishing that problem. | Multi-hop data this project has not used, held out before the rule is run on it. |
+| **The near-off-topic case** | Every unanswerable question in the corpus is *far* off topic. The common real failure — a question in the document's own domain whose answer is absent — is absent from it, and that gap hid a live defect until a control built for something else exposed it. | A near-off-topic split, authored against the documents before any of it is run. |
+
+None of these is a gap in the instrument. Each is a measurement the instrument is ready to take.
+
+<div class="pagebreak"></div>
+
+
 # 8. Conclusion
 
 The efficiency literature has produced a rich toolbox and a thin account of what happens when the tools are

@@ -598,16 +598,45 @@ examine, because the exact tier looks unambiguously safe.
 
 ## 12. What is not yet measured
 
-- **Real latency.** Everything runs on `MockProvider`. TTFT/TPOT, the prefill/decode split behind Gap 2, and
-  the energy column become real the moment a provider is attached. The two-pass sweep (memoised quality
-  pass, unmemoised timing pass) is built and waiting for it.
-- **Cross-model generalisation.** The calibration table has one model in it. The harness runs three.
-- **A real judge.** The model-as-judge is a length-biased stand-in — deliberately, so the swap-disagreement
-  machinery can be shown to detect bias. Its 91–98% disagreement rate on near-identical answers is the
-  machinery working, not a quality signal.
-- **True-hit rate at scale.** Now 45 controls against 45 adversarial. The false-hit rate held at 0.0%
-  and the true-hit rate fell to 22.2%, so the remaining question is not the denominator but the encoder:
-  the missed paraphrases are the same lexical-similarity failure ADR-028 quantifies.
+Kept honest against the figures rather than against what was true when it was written: three of the four
+entries this section used to carry had been overtaken, and every one of them understated the work.
+
+- **The factorial sweep, under a real provider.** The ablation, the effect sizes and the shortfall are
+  measured with `MockProvider`, deliberately — a token count does not depend on who answers, and the
+  measured 8.5 ms/token converts every one of them into wall clock (§8). What a real-provider re-run would
+  add is the *interaction* between compression and generation: whether a shorter prompt changes the answer's
+  length enough to move the output side. The two-pass harness for it is built. Latency itself is **not** on
+  this list: §8's prefill and decode come from the runtime's own counters, and §13's external benchmark ran
+  against the model.
+- **Energy.** The joules column is arithmetic on a nameplate TDP, not a measurement. It needs socket-level
+  or RAPL instrumentation and at least 30 repetitions per configuration; the harness records the per-row
+  estimate and its coverage either way, so the arithmetic is there for anyone who redoes it properly.
+- **A second model in the calibration table.** Vocabulary transfer is measured — the whole sweep re-run
+  against GPT-2's 50,257 entries, ratios within 0.1 pp, ranking identical (§7). A second *model* has been
+  run only as a judge and as an escalation target: `llama3.2:3b` scored 36/40 against `qwen2.5:1.5b`'s
+  36/40, item for item identical (ADR-037). That is one comparison on one gold set, not a calibration
+  table, and the thresholds in this project are encoder- and model-specific by its own repeated finding.
+- **A usable judge.** Still open, and now for a measured reason rather than an assumed one: shown the same
+  answer in both slots, `llama3.2:3b` picks the same slot every time — **50.0 pp position bias** — so its
+  verdicts carry no information about quality (§8). The swap-disagreement machinery that detected this is
+  the deliverable; the judge is not.
+- **The adaptive floor on multi-hop data.** ADR-051 is measured on our own corpus, where it keeps identical
+  evidence for less context on every split. The question it was built for — multi-hop recall — cannot be
+  re-asked on LongBench, because both halves of that data were spent establishing the problem (ADR-050).
+  Confirming it needs multi-hop data this project has not used.
+- **The near-off-topic case.** Every unanswerable question in the corpus is *far* off topic. The common real
+  failure is a question in the document's own domain whose answer is absent, and there is not one here —
+  which is how a live defect survived until a control built for something else exposed it (ADR-052, §8 of
+  the corpus spec). The zero-coverage rule closes the case it can prove; the class as a whole is unmeasured.
+- **Whether the encoder prefilter pays on long documents.** Rejected here because a batch of 46 sentences
+  and a batch of 15 are both one round trip, so it saves nothing at this document size while changing a
+  third of the selection. On documents ten times longer the arithmetic may reverse, and that is a claim
+  about a corpus this project does not have rather than one it has tested (ADR-052).
+
+**True-hit rate is no longer on this list.** It read 22.2% here long after the encoder that produced it
+stopped shipping: with MiniLM and every hit verified it is **37.8%** (17/45) at **0.0%** false answers, and
+the question it posed — whether the ceiling was the denominator or the encoder — was answered by changing
+the encoder (`figures/encoders.csv`).
 
 ## 13. Compression has nothing to compress until the request carries context
 

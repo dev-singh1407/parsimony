@@ -392,14 +392,24 @@ will get, and the answer includes a loss. Give the loss first.*
 > (ADR-045). We checked every recorded row: the largest prompt ever sent was 869 tokens, so nothing
 > published was affected. The guard now refuses the measurement rather than recording it.
 
-**"What's left to do?"**
-> The roadmap, in priority order. The neural encoder is done and measured (ADR-041) - and it broke the
-> safety design, which is itself one of the findings. What remains is a full sweep on the real model, a
-> calibrated judge, and escalation to a second model, currently reported as a negative result.
+**"What's left to do?"** - *the honest answer is a list that has been pruned as well as added to: three
+things it used to carry were done and the list had not noticed (findings §12, report §7.9).*
+> Six worth saying out loud, and the findings carry a seventh. Each is open because a measurement made it
+> open. The factorial sweep under a real provider - token counts do not depend on who answers, so that half
+> is done, but the interaction between a shorter prompt and the answer's length is not. Energy, which is
+> still arithmetic on a nameplate TDP. A second model in the calibration table: vocabulary transfer is
+> measured, a second model has only been run as judge and escalation target. A usable judge, and we know
+> why - shown the same answer twice it picks the same slot every time, 50 points of position bias. The
+> adaptive floor on multi-hop data, which needs multi-hop data we have not already spent. And the
+> near-off-topic case, which our corpus does not contain at all.
+>
+> Escalation is *not* on that list any more: it was measured and it is a negative result. `llama3.2:3b`
+> scored 36/40 against `qwen2.5:1.5b`'s 36/40, item for item identical, for 16% more wall clock and twice
+> the memory (ADR-037).
 
 **"How much of this is your own work?"**
 > The corpus is ours - 151 conversations, 45 adversarial pairs, 40 gold answers, authored and hashed. The
-> architecture, all eight modules, the evaluation harness and over 1,130 tests are ours. The techniques come
+> architecture, all eight modules, the evaluation harness and over 1,200 tests are ours. The techniques come
 > from the literature, and where a design of ours matches a published one we name it. The composition, the
 > measurement instrument and every finding are ours.
 
