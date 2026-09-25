@@ -244,7 +244,14 @@
       <input type="range" id="floor" min="0" max="0.30" step="0.01" value="0.15">
       <output class="dialv" id="floor-v">0.15</output>
       <button class="ghost tiny" id="floor-reset">back to shipped</button>
+
+      <label for="ratio">Token budget</label>
+      <input type="range" id="ratio" min="0.05" max="0.80" step="0.05" value="0.35">
+      <output class="dialv" id="ratio-v">35%</output>
+      <button class="ghost tiny" id="dials-reset">reset both</button>
+
       <div class="dial-read" id="floor-read"></div>
+      <div class="dial-read" id="binding"></div>
     </div>
     <div class="note" id="floor-note">
       Drag it. Everything below the line is dropped, so this is the dial that decides how much
@@ -252,6 +259,12 @@
       On a public multi-hop benchmark, moving it to 0.05 recovers the answer on 10% more
       questions and costs 14 points of context (ADR-050). Moving it here changes this page only;
       the system keeps its own setting.
+      <br><br>
+      The <b>token budget</b> is the other constraint, and the pair is the finding: on that
+      benchmark, raising the budget saturates at 85% of answers recovered while lowering the
+      floor reaches 90%. Six mechanisms were built to find more sentences before this was swept;
+      the sentences were being found and then discarded. Move both and watch which one is
+      actually biting.
     </div>
     <div class="profilewrap"><svg id="profile" height="190" preserveAspectRatio="none"></svg></div>
     <div class="legend">

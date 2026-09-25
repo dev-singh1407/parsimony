@@ -379,6 +379,7 @@ def select(query: str, units: list[Unit], cfg: ParsimonyConfig,
         why[i] = ("ANCHOR", f"guaranteed: the question names {name!r}")
 
     stopped_by = "exhausted"
+    refused_for_room = 0
     floor = c.context_relevance_floor
     lam = c.context_mmr_lambda
     remaining = [i for i in range(len(units)) if i not in kept]
@@ -403,8 +404,9 @@ def select(query: str, units: list[Unit], cfg: ParsimonyConfig,
             else:
                 why.setdefault(best, ("BUDGET", f"scored {rel[best]:.2f} but the "
                                                 f"{budget}-token budget was spent"))
-            stopped_by = "budget"
-            # A smaller relevant sentence may still fit.
+                refused_for_room += 1
+            # A smaller relevant sentence may still fit, so the loop goes on --
+            # which is why the reason is decided after it, not here.
             continue
         keep(best)
         redundancy = max((_overlap(units[best].terms, units[j].terms)
@@ -412,6 +414,13 @@ def select(query: str, units: list[Unit], cfg: ParsimonyConfig,
         why[best] = ("MATCH", f"relevance {rel[best]:.2f}"
                               + (f", overlap {redundancy:.2f} with a kept sentence"
                                  if redundancy >= 0.5 else ""))
+
+    # Which constraint actually bound the result. "Budget" wins over "floor"
+    # whenever something above the floor was refused for room, because that is
+    # the one where more of it would change the outcome -- the question a reader
+    # is really asking when they ask what stopped it.
+    if refused_for_room:
+        stopped_by = "budget"
 
     # Dependency closure, walking back through consecutive dependent openings.
     closure_added = 0

@@ -174,7 +174,7 @@ class Visualiser:
     # -- heatmap ---------------------------------------------------------
 
     def compress(self, question: str, text: str, name: str = "pasted text",
-                 floor: float | None = None) -> dict:
+                 floor: float | None = None, ratio: float | None = None) -> dict:
         """One question against one document, with the decision on every sentence.
 
         `floor` overrides the relevance floor for this call only, so the page
@@ -188,9 +188,13 @@ class Visualiser:
         from parsimony.pipeline.orchestrator import Pipeline
 
         cfg = self.cfg
+        overrides = {}
         if floor is not None:
-            cfg = _replace(cfg, compression=_replace(cfg.compression,
-                                                     context_relevance_floor=floor))
+            overrides["context_relevance_floor"] = floor
+        if ratio is not None:
+            overrides["context_target_ratio"] = ratio
+        if overrides:
+            cfg = _replace(cfg, compression=_replace(cfg.compression, **overrides))
         documents = split_into_documents(text, name)
         pipe = Pipeline(cfg, provider=self.provider, cache=self.cache)
         started = time.perf_counter()
@@ -214,6 +218,8 @@ class Visualiser:
             # configuration has moved is worse than one that draws none.
             "floor": cfg.compression.context_relevance_floor,
             "shipped_floor": self.cfg.compression.context_relevance_floor,
+            "ratio": cfg.compression.context_target_ratio,
+            "shipped_ratio": self.cfg.compression.context_target_ratio,
             "budget": report.budget,
             "anchors": sorted(str(a) for a in report.anchors),
             "units": [
@@ -646,14 +652,19 @@ def make_handler(vis: Visualiser):
                 if not question or not text.strip():
                     self._json({"error": "a question and some text are both required"}, 400)
                     return
-                floor = payload.get("floor")
-                try:
-                    floor = None if floor is None else max(0.0, min(1.0, float(floor)))
-                except (TypeError, ValueError):
-                    floor = None
+                def _dial(key, low, high):
+                    raw = payload.get(key)
+                    try:
+                        return None if raw is None else max(low, min(high, float(raw)))
+                    except (TypeError, ValueError):
+                        return None      # a nonsense dial falls back, never 500s
+
+                floor = _dial("floor", 0.0, 1.0)
+                ratio = _dial("ratio", 0.01, 1.0)
                 try:
                     self._json(vis.compress(question, text,
-                                            payload.get("name") or "pasted text", floor))
+                                            payload.get("name") or "pasted text",
+                                            floor, ratio))
                 except Exception as exc:                      # a visualiser must not 500 silently
                     self._json({"error": f"{type(exc).__name__}: {exc}"}, 500)
             else:

@@ -172,3 +172,59 @@ class TestTheKvDerivation:
         ctx = pipe.build_context("What is the travel budget for Tallinn?", documents=documents)
         audit(ctx, full_stack())
         assert ctx.derived.embed_ns >= 0
+
+
+class TestWhichConstraintBound:
+    """stopped_by must name the BINDING constraint, not the last branch taken.
+
+    The loop sets "budget" when a sentence does not fit and then continues -- a
+    smaller one may still fit, which is right -- and used to end on the floor
+    break, overwriting the reason. A run that refused 44 sentences for want of
+    room reported "relevance floor", and at a 5% budget with the floor at zero
+    it still did. The question a reader is asking is which one, given more,
+    would change the answer.
+    """
+
+    def _audit(self, question, documents, tok, **over):
+        from dataclasses import replace
+        from parsimony.core.config import full_stack
+        from parsimony.infra.providers import MockProvider
+        from parsimony.modules.m1_context import audit
+        from parsimony.pipeline.orchestrator import Pipeline
+
+        cfg = full_stack()
+        if over:
+            cfg = replace(cfg, compression=replace(cfg.compression, **over))
+        pipe = Pipeline(cfg, provider=MockProvider(), tokenizer=tok)
+        return audit(pipe.build_context(question, documents=documents), cfg)
+
+    def test_a_tight_budget_with_a_slack_floor_reports_the_budget(self, documents, tok):
+        report = self._audit('What is the annual travel budget for the Tallinn office?',
+                             documents, tok,
+                             context_relevance_floor=0.0, context_target_ratio=0.05)
+        assert any(u.tag == 'BUDGET' for u in report.units)
+        assert report.stopped_by == 'budget', (
+            'sentences above the floor were refused for room, so room is what binds')
+
+    def test_a_slack_budget_with_a_live_floor_reports_the_floor(self, documents, tok):
+        report = self._audit('What is the annual travel budget for the Tallinn office?',
+                             documents, tok,
+                             context_relevance_floor=0.15, context_target_ratio=0.80)
+        assert not any(u.tag == 'BUDGET' for u in report.units)
+        assert report.stopped_by == 'relevance floor'
+
+    def test_raising_a_slack_budget_changes_nothing(self, documents, tok):
+        """The finding the two dials exist to show (ADR-050)."""
+        a = self._audit('What is the annual travel budget for the Tallinn office?',
+                        documents, tok, context_target_ratio=0.35)
+        b = self._audit('What is the annual travel budget for the Tallinn office?',
+                        documents, tok, context_target_ratio=0.80)
+        assert a.tokens_after == b.tokens_after
+        assert a.stopped_by == b.stopped_by == 'relevance floor'
+
+    def test_lowering_the_binding_floor_does_change_things(self, documents, tok):
+        a = self._audit('What is the annual travel budget for the Tallinn office?',
+                        documents, tok, context_relevance_floor=0.15)
+        b = self._audit('What is the annual travel budget for the Tallinn office?',
+                        documents, tok, context_relevance_floor=0.05)
+        assert b.tokens_after > a.tokens_after

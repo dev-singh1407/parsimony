@@ -953,6 +953,10 @@ function renderMap(data) {
   if (typeof data.floor === "number") {
     $("floor").value = data.floor;
     $("floor-v").textContent = Number(data.floor).toFixed(2);
+    if (typeof data.ratio === "number") {
+      $("ratio").value = data.ratio;
+      $("ratio-v").textContent = Math.round(data.ratio * 100) + "%";
+    }
     floorLabel(data);
   }
   refreshSession();
@@ -996,22 +1000,36 @@ function floorLabel(data) {
   const kept = data.units.filter((u) => u.kept).length;
   const shipped = data.shipped_floor;
   const at = Math.abs(data.floor - shipped) < 1e-9;
+  const atRatio = Math.abs(data.ratio - data.shipped_ratio) < 1e-9;
   $("floor-read").innerHTML =
     `<b>${kept}</b> of ${data.units.length} sentences kept · `
     + `<b>${fmt(data.tokens_after)}</b> tokens sent · `
     + `<i>${data.removed_pct.toFixed(0)}% removed</i>`
-    + (at ? " · this is the shipped setting"
-          : ` · shipped is ${shipped} (unchanged; this page only)`);
+    + (at && atRatio ? " · both dials at the shipped settings"
+       : ` · shipped: floor ${shipped}, budget ${Math.round(data.shipped_ratio * 100)}%`
+         + " (unchanged; this page only)");
+  // `stopped_by` is the selector's own account of which constraint ended it,
+  // not something inferred from the numbers on screen.
+  const why = {
+    "relevance floor": "the <b>floor</b> stopped it — the next sentence scored too low to keep, "
+      + "so raising the budget would change nothing",
+    budget: "the <b>budget</b> stopped it — sentences above the floor were left behind for want "
+      + "of room, so a bigger budget would take more",
+    exhausted: "neither dial stopped it: everything above the floor already fit",
+  }[data.stopped_by] || esc(data.stopped_by);
+  $("binding").innerHTML = "Selection ended because " + why + ".";
 }
 
-async function runMap(floor) {
+async function runMap(floor, ratio) {
   const question = $("q").value.trim(), text = $("text").value;
   if (!question || !text.trim()) return;
+  if (floor === undefined) floor = parseFloat($("floor").value);
+  if (ratio === undefined) ratio = parseFloat($("ratio").value);
   $("dial") && $("dial").classList.add("busy");
   try {
     const r = await fetch("/api/compress", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, text, floor }),
+      body: JSON.stringify({ question, text, floor, ratio }),
     });
     const data = await r.json();
     if (data.error) { $("map-err").textContent = data.error; return; }
@@ -1022,17 +1040,23 @@ async function runMap(floor) {
   $("dial") && $("dial").classList.remove("busy");
 }
 
-$("floor").oninput = () => {
-  const v = parseFloat($("floor").value);
-  $("floor-v").textContent = v.toFixed(2);
+function dialsChanged() {
+  $("floor-v").textContent = parseFloat($("floor").value).toFixed(2);
+  $("ratio-v").textContent = Math.round(parseFloat($("ratio").value) * 100) + "%";
   clearTimeout(floorTimer);
-  floorTimer = setTimeout(() => runMap(v), 260);
-};
+  floorTimer = setTimeout(() => runMap(), 260);
+}
+$("floor").oninput = dialsChanged;
+$("ratio").oninput = dialsChanged;
+
 $("floor-reset").onclick = () => {
-  const shipped = lastMap ? lastMap.shipped_floor : 0.15;
-  $("floor").value = shipped;
-  $("floor-v").textContent = Number(shipped).toFixed(2);
-  runMap(shipped);
+  $("floor").value = lastMap ? lastMap.shipped_floor : 0.15;
+  dialsChanged();
+};
+$("dials-reset").onclick = () => {
+  $("floor").value = lastMap ? lastMap.shipped_floor : 0.15;
+  $("ratio").value = lastMap ? lastMap.shipped_ratio : 0.35;
+  dialsChanged();
 };
 
 $("run-map").onclick = async () => {
