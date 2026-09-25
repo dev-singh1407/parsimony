@@ -777,3 +777,85 @@ class TestScoringWithEitherEncoder:
         vis.compress("Who manages the Porto office?", handbook_text, "handbook",
                      None, None, None, vis.LEXICAL)
         assert vis.cfg.embedder_id == before
+
+
+class TestWhatAReaderMeetsBeforeAndBetweenRuns:
+    """Five things the page got wrong in the states it spends most of its time
+    in: before anything has run, and between the stages of a finished run.
+    None of them threw, so none of them was noticed."""
+
+    @staticmethod
+    def _sources():
+        from pathlib import Path
+
+        here = Path(web.__file__).parent
+        return ((here / "web_page.html").read_text(encoding="utf-8"),
+                (here / "web_app.js").read_text(encoding="utf-8"),
+                (here / "web_app.css").read_text(encoding="utf-8"))
+
+    def test_the_question_box_holds_a_question_rather_than_looking_like_it_does(self):
+        """It shipped with a placeholder that reads as a filled field. The first
+        thing anyone does is press Run and be told to ask something first."""
+        import re
+
+        html, _js, _css = self._sources()
+        tag = re.search(r"<input[^>]*id=\"pq\"[^>]*>", html, re.S)
+        assert tag, "the pipeline question input must still exist"
+        assert 'value="' in tag.group(0), (
+            "a placeholder that looks like a value is not a value")
+        assert "data-default=" in tag.group(0), (
+            "recall has to tell the shipped default from a question someone typed")
+
+    def test_a_remembered_question_outranks_the_shipped_default(self):
+        _html, js, _css = self._sources()
+        assert "dataset.default" in js
+
+    def test_nothing_run_yet_is_not_zero(self):
+        """A zero is a measurement. The ring already said so with an em dash
+        while three counters beside it claimed to have counted nothing."""
+        import re
+
+        html, _js, _css = self._sources()
+        for metric in ("m-before", "m-after", "m-removed", "m-saved"):
+            cell = re.search(rf'id="{metric}"[^>]*>([^<]*)<', html)
+            assert cell, metric
+            assert cell.group(1).strip() == "—", (
+                f"{metric} starts at {cell.group(1)!r}, which claims a measurement")
+
+    def test_a_word_sits_in_its_lane_without_the_animation(self):
+        """`--x` reached the chip only through the keyframes, and the keyframes
+        only run on a channel the request has reached -- so every channel below
+        the scrub head, every channel before a run, and every channel for a
+        reader who asked for reduced motion stacked all eleven chips on the
+        centre line. That pile was the panel's normal appearance."""
+        _html, _js, css = self._sources()
+        base = css.split(".vword {")[1].split("}")[0]
+        assert "translate(calc(-50% + var(--x" in base, (
+            "the lane belongs to the element, not to the animation")
+
+    def test_every_stage_of_the_transport_can_be_clicked(self):
+        """The context selector is over 90% of middleware time, so at a 3px
+        floor the other ten stages were three pixels wide -- on a control whose
+        whole purpose is to be clicked through."""
+        import re
+
+        _html, _js, css = self._sources()
+        rule = css.split(".seg { position: relative;")[1].split("}")[0]
+        floor = re.search(r"min-width:\s*(\d+)px", rule)
+        assert floor and int(floor.group(1)) >= 12, (
+            "a segment has to be wide enough to hit")
+
+    def test_the_proportions_are_still_proportions(self):
+        """Equal-width segments would hide the finding, which is that one stage
+        IS the time. Shrink lets the clamped ones take their floor out of the
+        dominant segment instead."""
+        _html, js, _css = self._sources()
+        assert "flex:1 1 ${pct}%" in js
+
+    def test_attaching_the_sample_cannot_be_raced_by_running(self):
+        """Attach is a fetch. Pressing Run inside it read an empty question box,
+        complained, and then the document landed -- leaving a complaint about an
+        empty field under a filled one."""
+        _html, js, _css = self._sources()
+        assert "button.disabled = true" in js
+        assert "clearPipeError" in js, "and the complaint has to go when it stops being true"

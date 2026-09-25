@@ -215,6 +215,10 @@ function wordPool() {
 }
 
 const MAX_WORDS = 11;
+/* A chip is one word from the reader's own text, and one word can be
+   "responsibilities". Capping it keeps every chip inside its lane; the full
+   word is still in the document panel below, where it can be read. */
+const clip = (w) => (w.length > 13 ? w.slice(0, 12) + "…" : w);
 function fillChannels() {
   const pool = wordPool();
   const start = RUN.stages.length ? RUN.stages[0].before : 1;
@@ -227,22 +231,28 @@ function fillChannels() {
     const carried = RUN.stages[si].after;
     // How many words in flight is how much prompt is still being carried.
     const n = Math.max(2, Math.round(MAX_WORDS * Math.min(1, carried / (start || 1))));
-    flow.querySelector(".vband").style.width =
-      Math.max(8, 78 * Math.min(1, carried / (start || 1))).toFixed(0) + "px";
     const kept = pool.alive.length ? pool.alive : ["your", "question"];
     const frag = document.createDocumentFragment();
-    const spread = Math.max(30, parseFloat(flow.querySelector(".vband").style.width) || 60);
+    // A chip is 40-70px wide, so the lanes have to be at least that far apart
+    // or the words simply land on each other. How many lanes there are is how
+    // much prompt is still carried, so the channel narrows as the prompt does.
+    // Wide enough for the widest chip a capped word can make, so clearance is
+    // a property of the layout rather than of which words this document has.
+    const lane = 78;
+    const width = lane * (n - 1);
+    flow.querySelector(".vband").style.width = (width + lane).toFixed(0) + "px";
     for (let k = 0; k < n; k++) {
       const el = document.createElement("span");
       el.className = "vword";
-      el.textContent = kept[(k * 7 + i * 3) % kept.length];
-      // Spread across the channel and vary the speed, so it reads as a stream
-      // rather than a single file queue of words landing on each other.
-      const across = ((k * 37 + i * 13) % 100) / 100 - 0.5;
-      el.style.setProperty("--x", (across * spread * 1.7).toFixed(0) + "px");
-      const dur = 2.1 + ((k * 29 + i * 7) % 10) / 10;
+      el.textContent = clip(kept[(k * 7 + i * 3) % kept.length]);
+      // Evenly across the band, not pseudo-randomly: a random offset does not
+      // avoid a collision, it only makes one harder to predict.
+      el.style.setProperty("--x", (k * lane - width / 2).toFixed(0) + "px");
+      // Neighbouring lanes fall at different speeds, so two chips side by side
+      // are never level and the whole thing reads as a stream rather than a row.
+      const dur = 2.1 + ((k * 3) % 7) / 5;
       el.style.setProperty("--dur", dur.toFixed(2) + "s");
-      el.style.animationDelay = (k * (dur / n)).toFixed(2) + "s";
+      el.style.animationDelay = ((k * 0.37) % dur).toFixed(2) + "s";
       frag.appendChild(el);
     }
     // Whatever this stage removed leaves here, in red, sideways.
@@ -267,7 +277,7 @@ function drawTrack() {
   $("track").innerHTML = RUN.stages.map((s, i) => {
     const pct = (Math.max(s.ms, 0.05) / total) * 100;
     const label = pct > 7 ? esc(labelFor(s.name)) : "";
-    return `<div class="seg ${s.outcome}" id="seg-${i}" style="flex:0 0 ${pct}%"`
+    return `<div class="seg ${s.outcome}" id="seg-${i}" style="flex:1 1 ${pct}%"`
          + ` tabindex="0" role="button"`
          + ` aria-label="${esc(labelFor(s.name))}, ${s.ms.toFixed(1)} milliseconds"`
          + ` title="${esc(labelFor(s.name))} — ${s.ms.toFixed(1)}ms">`
@@ -281,6 +291,20 @@ function drawTrack() {
     };
   });
   $("tick-r").textContent = total.toFixed(0) + " ms of middleware";
+
+  /* And say which stage that is. A bar with one block in it has already made
+     the point to anyone who reads bars; the sentence is for everyone else, and
+     it is the number this whole tier exists to justify. */
+  const top = RUN.stages.reduce((a, b) => (b.ms > a.ms ? b : a),
+                                RUN.stages[0] || { ms: 0, name: "" });
+  const rest = RUN.stages.length - 1;
+  // Only worth saying when there is time to dominate. A cache hit spends under
+  // a millisecond in total, and "69% of 0 ms" is not a finding.
+  const ms = (v) => (v >= 10 ? v.toFixed(0) : v.toFixed(1));
+  $("track-note").innerHTML = (!RUN.stages.length || total < 5 || rest < 1) ? "" :
+    `<b>${esc(labelFor(top.name))}</b> is ${(100 * top.ms / total).toFixed(0)}% of it `
+    + `(${ms(top.ms)} ms) — the other ${rest} stage${rest === 1 ? "" : "s"} `
+    + `share ${ms(total - top.ms)} ms between them.`;
 }
 
 function labelFor(name) {
@@ -685,15 +709,38 @@ fetch("/api/plan").then((r) => r.json()).then((p) => {
   RUN.plan = p.stages; drawStack(); paintAll();
 }).catch(() => {});
 
+/* Attaching is a fetch, and a fetch takes a moment. Pressing Run inside that
+   moment used to read an empty question box and complain about it, and the
+   document would land a breath later -- leaving a complaint about an empty
+   field sitting under a filled one. The button says what it is doing and
+   refuses a second press until it has finished. */
 $("pipe-sample").onclick = async () => {
+  const button = $("pipe-sample");
+  if (button.disabled) return;
+  button.disabled = true;
+  const label = button.textContent;
+  button.innerHTML = '<span class="spinner"></span>attaching';
   try {
     const s = await (await fetch("/api/sample")).json();
     $("pipe-text").value = s.text;
     sizeContext();
     if (!$("pq").value.trim()) $("pq").value = s.question;
     remember();
+    clearPipeError();
   } catch (e) { $("pipe-err").textContent = "no sample document on this machine"; }
+  button.disabled = false;
+  button.textContent = label;
 };
+
+/* A complaint that outlives the thing it complained about is worse than none:
+   the reader sees "ask something first" beside a question and concludes the
+   page is broken. It goes as soon as the field it is about has something in it. */
+function clearPipeError() {
+  if ($("pq").value.trim() && $("pipe-err").textContent === "ask something first") {
+    $("pipe-err").textContent = "";
+  }
+}
+$("pq").addEventListener("input", clearPipeError);
 /* Four scenarios worth showing, because the interesting behaviour is not all in
    one request: a compression, a question the model never sees, an edit the gate
    refuses, and an answer served from the cache. */
@@ -729,7 +776,10 @@ function remember() {
 function recall() {
   try {
     const saved = JSON.parse(localStorage.getItem(REMEMBER) || "{}");
-    if (saved.q && !$("pq").value) $("pq").value = saved.q;
+    // "Untouched" is the empty box OR the shipped default still sitting in it;
+    // a question the reader typed before a reload outranks both.
+    const untouched = !$("pq").value || $("pq").value === $("pq").dataset.default;
+    if (saved.q && untouched) $("pq").value = saved.q;
     if (saved.text && !$("pipe-text").value) $("pipe-text").value = saved.text;
   } catch (e) { /* nothing remembered is a perfectly good state */ }
   sizeContext();

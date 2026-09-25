@@ -126,9 +126,15 @@ button.ghost.tiny { padding: 3px 10px; font-size: 11.5px; border-radius: 6px; }
 .tbar .now b { color: var(--accent); font-weight: 650; }
 .tbar .now .sub { color: var(--dim); }
 .track { display: flex; height: 40px; gap: 2px; align-items: stretch; }
+/* Proportional, but never narrower than a pointer can hit. On a real run the
+   context selector is 94% of middleware time, so at a 3px floor the other ten
+   stages were three pixels each -- on a bar whose whole purpose is to be
+   clicked through. The basis stays the true share and shrink lets the clamped
+   segments take their floor out of the dominant one, so it is still a
+   proportion; the sentence underneath says which stage that is. */
 .seg { position: relative; border-radius: 5px; background: #1b2330; cursor: pointer;
        overflow: hidden; border: 1px solid transparent; transition: border-color .2s,
-       transform .2s; min-width: 3px; }
+       transform .2s; min-width: 15px; }
 .seg:hover { border-color: var(--faint); }
 .seg .segfill { position: absolute; inset: 0; opacity: .55; }
 .seg .seglab { position: absolute; inset: 0; display: flex; align-items: center;
@@ -221,7 +227,16 @@ button.ghost.tiny { padding: 3px 10px; font-size: 11.5px; border-radius: 6px; }
 .vword { position: absolute; left: 50%; top: 0; font-family: var(--mono); font-size: 10.5px;
          color: #9fb3cc; white-space: nowrap; padding: 1px 6px; border-radius: 4px;
          background: #141d28; border: 1px solid #22303f; opacity: 0;
+         /* The lane is the element's, not the animation's. Without this a chip
+            in a channel the request has not reached -- which is most of them,
+            most of the time -- sits at left:50% with every other chip on top
+            of it. */
+         transform: translate(calc(-50% + var(--x, 0px)), 22px);
          will-change: transform, opacity; }
+/* A channel the request has not reached yet: its words are there, in their
+   lanes, waiting rather than moving. */
+.vflow:not(.running) .vword { opacity: .34; }
+.vflow:not(.running) .vword.cutword { opacity: 0; }
 .vflow.running .vword { animation: fall var(--dur, 2.4s) linear infinite; }
 @keyframes fall {
   /* Opaque only in the middle of the channel: a chip caught half-clipped by the
@@ -241,7 +256,10 @@ button.ghost.tiny { padding: 3px 10px; font-size: 11.5px; border-radius: 6px; }
          opacity: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .vflow.running .vword, .vflow.running .vword.cutword { animation: none; opacity: .85; }
+  /* No motion, but the lanes still hold: the base transform above is what
+     makes a still channel legible instead of a pile. */
+  .vflow.running .vword { animation: none; opacity: .85; }
+  .vflow.running .vword.cutword { animation: none; opacity: .85; }
 }
 
 /* ── the document, losing sentences ──────────────────────────────── */

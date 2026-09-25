@@ -28,8 +28,12 @@
     <div class="row">
       <div style="flex:4 1 420px">
         <label for="pq">Ask the system something</label>
+        <!-- A VALUE, not a placeholder. It read as a filled field either way,
+             so the page may as well be one press from a run. -->
         <input type="text" id="pq"
-               placeholder="What is the annual travel budget for the Tallinn office?">
+               value="What is the annual travel budget for the Tallinn office?"
+               data-default="What is the annual travel budget for the Tallinn office?"
+               placeholder="Ask anything about the attached text">
       </div>
       <div class="narrow"><button class="go" id="run-pipe">Run</button></div>
       <div class="narrow"><button class="ghost" id="pipe-sample">Attach the handbook</button></div>
@@ -71,12 +75,12 @@
   </div>
 
   <div class="metrics">
-    <div class="metric"><div class="mv" id="m-before">0</div>
+    <div class="metric"><div class="mv" id="m-before">—</div>
       <div class="mk">tokens written</div></div>
     <div class="metric arrow">→</div>
-    <div class="metric"><div class="mv keep" id="m-after">0</div>
+    <div class="metric"><div class="mv keep" id="m-after">—</div>
       <div class="mk">tokens sent</div></div>
-    <div class="metric"><div class="mv drop" id="m-removed">0</div>
+    <div class="metric"><div class="mv drop" id="m-removed">—</div>
       <div class="mk">never read</div></div>
     <div class="metric">
       <div class="ring">
@@ -88,7 +92,7 @@
       </div>
       <div class="mk">of the prompt sent</div>
     </div>
-    <div class="metric"><div class="mv time" id="m-saved">0.0s</div>
+    <div class="metric"><div class="mv time" id="m-saved">—</div>
       <div class="mk" id="m-saved-k">prefill not spent</div></div>
   </div>
 
@@ -125,9 +129,11 @@
          aria-label="stages of this request, click one to jump to it"></div>
     <div class="ticks">
       <span id="tick-l">0 ms</span>
-      <span class="dimtext" id="tick-note">segment width = that stage's measured share of middleware time</span>
+      <span class="dimtext" id="tick-note">segment width = that stage's measured share of middleware time,
+        with a floor so every stage stays clickable</span>
       <span id="tick-r">—</span>
     </div>
+    <div class="note" id="track-note"></div>
   </div>
 
   <div class="panel">
