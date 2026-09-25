@@ -852,6 +852,26 @@ class TestWhatAReaderMeetsBeforeAndBetweenRuns:
         _html, js, _css = self._sources()
         assert "flex:1 1 ${pct}%" in js
 
+    def test_the_lane_and_the_word_cap_are_one_number(self):
+        """They were two constants that had to agree and did not: a 78px lane
+        with a 13-character cap admits a 94px chip, which has slack at 1440 and
+        collides at 1024. The lane comes from the room the channel has; the cap
+        comes from the lane; the character width is measured, not guessed."""
+        _html, js, _css = self._sources()
+        assert "flow.clientWidth" in js, "the lane must come from the channel's own box"
+        assert "function clipTo(word, lane)" in js, "and the cap from the lane"
+        assert "chipCharWidth()" in js, (
+            "a guessed character width is the same two-constants problem again")
+
+    def test_a_channel_is_laid_out_again_when_its_box_changes(self):
+        """A window resize is not the only way a channel changes width -- the
+        inspector opening beside it, a zoom, a font arriving late. Watching the
+        element covers all of them; the window listener stays for the canvas,
+        which is sized from the device rather than from a box."""
+        _html, js, _css = self._sources()
+        assert "ResizeObserver" in js
+        assert 'addEventListener("resize", relayout)' in js
+
     def test_attaching_the_sample_cannot_be_raced_by_running(self):
         """Attach is a fetch. Pressing Run inside it read an empty question box,
         complained, and then the document landed -- leaving a complaint about an

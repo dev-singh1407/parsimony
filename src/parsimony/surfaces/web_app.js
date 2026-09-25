@@ -215,10 +215,29 @@ function wordPool() {
 }
 
 const MAX_WORDS = 11;
-/* A chip is one word from the reader's own text, and one word can be
-   "responsibilities". Capping it keeps every chip inside its lane; the full
-   word is still in the document panel below, where it can be read. */
-const clip = (w) => (w.length > 13 ? w.slice(0, 12) + "…" : w);
+/* Width of one character of the chip font, measured once off the page rather
+   than guessed: the cap below is derived from it, so changing the font cannot
+   quietly make every chip wider than the lane holding it. */
+let CHIP_CH = 0;
+function chipCharWidth() {
+  if (CHIP_CH) return CHIP_CH;
+  const probe = document.createElement("span");
+  probe.className = "vword";
+  probe.style.cssText = "position:absolute;visibility:hidden;opacity:0;transform:none";
+  probe.textContent = "M".repeat(10);
+  document.body.appendChild(probe);
+  CHIP_CH = probe.getBoundingClientRect().width / 10 || 6.3;
+  probe.remove();
+  return CHIP_CH;
+}
+
+/* A chip is one word of the reader's own text, and one word can be
+   "responsibilities". The cap comes from the lane it has to fit in, so the two
+   cannot disagree; the whole word is still in the document panel below. */
+function clipTo(word, lane) {
+  const max = Math.max(4, Math.floor((lane - 16) / chipCharWidth()));
+  return word.length > max ? word.slice(0, max - 1) + "…" : word;
+}
 function fillChannels() {
   const pool = wordPool();
   const start = RUN.stages.length ? RUN.stages[0].before : 1;
@@ -233,18 +252,19 @@ function fillChannels() {
     const n = Math.max(2, Math.round(MAX_WORDS * Math.min(1, carried / (start || 1))));
     const kept = pool.alive.length ? pool.alive : ["your", "question"];
     const frag = document.createDocumentFragment();
-    // A chip is 40-70px wide, so the lanes have to be at least that far apart
-    // or the words simply land on each other. How many lanes there are is how
-    // much prompt is still carried, so the channel narrows as the prompt does.
-    // Wide enough for the widest chip a capped word can make, so clearance is
-    // a property of the layout rather than of which words this document has.
-    const lane = 78;
+    // The lanes have to be far enough apart that chips cannot land on each
+    // other, and there are only so many pixels: the lane is the room this
+    // channel actually has, divided by the words in flight. How many words
+    // there are is how much prompt is still carried, so the channel narrows as
+    // the prompt does.
+    const room = Math.max(280, flow.clientWidth - 30);
+    const lane = Math.max(40, Math.min(92, room / n));
     const width = lane * (n - 1);
     flow.querySelector(".vband").style.width = (width + lane).toFixed(0) + "px";
     for (let k = 0; k < n; k++) {
       const el = document.createElement("span");
       el.className = "vword";
-      el.textContent = clip(kept[(k * 7 + i * 3) % kept.length]);
+      el.textContent = clipTo(kept[(k * 7 + i * 3) % kept.length], lane);
       // Evenly across the band, not pseudo-randomly: a random offset does not
       // avoid a collision, it only makes one harder to predict.
       el.style.setProperty("--x", (k * lane - width / 2).toFixed(0) + "px");
@@ -1341,14 +1361,26 @@ function drawChart() {
   }
 }
 drawChart();
-// The store is sized from the element's box, so the box changing invalidates
-// it. Debounced: a drag emits an event per pixel and the last one is the one
-// that matters.
-let chartResize = null;
-addEventListener("resize", () => {
-  clearTimeout(chartResize);
-  chartResize = setTimeout(drawChart, 120);
-});
+// Both the canvas's backing store and the channels' lane widths are computed
+// from the box they are given, so the box changing invalidates both. Debounced:
+// a drag emits an event per pixel and only the last one matters.
+let onResize = null;
+function relayout() {
+  clearTimeout(onResize);
+  onResize = setTimeout(() => {
+    drawChart();
+    if (RUN.plan && RUN.plan.length) { fillChannels(); paintAll(); }
+  }, 120);
+}
+addEventListener("resize", relayout);
+
+/* And watch the stack itself, because a channel's width changes for reasons a
+   window resize never hears about -- the inspector opening beside it, a zoom,
+   a font arriving late. The observer fires once on attach, which is harmless:
+   there is nothing to lay out until a run has produced a plan. */
+if (typeof ResizeObserver === "function" && $("stack")) {
+  new ResizeObserver(relayout).observe($("stack"));
+}
 
 $("run-ab").onclick = () => {
   const question = $("abq").value.trim() || $("pq").value.trim() || $("q").value.trim();
