@@ -717,3 +717,63 @@ class TestTheFloorModeOnThePage:
                             "handbook", None, None, True)
         assert data["shipped_adaptive"] is False
         assert vis.cfg.compression.context_adaptive_floor is False
+
+
+class TestScoringWithEitherEncoder:
+    """ADR-041, ADR-046 and ADR-051 all say the same thing from three
+    directions: the encoder decides the scores, thresholds do not transfer
+    between encoders, and a result that does not name its encoder says nothing.
+    None of it was visible on the page it is a page about."""
+
+    @staticmethod
+    def _sources():
+        from pathlib import Path
+
+        here = Path(web.__file__).parent
+        return ((here / "web_page.html").read_text(encoding="utf-8"),
+                (here / "web_app.js").read_text(encoding="utf-8"),
+                (here / "web_app.css").read_text(encoding="utf-8"))
+
+    def test_the_switch_is_offered_only_when_there_is_something_to_switch_to(self, vis):
+        """A build running the lexical encoder has no other one to offer, and a
+        control that cannot work is worse than no control."""
+        other = vis.other_encoder()
+        assert other is None or other != vis.cfg.embedder_id
+        if vis.cfg.embedder_id == vis.LEXICAL:
+            assert other is None
+
+    def test_the_page_hides_the_bar_until_the_server_names_a_second_encoder(self):
+        html, js, _css = self._sources()
+        assert 'id="encbar" hidden' in html
+        assert "data.other_encoder" in js, (
+            "the page must take the choice from the server, not assume one exists")
+
+    def test_a_request_can_only_ask_for_an_encoder_the_page_offers(self, server,
+                                                                   handbook_text):
+        """An arbitrary id from a request is a way to ask the server to load
+        anything it can find."""
+        status, data = post_json(server, "/api/compress", {
+            "question": "What is the travel budget for Porto?",
+            "text": handbook_text, "encoder": "../../etc/passwd"})
+        assert status == 200
+        assert data["encoder"] == data["shipped_encoder"], (
+            "an encoder the page does not offer must fall back, not be loaded")
+
+    def test_the_answer_names_the_encoder_that_produced_it(self, vis, handbook_text):
+        data = vis.compress("Who manages the Porto office?", handbook_text, "handbook")
+        assert data["encoder"] and data["shipped_encoder"]
+
+    def test_scoring_with_the_lexical_encoder_is_always_possible(self, vis, handbook_text):
+        """It needs nothing running, which is what makes it the honest
+        comparison arm rather than a second thing that can be unavailable."""
+        data = vis.compress("Who manages the Porto office?", handbook_text, "handbook",
+                            None, None, None, vis.LEXICAL)
+        assert data["encoder"] == vis.LEXICAL
+        assert data["units"], "the lexical encoder must still score every sentence"
+
+    def test_asking_for_an_encoder_does_not_change_what_the_system_ships(self, vis,
+                                                                         handbook_text):
+        before = vis.cfg.embedder_id
+        vis.compress("Who manages the Porto office?", handbook_text, "handbook",
+                     None, None, None, vis.LEXICAL)
+        assert vis.cfg.embedder_id == before

@@ -2414,3 +2414,127 @@ ones, where the lower constant is pure cost.
 This is the next form after that: a threshold that reads its own trade-off off the data in front of it. The
 Heatmap tab carries both — the floor as a dial you drag, and the floor as a reading, with the cliff it was
 taken from drawn on the score profile and the difference between the two stated in sentences.
+
+
+### ADR-052 — The dense term does more than the design assumed, in both directions
+
+**Status.** Two findings from measuring one component. The lexical prefilter is **rejected**; the
+zero-coverage rule is **adopted and on by default**. 25 September 2026.
+
+**Context.** The context tier blends a neural cosine into BM25 at weight 0.3 and uses the same encoder's
+best cosine as one arm of the off-topic check. Two things about that were assumed rather than measured:
+that the dense term mostly *confirms* the lexical ranking, and that its cosine discriminates topic. Both
+turn out to be wrong, and in opposite directions.
+
+---
+
+#### Half one: the encoder is not a top-up, so a lexical prefilter cannot be cheap
+
+`d.embed([query] + every sentence)` is the only cost in this tier that grows with the document rather than
+with the answer — about 9 ms a sentence, deciding a selection that keeps fifteen. The obvious saving is the
+standard one for a hybrid retriever: rank lexically, which is free, and pay the encoder only for the head.
+
+`context_dense_candidates` does that. The criterion for how long the head must be is exact and needs no
+statistics — the smallest N at which every item's selection is **identical** to embedding everything:
+
+| candidates the encoder sees | items selecting identically (of 124) |
+|---|---|
+| 5 | 29 |
+| 10 | 56 |
+| 15 | 86 |
+| 20 | 97 |
+| 30 | 111 |
+| **40** | **124** |
+
+Documents here hold 39–46 sentences, so **the encoder has to see essentially all of them.** At 30
+candidates — already two-thirds of the document — thirteen items still choose differently. The dense term
+is not confirming BM25's ordering; it is **reordering it**, routinely promoting sentences the lexical
+ranking puts near the bottom.
+
+That is a result worth having on its own: it is the retrospective justification for the encoder's cost,
+which ADR-041 could only argue from accuracy.
+
+**But different is not worse, so the second question is what the prefilter costs and buys.** On the 81
+held-out items with evidence:
+
+| candidates | answer spans kept | context sent | wall clock |
+|---|---|---|---|
+| all | 100/101 | 27.0% | 14.3 s |
+| 10 | 99/101 | 25.2% | 12.0 s |
+| 15 | 99/101 | 26.3% | 17.5 s |
+| 20 | 100/101 | 26.5% | 15.8 s |
+| 30 | 100/101 | 27.1% | 17.1 s |
+
+Recall barely moves — one span at 10 and 15, none above. **And no time is saved.** The wall-clock column is
+noise: 15 candidates is *slower* than all of them. A batch of 46 sentences and a batch of 15 are both one
+HTTP round trip to the embedding server, and at this document size the round trip is the cost, not the
+sentences in it.
+
+**Rejected, and the default stays 0 (all).** The mechanism ships switched off, because the saving it was
+built for does not exist below a document size this corpus does not reach, and the price — a third of the
+selection changed at 50% pruning — would be paid immediately. What is worth recording is the shape of the
+failure: this is a standard engineering shortcut that measures as free on recall and is not free at all on
+*which sentences are sent*, which is the thing a compressor is.
+
+---
+
+#### Half two: and the same encoder's similarity swamps the off-topic check
+
+ADR-042's topical check is an **AND**: off topic when term coverage is below its floor **and** the best
+sentence cosine is below its own. The cosine arm is there to rescue a paraphrase that shares few words.
+
+The Heatmap's new encoder switch was built to show that thresholds do not transfer (ADR-041). The first
+thing it showed was this, on the shipped sample handbook — which covers three offices, travel policy,
+equipment loans and onboarding, and nothing else:
+
+| question | term coverage | neural encoder | lexical encoder |
+|---|---|---|---|
+| *What is the notice period?* | **0.00** | 280 tokens sent | **13 tokens** |
+| *When does the office close for Christmas?* | 0.33 | 211 tokens sent | **17 tokens** |
+| *What is the travel budget for Porto?* | 1.00 | 248 | 248 |
+
+**Not one content word of the first question appears anywhere in the handbook, and 280 tokens were sent.**
+MiniLM scores any two pieces of workplace prose above 0.35, so on a document in the question's own domain
+the cosine arm almost never fires, and the AND then discards the coverage signal exactly where coverage is
+right. **The protection got weaker when the encoder got better**, which is the opposite of what an upgrade
+should do.
+
+**The rule: coverage of exactly zero is decisive on its own.** A paraphrase shares *something* — an entity,
+a number, a noun. Nothing at all is not a paraphrase, and an encoder that still calls it similar is
+reporting that both texts are English about work.
+
+**Measured on the frozen corpus, both encoders, rule on and off — all four identical:** 0 of 104 answerable
+questions refused, 19 of 20 unanswerable ones caught. It fires on a class the corpus does not contain and
+changes nothing on the classes it does.
+
+**Adopted, on by default,** which is a different bar from ADR-051's and deliberately so. That was a
+trade — recall against cost, needing a value chosen — and it stayed off because the gain was 0.4 points.
+This has no value to choose and no trade to lose: it either fires or it does not, it has never fired on a
+question the corpus can answer, and when it fires it removes 95% of a prompt that could not have been
+answered from. `context_topic_zero_coverage=False` restores the old behaviour exactly.
+
+**And the room on either side, which is the argument ADR-042 made for its own two thresholds.** Term
+coverage over the whole corpus:
+
+| | n | min | p10 | median | max |
+|---|---|---|---|---|---|
+| answerable | 104 | **0.50** | 0.67 | 0.83 | 1.00 |
+| off topic | 20 | 0.00 | 0.00 | 0.00 | 0.50 |
+
+**Not one answerable question in 104 falls below 0.50**, across six splits including the `paraphrase` split
+authored to stress exactly this. The lowest three are paraphrases at 0.50 — *"How far can a Tempo van travel
+on one charge?"* against a specification that says "range". Zero is not near the edge of the answerable
+range; it is half the scale below its minimum.
+
+**What would falsify it** is therefore a complete synonym substitution: an answerable question sharing no
+content word at all with the text that answers it. None exists here.
+
+It is pinned by unit test against the sample handbook
+rather than by a corpus item, for the same reason ADR-047's regression was: adding questions to a frozen
+instrument after seeing a failure is not measurement.
+
+**Consequence, and the third blind spot.** `07-corpus-spec.md` §8 listed two things this corpus cannot see.
+Here is the third: **its off-topic questions are all *far* off topic** — the capital of Peru against a staff
+handbook. The common real failure is the *near* case, a question in the document's own domain whose answer
+is simply absent, and the corpus contains none. Both earlier blind spots were found by measuring something
+else; so was this one, by a control built to demonstrate a different finding entirely.

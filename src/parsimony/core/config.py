@@ -111,6 +111,13 @@ class CompressionConfig:
     #: The adaptive floor is clamped to the range the constant was measured over.
     context_elbow_floor_min: float = 0.02
     context_elbow_floor_max: float = 0.35
+    # How many sentences the encoder is paid for, best lexical first; 0 means
+    # all of them, which is what every result before ADR-052 was measured with.
+    # The encoder is the only cost in this tier that grows with the document
+    # rather than with the answer (~9 ms a sentence), and the dense term is
+    # blended at 0.3, so a sentence deep in the lexical ranking reaches the
+    # keep set only on a near-maximal cosine.
+    context_dense_candidates: int = 0
     context_mmr_lambda: float = 0.75
     # Blend of embedder cosine into the BM25 score. Lexical encoders mostly
     # restate BM25, so the weight is small until a neural encoder is attached.
@@ -138,6 +145,13 @@ class CompressionConfig:
     # the gap with room on either side.
     context_topic_floor: float = 0.5        # fraction of the question's terms present
     context_topic_cosine: float = 0.35      # best sentence cosine, when an encoder is used
+    # The two above are an AND, and with a neural encoder the cosine arm almost
+    # never fires on a document in the question's own domain -- so the coverage
+    # signal is thrown away exactly where it is right. Coverage of ZERO, not one
+    # content word of the question anywhere in the text, is decisive on its own:
+    # a paraphrase shares something, and nothing at all is not a paraphrase
+    # (ADR-052).
+    context_topic_zero_coverage: bool = True
     context_anchor_bonus: float = 0.5
     # A sentence under the heading "Porto office" is about Porto whether or not
     # it says so. Without this, "Who manages the Porto office?" keeps "The LEEDS

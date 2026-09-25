@@ -822,6 +822,14 @@ independent of what its F1 column says.
    abbreviations, no parentheticals, and short enough that the largest prompt it has ever produced is 869
    tokens. Three real defects (§7.7) were invisible to it for exactly that reason, and a sentence-splitter
    bug that fragments any text containing "Dr." or "(c. 1312 – 1360)" changes nothing measurable on it.
+   A fourth: **its unanswerable questions are all far off topic** — the capital of Peru against a staff
+   handbook — and the common real failure is the *near* case, a question in the document's own domain whose
+   answer is simply absent. The corpus contains none, and the gap hid a live defect: the topical check is an
+   AND of term coverage and encoder cosine, and a neural encoder scores any two pieces of same-domain prose
+   above its cosine arm, so the coverage signal was discarded exactly where it was right. *"What is the
+   notice period?"* shares no content word with the shipped handbook and was sending 280 tokens of it.
+   **The protection got weaker as the encoder got better**, which is the opposite of what an upgrade should
+   do (ADR-052).
 6. **The external benchmark is 40 items.** Enough to say the cost result holds and that the accuracy
    difference is undetectable; not enough to settle a subgroup analysis, which is why one was rejected
    rather than reported.

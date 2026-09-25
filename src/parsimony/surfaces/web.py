@@ -171,18 +171,37 @@ class Visualiser:
         self.cache = SemanticCache(self.cfg.cache.ttl_seconds,
                                    max_entries=self.cfg.cache.max_entries)
 
+    #: The lexical encoder, which needs nothing running and is always available.
+    LEXICAL = "content-v1"
+
+    def other_encoder(self) -> str | None:
+        """The encoder this page can also score with, or None if there is only one.
+
+        Not a list of everything installed: the comparison that means something
+        is neural against lexical, because that is the pair every calibration
+        result in this project is stated over.
+        """
+        return None if self.cfg.embedder_id == self.LEXICAL else self.LEXICAL
+
     # -- heatmap ---------------------------------------------------------
 
     def compress(self, question: str, text: str, name: str = "pasted text",
                  floor: float | None = None, ratio: float | None = None,
-                 adaptive: bool | None = None) -> dict:
+                 adaptive: bool | None = None, encoder: str | None = None) -> dict:
         """One question against one document, with the decision on every sentence.
 
         `floor` overrides the relevance floor for this call only, so the page
         can sweep it without restarting anything, and `adaptive` asks for it to
         be read off the score distribution instead of set at all (ADR-051).
-        Neither changes what the system ships -- the shipped floor is 0.15 and
-        the shipped mode is the constant. This page shows the curve and the
+        `encoder` scores the same sentences with the other encoder. It is not a
+        cosmetic switch: the encoder decides the scores every threshold here is
+        read against, thresholds are calibrated per encoder and do not transfer
+        (ADR-041), and a table that does not name its encoder says nothing
+        (ADR-046). Seeing the two disagree is the point.
+
+        None of them changes what the system ships -- the shipped floor is 0.15,
+        the shipped mode is the constant, and the shipped encoder is whichever
+        `best_config` resolved at startup. This page shows the curve and the
         rule; it does not re-tune anything.
         """
         from dataclasses import replace as _replace
@@ -191,6 +210,8 @@ class Visualiser:
         from parsimony.pipeline.orchestrator import Pipeline
 
         cfg = self.cfg
+        if encoder and encoder != cfg.embedder_id:
+            cfg = _replace(cfg, embedder_id=encoder)
         overrides = {}
         if floor is not None:
             overrides["context_relevance_floor"] = floor
@@ -221,6 +242,10 @@ class Visualiser:
             "encoder_ms": encoder_ms,
             "decide_ms": max(0.0, took_ms - encoder_ms),
             "encoder": cfg.embedder_id,
+            "shipped_encoder": self.cfg.embedder_id,
+            # The other encoder this page can score with, or None when only one
+            # is reachable -- the page must not offer a switch that cannot work.
+            "other_encoder": self.other_encoder(),
             # The thresholds the page draws its lines at. Sent rather than
             # hard-coded in the script: a page that draws a boundary the
             # configuration has moved is worse than one that draws none.
@@ -680,10 +705,14 @@ def make_handler(vis: Visualiser):
                 ratio = _dial("ratio", 0.01, 1.0)
                 adaptive = payload.get("adaptive")
                 adaptive = None if adaptive is None else bool(adaptive)
+                # Only the two encoders this page offers. An arbitrary id from a
+                # request would be a way to ask the server to load anything.
+                asked = payload.get("encoder")
+                encoder = asked if asked in (vis.cfg.embedder_id, vis.LEXICAL) else None
                 try:
                     self._json(vis.compress(question, text,
                                             payload.get("name") or "pasted text",
-                                            floor, ratio, adaptive))
+                                            floor, ratio, adaptive, encoder))
                 except Exception as exc:                      # a visualiser must not 500 silently
                     self._json({"error": f"{type(exc).__name__}: {exc}"}, 500)
             else:

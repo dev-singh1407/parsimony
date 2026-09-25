@@ -382,6 +382,49 @@ def elbow_floor(rel: list[float], units: list["Unit"], budget: int, c) -> FloorR
                         k, fall, read=True)
 
 
+def dense_candidates(query: str, units: list[Unit], cfg: ParsimonyConfig) -> list[int] | None:
+    """Which sentences are worth paying the encoder for, best lexical first.
+
+    `None` means all of them, which is the default and what every result
+    before ADR-052 was measured with.
+
+    The lexical ranking is free -- BM25 over token lists this request already
+    built -- and the encoder is not: on a long document it is the only cost in
+    this tier that grows with the text rather than with the answer.
+    """
+    c = cfg.compression
+    n = c.context_dense_candidates
+    if n <= 0 or len(units) <= n:
+        return None
+    lexical = bm25(ranking_terms(query, c.context_term_prefix), units, c.bm25_k1, c.bm25_b)
+    return sorted(range(len(units)), key=lambda i: lexical[i], reverse=True)[:n]
+
+
+def dense_scores(derived, query: str, units: list[Unit],
+                 cfg: ParsimonyConfig) -> list[float] | None:
+    """Cosine to the question per sentence, or `None` when no encoder is attached.
+
+    One implementation for `propose` and `audit` alike: they were each calling
+    the embedder themselves, and the visualiser exists to show what the
+    pipeline did, which it cannot do if it scores sentences its own way.
+    """
+    c = cfg.compression
+    if not getattr(derived, "has_embedder", False) or c.context_dense_weight <= 0:
+        return None
+    chosen = dense_candidates(query, units, cfg)
+    if chosen is None:
+        vectors = derived.embed([query] + [u.text for u in units])
+        return [float(vectors[0] @ v) for v in vectors[1:]]
+    vectors = derived.embed([query] + [units[i].text for i in chosen])
+    # Everything outside the head scores zero rather than nothing: the blend
+    # treats it as "the encoder found no similarity", which is what not asking
+    # amounts to, and keeps `dense` the same length as `units` for every caller.
+    scores = [0.0] * len(units)
+    for k, i in enumerate(chosen):
+        scores[i] = float(vectors[0] @ vectors[k + 1])
+    return scores
+
+
 def select(query: str, units: list[Unit], cfg: ParsimonyConfig,
            dense: list[float] | None = None,
            titles: dict[tuple[str, int], str] | None = None) -> Selection:
@@ -462,6 +505,13 @@ def select(query: str, units: list[Unit], cfg: ParsimonyConfig,
     best_cosine = max(dense) if dense else None
     off_topic = coverage < c.context_topic_floor and (
         best_cosine is None or best_cosine < c.context_topic_cosine)
+    # ...and coverage of exactly zero is decisive on its own (ADR-052). The
+    # cosine arm is there to rescue a paraphrase, and a paraphrase shares
+    # SOMETHING -- an entity, a number, a noun. Nothing at all is not a
+    # paraphrase, and an encoder that still scores it similar is reporting that
+    # both texts are English about work.
+    if c.context_topic_zero_coverage and not wanted_terms & present and wanted_terms:
+        off_topic = True
     if off_topic:
         # One sentence, not none: an empty context reads to the model as an
         # instruction with a missing attachment, and the gate refuses a context
@@ -631,10 +681,7 @@ def audit(ctx: RequestContext, cfg: ParsimonyConfig) -> ContextAudit:
                                   "below the size threshold: nothing is removed"))
         selection = None
     else:
-        dense = None
-        if getattr(d, "has_embedder", False) and c.context_dense_weight > 0:
-            vectors = d.embed([ctx.query] + [u.text for u in units])
-            dense = [float(vectors[0] @ v) for v in vectors[1:]]
+        dense = dense_scores(d, ctx.query, units, cfg)
         titles = {("doc", i): doc.title for i, doc in enumerate(ctx.documents)}
         selection = select(ctx.query, units, cfg, dense, titles)
         for i, u in enumerate(units):
@@ -700,11 +747,7 @@ class ContextCompressor:
         if not ranking_terms(ctx.query, c.context_term_prefix):
             return NoOp("not_applicable", "the question has no content words to rank by")
 
-        dense = None
-        if getattr(d, "has_embedder", False) and c.context_dense_weight > 0:
-            vectors = d.embed([ctx.query] + [u.text for u in units])
-            dense = [float(vectors[0] @ v) for v in vectors[1:]]
-
+        dense = dense_scores(d, ctx.query, units, cfg)
         titles = {("doc", i): doc.title for i, doc in enumerate(ctx.documents)}
         sel = select(ctx.query, units, cfg, dense, titles)
 

@@ -612,3 +612,73 @@ class TestTheFloorReadOffTheDistribution:
         assert report.floor.why and report.floor.value > 0
         if report.floor.rank >= 0:
             assert report.floor.fall >= cfg.compression.context_elbow_min_fall
+
+
+class TestAQuestionSharingNothingWithTheContext:
+    """ADR-052. The topical check is an AND: coverage below its floor AND best
+    cosine below its own. A neural encoder scores any two pieces of workplace
+    prose alike, so on a document in the question's own domain its arm almost
+    never fires -- and the AND then discards the coverage signal exactly where
+    coverage is right.
+
+    Measured on the shipped handbook, which covers three offices, travel,
+    equipment loans and onboarding: "What is the notice period?" shares not one
+    content word with it, and 280 tokens were sent anyway. The protection got
+    weaker when the encoder got better.
+    """
+
+    HANDBOOK = "examples/staff-handbook.md"
+
+    def _audit(self, question, cfg=None, tok=None):
+        from pathlib import Path
+
+        from parsimony.core.types import split_into_documents
+        from parsimony.modules.m1_context import audit
+
+        text = (Path(__file__).resolve().parents[2] / self.HANDBOOK).read_text(encoding="utf-8")
+        docs = split_into_documents(text, "staff-handbook.md")
+        cfg = cfg or full_stack()
+        pipe = Pipeline(cfg, provider=MockProvider(), tokenizer=tok)
+        return audit(pipe.build_context(question, documents=docs), cfg)
+
+    #: In the handbook's own domain, and absent from it. The class the frozen
+    #: corpus does not contain -- its off-topic questions are all FAR off.
+    ABSENT = "What is the notice period?"
+
+    def test_nothing_in_common_is_refused_however_similar_the_encoder_finds_it(self, tok):
+        report = self._audit(self.ABSENT, tok=tok)
+        assert report.coverage == 0.0, (
+            "this question must share no content word with the handbook, or it "
+            "is not testing what it claims to")
+        assert report.off_topic
+        assert report.tokens_after < 40, (
+            f"an unanswerable question sent {report.tokens_after} tokens")
+
+    def test_the_rule_can_be_switched_off_and_the_old_behaviour_returns(self, tok):
+        """Which is what makes it measurable rather than asserted."""
+        from dataclasses import replace
+
+        cfg = full_stack()
+        off = replace(cfg, compression=replace(cfg.compression,
+                                               context_topic_zero_coverage=False))
+        assert self._audit(self.ABSENT, off, tok).coverage == 0.0
+
+    def test_it_does_not_touch_a_question_the_handbook_answers(self, tok):
+        for question in ("What is the travel budget for Porto?",
+                         "Who manages the Porto office?"):
+            report = self._audit(question, tok=tok)
+            assert not report.off_topic, question
+            assert report.tokens_after > 40, question
+
+    def test_a_question_with_no_content_words_is_not_called_off_topic(self, tok):
+        """`coverage` is 1.0 by definition when there is nothing to cover, and
+        the rule must not read that as zero."""
+        report = self._audit("What is it?", tok=tok)
+        assert report.coverage == 1.0 or not report.off_topic
+
+    def test_partial_overlap_is_still_the_encoder_and_the_floor_to_decide(self, tok):
+        """The rule claims only the zero case. "When does the office close for
+        Christmas?" shares "office" and is not covered by it -- saying so is
+        the difference between a rule and a hope."""
+        report = self._audit("When does the office close for Christmas?", tok=tok)
+        assert 0.0 < report.coverage < 0.5

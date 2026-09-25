@@ -21,7 +21,7 @@ VIT University · B.Tech BCSE497J Project I · Guide: Dr Sathya K
 python reproduce.py --out figures
 ```
 
-**1,217 tests passing.** Every table below regenerates from a live run in ~40 s. Setup and commands:
+**1,228 tests passing.** Every table below regenerates from a live run in ~40 s. Setup and commands:
 [`docs/08-setup.md`](docs/08-setup.md).
 
 | Module | State |
@@ -271,6 +271,17 @@ strings a violin has with six irrelevant documents attached, the model said *six
 is right every time (12/12). Parsimony keeps 4.1% of the documents, takes 0.92 s, and is also right every
 time (ADR-042).
 
+**And the protection got weaker when the encoder got better.** That check is an AND — off topic when term
+coverage is below a floor *and* the best sentence cosine is below its own. The visualiser's encoder switch,
+built to show that thresholds do not transfer, showed this instead: *"What is the notice period?"* shares
+**not one content word** with the shipped handbook, which covers three offices, travel, equipment loans and
+onboarding — and 280 tokens went anyway, because MiniLM scores any two pieces of workplace prose above 0.35.
+The lexical encoder refuses it correctly at 13. So coverage of *zero* now decides on its own: a paraphrase
+shares something, and nothing at all is not a paraphrase. No answerable question in the corpus falls below
+0.50 coverage, and the rule changes nothing on any of the six splits under either encoder (ADR-052). The
+gap it fell through is now the corpus's third recorded blind spot — every off-topic question in it is *far*
+off topic, and the common real failure is the near one.
+
 ### "Why not just keep the last few turns?" — because it answers none of them
 
 Every chat framework keeps the most recent turns until a token budget is full. On 14 held-out conversations
@@ -393,7 +404,7 @@ module — the same distinction as ADR-028.
 | [`docs/00-architecture.md`](docs/00-architecture.md) | Layering, core data model, orchestrator, stage ordering, repo layout, cross-cutting concerns |
 | [`docs/01-pipeline-stages.md`](docs/01-pipeline-stages.md) | The eight processing stages, each with objective / inputs / outputs / techniques / libraries / pros / cons / alternatives / recommendation / integration |
 | [`docs/02-module-specs.md`](docs/02-module-specs.md) | M1–M8 internals and ablation wiring |
-| [`docs/03-decision-log.md`](docs/03-decision-log.md) | 51 ADRs with justification and consequences. **The intellectual core** — several record where measurement contradicted the plan |
+| [`docs/03-decision-log.md`](docs/03-decision-log.md) | 52 ADRs with justification and consequences. **The intellectual core** — several record where measurement contradicted the plan |
 | [`docs/04-roadmap.md`](docs/04-roadmap.md) | Re-planned 12-week schedule, sprint plan, milestone gates, scope-cut order, risks |
 | [`docs/05-evaluation-harness.md`](docs/05-evaluation-harness.md) | The compute budget problem and its fix; sweep runner; four quality measures; statistics; validity threats |
 | [`docs/06-contracts.md`](docs/06-contracts.md) | Complete L0 type and protocol definitions + the ledger schema. **Review this first** |

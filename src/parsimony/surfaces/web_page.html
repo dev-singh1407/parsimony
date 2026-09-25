@@ -252,6 +252,13 @@
       <span class="modewhy" id="mode-why"></span>
     </div>
 
+    <div class="modebar" id="encbar" hidden>
+      <span class="modelab">Sentences scored by</span>
+      <button class="mode on" id="enc-shipped" aria-pressed="true"></button>
+      <button class="mode" id="enc-other" aria-pressed="false"></button>
+      <span class="modewhy" id="enc-why"></span>
+    </div>
+
     <div class="dial" id="dial">
       <label for="floor">Relevance floor</label>
       <input type="range" id="floor" min="0" max="0.30" step="0.01" value="0.15">
@@ -278,6 +285,19 @@
       floor reaches 90%. Six mechanisms were built to find more sentences before this was swept;
       the sentences were being found and then discarded. Move both and watch which one is
       actually biting.
+    </div>
+    <div class="note" id="encoder-note" hidden>
+      <b>Why this is not a cosmetic switch.</b> The encoder produces the scores every threshold on
+      this page is read against, so it decides what survives. Thresholds calibrated for one
+      <i>do not transfer</i> to the other (ADR-041): the lexical encoder never scored an
+      adversarial cache pair above 0.85, so an accept zone looked safe; the neural one puts the
+      same pairs straight through it. Two arms of a study once came out identical because the
+      encoder resolved the same way for both, and the one-item gap between them was nothing but a
+      per-prompt nonce (ADR-046).
+      <br><br>
+      Switch it and watch the bars move. Where the two disagree about which sentences matter is
+      where every result in this project has to name which one produced it &mdash; including the
+      floor tables, which ship as two.
     </div>
     <div class="note" id="adaptive-note" hidden>
       <b>Why a rule beats a number.</b> ADR-050 measured that no single constant is right: 0.15

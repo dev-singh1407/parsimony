@@ -3,7 +3,7 @@
 **Status:** all eight modules built · **1,132 tests passing** · every number below regenerates with
 `python reproduce.py`
 
-This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (51 ADRs);
+This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (52 ADRs);
 this document is what those decisions *found*.
 
 **Which numbers came from where.** Sections 1–7 and 9 run against `MockProvider`, a deterministic stand-in:
@@ -1024,6 +1024,59 @@ four ADRs of measurement sit behind. But `context_adaptive_floor` is now what an
 instead of the lower constant, which is the comparison the mechanism wins outright (ADR-051). Regenerate
 both with `parsimony floor` and `parsimony floor --encoder lexical`; `reproduce.py` writes them
 together as `figures/adaptive_floor.csv`.
+
+### What the encoder is actually doing, measured from both ends
+
+The context tier blends a neural cosine into BM25 at weight 0.3, and uses the same encoder's best cosine as
+one arm of the off-topic check. Two things about that were assumed rather than measured.
+
+**It reorders, it does not confirm — so the obvious saving is not available.** The encoder is the only cost
+in this tier that grows with the document rather than with the answer (~9 ms a sentence). The standard
+shortcut for a hybrid retriever is to rank lexically, which is free, and pay the encoder only for the head.
+The criterion for how long that head must be needs no statistics — the smallest N at which every item's
+selection is *identical* to embedding everything:
+
+| candidates the encoder sees | items selecting identically (of 124) |
+|---|---|
+| 10 | 56 |
+| 20 | 97 |
+| 30 | 111 |
+| **40** | **124** |
+
+Documents here hold 39–46 sentences, so **it has to see nearly all of them.** The dense term routinely
+promotes sentences BM25 puts near the bottom. Evidence recall barely notices (one span of 101 lost at ten
+candidates) — but *which* sentences get sent changes on a third of the items at 50% pruning, and that is
+what a compressor is. And no time is saved at this size anyway: a batch of 46 and a batch of 15 are both one
+round trip to the embedding server. **Rejected; `context_dense_candidates` ships at 0, meaning all.**
+
+**And its similarity swamps the topical check.** That check is an AND — off topic when term coverage is
+below its floor *and* the best cosine is below its own. The Heatmap's encoder switch, built to show that
+thresholds do not transfer, showed this instead, on the shipped handbook (three offices, travel, equipment
+loans, onboarding, nothing else):
+
+| question | coverage | neural | lexical |
+|---|---|---|---|
+| *What is the notice period?* | **0.00** | 280 tokens sent | **13 tokens** |
+| *When does the office close for Christmas?* | 0.33 | 211 tokens sent | **17 tokens** |
+
+**Not one content word of the first question is anywhere in that handbook, and 280 tokens went anyway.**
+MiniLM scores any two pieces of workplace prose above 0.35, so on a same-domain document the cosine arm
+almost never fires and the AND discards the coverage signal exactly where coverage is right. The protection
+got *weaker* when the encoder got better.
+
+So coverage of exactly zero is now decisive on its own — a paraphrase shares something, and nothing at all
+is not a paraphrase. Measured on the frozen corpus, both encoders, rule on and off, all four identical:
+0 of 104 answerable questions refused, 19 of 20 unanswerable caught. And the room on either side is the
+whole scale:
+
+| term coverage | n | min | median | max |
+|---|---|---|---|---|
+| answerable | 104 | **0.50** | 0.83 | 1.00 |
+| off topic | 20 | 0.00 | 0.00 | 0.50 |
+
+**On by default** — unlike ADR-051's floor, this has no value to choose and no trade to lose. It fires on a
+class the corpus contains none of, which is now its third recorded blind spot: every off-topic question in
+it is *far* off topic, and the common real failure is the near one (ADR-052).
 
 ## 14. Keeping the last few turns answers none of them
 

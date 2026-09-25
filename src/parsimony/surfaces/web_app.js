@@ -1026,20 +1026,37 @@ let lastMap = null;
 /* The last answer from each mode, so switching can state the difference. Keyed
    by question and budget: a delta against a different question would be a
    comparison of two unrelated things wearing the same label. */
-const mapByMode = { fixed: null, adaptive: null };
+const lastRun = new Map();
 
-function modeDelta(data) {
-  const other = mapByMode[data.adaptive ? "fixed" : "adaptive"];
+const runKey = (d) => `${d.adaptive ? "read" : "fixed"}|${d.encoder}`;
+
+/* The difference between this run and the last one that differed in exactly
+   one setting, said in sentences. Both switches make a comparative claim --
+   the rule against the constant, one encoder against the other -- and a reader
+   holding two numbers in their head to see it is a reader who will not. */
+function deltaAgainst(data, key, noun) {
+  const other = lastRun.get(key);
   if (!other || other.question !== data.question
       || Math.abs(other.ratio - data.ratio) > 1e-9) return "";
-  const keptNow = data.units.filter((u) => u.kept).length;
-  const keptThen = other.units.filter((u) => u.kept).length;
-  const ds = keptNow - keptThen, dt = data.tokens_after - other.tokens_after;
-  if (!ds && !dt) return " · same selection as the constant";
+  const ds = data.units.filter((u) => u.kept).length
+           - other.units.filter((u) => u.kept).length;
+  const dt = data.tokens_after - other.tokens_after;
+  if (!ds && !dt) return ` · same selection as the ${noun}`;
   const word = (n, one, many) => `${Math.abs(n)} ${Math.abs(n) === 1 ? one : many}`;
   return ` · <b>${word(ds, "sentence", "sentences")} ${ds < 0 ? "fewer" : "more"}, `
-       + `${word(dt, "token", "tokens")} ${dt < 0 ? "fewer" : "more"}</b> than the `
-       + `${data.adaptive ? "constant" : "reading"}`;
+       + `${word(dt, "token", "tokens")} ${dt < 0 ? "fewer" : "more"}</b> than the ${noun}`;
+}
+
+function modeDelta(data) {
+  return deltaAgainst(data, `${data.adaptive ? "fixed" : "read"}|${data.encoder}`,
+                      data.adaptive ? "constant" : "reading");
+}
+
+function encoderDelta(data) {
+  const other = data.encoder === data.shipped_encoder
+    ? data.other_encoder : data.shipped_encoder;
+  if (!other) return "";
+  return deltaAgainst(data, `${data.adaptive ? "read" : "fixed"}|${other}`, "other encoder");
 }
 
 function floorLabel(data) {
@@ -1084,6 +1101,34 @@ function floorLabel(data) {
     : "";
 }
 
+/* Which encoder the page is asking for. `null` means "whatever the server
+   ships", so a page that has never switched sends nothing and cannot pin
+   itself to an encoder that stopped being reachable. */
+let encoderWanted = null;
+
+function showEncoderBar(data) {
+  if (!data.other_encoder) { $("encbar").hidden = true; return; }
+  $("encbar").hidden = false;
+  $("enc-shipped").textContent = data.shipped_encoder;
+  $("enc-other").textContent = data.other_encoder;
+  const onShipped = data.encoder === data.shipped_encoder;
+  $("enc-shipped").classList.toggle("on", onShipped);
+  $("enc-other").classList.toggle("on", !onShipped);
+  $("enc-shipped").setAttribute("aria-pressed", String(onShipped));
+  $("enc-other").setAttribute("aria-pressed", String(!onShipped));
+  $("encoder-note").hidden = onShipped;
+  $("enc-why").innerHTML = onShipped ? "" :
+    `scored by <b>${esc(data.encoder)}</b>, not the encoder this build runs`
+    + encoderDelta(data);
+}
+
+function setEncoder(which) {
+  encoderWanted = which;
+  if (lastMap) runMap();
+}
+$("enc-shipped").onclick = () => setEncoder(null);
+$("enc-other").onclick = () => setEncoder(lastMap && lastMap.other_encoder);
+
 let adaptiveFloor = false;
 
 function setMode(on) {
@@ -1112,14 +1157,16 @@ async function runMap(floor, ratio) {
   try {
     const r = await fetch("/api/compress", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, text, floor, ratio, adaptive: adaptiveFloor }),
+      body: JSON.stringify({ question, text, floor, ratio, adaptive: adaptiveFloor,
+                             encoder: encoderWanted }),
     });
     const data = await r.json();
     if (data.error) { $("map-err").textContent = data.error; return; }
     lastMap = data;
-    mapByMode[data.adaptive ? "adaptive" : "fixed"] = data;
+    lastRun.set(runKey(data), data);
     renderMap(data);
     floorLabel(data);
+    showEncoderBar(data);
   } catch (e) { $("map-err").textContent = String(e); }
   $("dial") && $("dial").classList.remove("busy");
 }

@@ -198,8 +198,8 @@ its own heading names; without that assertion the split does not test what its n
 
 ## 8. What this corpus cannot see
 
-A benchmark authored alongside the system inherits the system's blind spots. Two are known, and both were
-found by measuring something else.
+A benchmark authored alongside the system inherits the system's blind spots. Three are known, and every one
+of them was found by measuring something else.
 
 **It has no headings.** Every document in `longctx_docs.jsonl` is plain prose with its title in a separate
 field, so no document contains a line that is also the opening words of the sentence after it. Real
@@ -214,6 +214,17 @@ consequences that only appeared on longer input: the embedding server refuses a 
 one long item is ~500 sentences (fixed by chunking), and the model server was silently truncating anything
 over ~2,048 tokens (ADR-045). Neither could fire here. The largest prompt this corpus has ever produced is
 869 tokens.
+
+**Its off-topic questions are all *far* off topic.** The twenty `offtopic` items ask the capital of Peru of
+a staff handbook: term coverage 0.00 at the median, nothing shared, nothing to confuse. The common real
+failure is the **near** case — a question in the document's own domain whose answer is simply absent, which
+is what a user asking their own handbook something it does not cover produces. There is not one in the
+corpus, and the gap hid a live defect: the topical check is an AND of coverage and cosine, a neural encoder
+scores any two pieces of workplace prose above the cosine arm, and so on a same-domain document the
+coverage signal was being discarded exactly where it was right. *"What is the notice period?"* shares no
+content word with `examples/staff-handbook.md` and was sending 280 tokens of it (ADR-052). Fixed by making
+zero coverage decisive, and pinned by unit test against that handbook rather than by a corpus item — adding
+questions to a frozen instrument after seeing it fail is not measurement.
 
 **What it is still for.** It asks questions LongBench does not: whether the tier stays quiet on a question
 the documents cannot answer at all (`offtopic`), whether an answer sentence opening with a pronoun survives

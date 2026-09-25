@@ -26,6 +26,8 @@ sentences from documents and from older long turns, keeping the ones the current
 ```
 units      = sentences of every document and every eligible older turn
 relevance  = BM25 over these units (IDF from this request)  ⊕  embedder cosine
+             -- the cosine REORDERS rather than confirms, so every sentence is
+             embedded; a lexical prefilter was measured and rejected (ADR-052)
 anchors    = numbers, names, codes, quoted strings the question names;
              a sentence opening "It/This/They…" inherits its predecessor's,
              and any sentence inherits what its own heading names (ADR-044)
@@ -47,6 +49,14 @@ without it the selector keeps the distractor, drops the answer, and the model na
 fluently. It regresses nothing across 104 items on five splits and gains one answer on `test2`, for +2.3%
 context tokens on `test`; ADR-044 states plainly why that is weaker evidence than the rest of this tier
 rests on, and `context_section_anchors=False` restores the previous behaviour exactly.
+
+**A question that shares nothing with the context is refused on that alone.** The topical check is an AND
+of term coverage and best cosine (ADR-042), and a neural encoder scores any two pieces of same-domain prose
+above the cosine arm — so the AND was discarding the coverage signal exactly where coverage was right, and
+the protection got weaker as the encoder got better. Coverage of *zero* now decides by itself: a paraphrase
+shares something, and nothing at all is not a paraphrase. No answerable question in the corpus falls below
+0.50 coverage, and the rule changes nothing on any of the six splits under either encoder
+(`context_topic_zero_coverage=False` restores the old behaviour exactly, ADR-052).
 
 **The relevance floor is the constraint that binds**, not the budget: sweeping both showed that raising
 the budget saturates while lowering the floor keeps going, and that six mechanisms built to *find* more
