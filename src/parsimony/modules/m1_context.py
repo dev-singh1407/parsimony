@@ -47,6 +47,7 @@ decision costs milliseconds against seconds of prefill it removes.
 from __future__ import annotations
 
 import math
+from enum import Enum
 import re
 from dataclasses import dataclass, field, replace
 
@@ -82,6 +83,35 @@ def ranking_terms(text: str, prefix: int = 6) -> list[str]:
     return [t[:prefix] for t in content_terms(text)]
 
 
+class StopReason(str, Enum):
+    """Why selection ended, as a closed set rather than a sentence.
+
+    Subclasses `str` deliberately: these values are serialised into ledger rows
+    and JSON payloads and interpolated into prose, and every one of those
+    carried on working when this stopped being a bare string. The type exists
+    so the surfaces that TRANSLATE a reason can be checked for covering all of
+    them -- see `test_every_stop_reason_is_explained`.
+    """
+
+    #: Everything above the floor was kept and there was room for it.
+    EXHAUSTED = "exhausted"
+    #: The next best sentence scored below the relevance floor. More budget
+    #: would change nothing.
+    FLOOR = "relevance floor"
+    #: Sentences above the floor were left behind for want of room. More budget
+    #: would take them, which is what makes this the binding one when both apply.
+    BUDGET = "budget"
+    #: The question is not about this context at all; one sentence is kept so
+    #: the prompt does not read as an instruction with a missing attachment.
+    OFF_TOPIC = "nothing in the context bears on the question"
+
+    # Without this, f"{StopReason.FLOOR}" renders as "StopReason.FLOOR" on
+    # Python 3.11 and the phrase reaches the terminal and the proof document as
+    # a type name. The whole point of subclassing str is that the existing
+    # consumers keep working, so it has to format like one.
+    __str__ = str.__str__
+
+
 @dataclass(frozen=True, slots=True)
 class Unit:
     """One sentence of one source (a document or a turn)."""
@@ -101,7 +131,7 @@ class Selection:
     anchors: dict                        # value -> unit index guaranteed for it
     closure_added: int
     budget: int
-    stopped_by: str
+    stopped_by: StopReason
     coverage: float = 1.0                # question terms present in the context
     off_topic: bool = False
     #: unit index -> (tag, detail). Every unit appears exactly once, so a
@@ -142,7 +172,7 @@ class ContextAudit:
     budget: int
     coverage: float
     off_topic: bool
-    stopped_by: str
+    stopped_by: StopReason
     anchors: dict
     applied: bool
     note: str = ""
@@ -358,7 +388,7 @@ def select(query: str, units: list[Unit], cfg: ParsimonyConfig,
         if top is not None:
             why[top] = ("MATCH", "kept as the single closest sentence, so the context is not empty")
         return Selection(frozenset() if top is None else frozenset({top}), tuple(rel), {}, 0,
-                         budget, "nothing in the context bears on the question",
+                         budget, StopReason.OFF_TOPIC,
                          coverage, True, why)
 
     kept: set[int] = set()
@@ -378,7 +408,7 @@ def select(query: str, units: list[Unit], cfg: ParsimonyConfig,
         keep(i)
         why[i] = ("ANCHOR", f"guaranteed: the question names {name!r}")
 
-    stopped_by = "exhausted"
+    stopped_by = StopReason.EXHAUSTED
     refused_for_room = 0
     floor = c.context_relevance_floor
     lam = c.context_mmr_lambda
@@ -391,10 +421,10 @@ def select(query: str, units: list[Unit], cfg: ParsimonyConfig,
 
         best = max(remaining, key=mmr)
         if kept and gauge[best] < floor and rel[best] < floor:
-            stopped_by = "relevance floor"
+            stopped_by = StopReason.FLOOR
             break
         if rel[best] <= 0.0 and kept:
-            stopped_by = "relevance floor"
+            stopped_by = StopReason.FLOOR
             break
         remaining.remove(best)
         if used + units[best].tokens > budget:
@@ -420,7 +450,7 @@ def select(query: str, units: list[Unit], cfg: ParsimonyConfig,
     # the one where more of it would change the outcome -- the question a reader
     # is really asking when they ask what stopped it.
     if refused_for_room:
-        stopped_by = "budget"
+        stopped_by = StopReason.BUDGET
 
     # Dependency closure, walking back through consecutive dependent openings.
     closure_added = 0
@@ -446,7 +476,7 @@ def select(query: str, units: list[Unit], cfg: ParsimonyConfig,
             why[i] = ("MATCH", f"relevance {rel[i]:.2f}")
             continue
         redundancy = max((_overlap(units[i].terms, units[j].terms) for j in kept), default=0.0)
-        if stopped_by == "budget" and rel[i] >= floor:
+        if stopped_by is StopReason.BUDGET and rel[i] >= floor:
             why[i] = ("BUDGET", f"scored {rel[i]:.2f}; the {budget}-token budget was spent")
         elif redundancy >= 0.5 and rel[i] >= floor:
             why[i] = ("REDUNDANT", f"overlap {redundancy:.2f} with a sentence already kept")

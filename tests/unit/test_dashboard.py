@@ -228,3 +228,76 @@ class TestWhichConstraintBound:
         b = self._audit('What is the annual travel budget for the Tallinn office?',
                         documents, tok, context_relevance_floor=0.05)
         assert b.tokens_after > a.tokens_after
+
+
+class TestTheStopReasonIsAClosedSet:
+    """It was a sentence travelling across three surfaces as if it were a type.
+
+    Five places consume it and two key dictionaries on the exact phrase: the
+    terminal's per-layer line and the web script's "which dial is biting" note.
+    `select()` branched on `stopped_by == "budget"` to tag sentences. Rewording
+    "relevance floor" would have degraded all four to a default with nothing
+    failing, which is the failure these tests exist to make impossible.
+    """
+
+    def test_it_still_behaves_as_the_string_it_replaced(self):
+        """Subclassing str is the whole compatibility story: ledger rows, JSON
+        payloads and interpolated prose all carried on working."""
+        import json
+
+        from parsimony.modules.m1_context import StopReason
+
+        assert isinstance(StopReason.FLOOR, str)
+        assert f"{StopReason.FLOOR}" == "relevance floor"
+        assert str(StopReason.BUDGET) == "budget"
+        assert json.loads(json.dumps({"s": StopReason.BUDGET}))["s"] == "budget"
+        assert {"budget": 1}[StopReason.BUDGET] == 1
+        assert StopReason("budget") is StopReason.BUDGET
+
+    def test_every_reason_is_explained_by_the_terminal(self):
+        """`explain.py` maps the reason to a sentence for the layer table. A
+        member it does not know falls through to an empty string, silently."""
+        import re
+        from pathlib import Path
+
+        from parsimony.modules.m1_context import StopReason
+
+        source = (Path(__file__).resolve().parents[2]
+                  / "src/parsimony/surfaces/cli/explain.py").read_text(encoding="utf-8")
+        block = re.search(r"stopped_by[^\n]*\n?", source)
+        assert block, "explain.py no longer translates stopped_by"
+        for reason in StopReason:
+            assert reason.value in source, (
+                f"{reason.name} has no explanation in explain.py")
+
+    def test_every_reason_is_explained_by_the_page(self):
+        """The web script's lookup falls back to printing the raw phrase, which
+        is not wrong but is not an explanation either."""
+        from pathlib import Path
+
+        from parsimony.modules.m1_context import StopReason
+
+        script = (Path(__file__).resolve().parents[2]
+                  / "src/parsimony/surfaces/web_app.js").read_text(encoding="utf-8")
+        for reason in (StopReason.FLOOR, StopReason.BUDGET, StopReason.EXHAUSTED):
+            assert reason.value in script, (
+                f"{reason.name} has no explanation on the page")
+
+    def test_the_selector_matches_on_the_type_not_the_words(self):
+        from pathlib import Path
+
+        source = (Path(__file__).resolve().parents[2]
+                  / "src/parsimony/modules/m1_context.py").read_text(encoding="utf-8")
+        assert 'stopped_by == "budget"' not in source
+        assert "stopped_by is StopReason.BUDGET" in source
+
+    def test_an_audit_carries_the_type_through(self, documents, tok):
+        from parsimony.core.config import full_stack
+        from parsimony.infra.providers import MockProvider
+        from parsimony.modules.m1_context import StopReason, audit
+        from parsimony.pipeline.orchestrator import Pipeline
+
+        pipe = Pipeline(full_stack(), provider=MockProvider(), tokenizer=tok)
+        ctx = pipe.build_context("What is the travel budget for Tallinn?",
+                                 documents=documents)
+        assert audit(ctx, full_stack()).stopped_by in set(StopReason)
