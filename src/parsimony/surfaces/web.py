@@ -627,6 +627,25 @@ class Visualiser:
         return result
 
 
+def stamped_page() -> bytes:
+    """The page, with each asset URL carrying that file's modification time.
+
+    `no-store` is sent on every asset and a browser still served a stale
+    `app.js` after it changed -- which during a demo means what is on screen is
+    not what is on the machine. A URL that changes when the file does cannot be
+    answered from a cache, because nothing asks for the old one any more.
+    """
+    html = PAGE.read_text(encoding="utf-8")
+    here = Path(__file__).parent
+    for path, (name, _kind) in ASSETS.items():
+        asset = here / name
+        if not asset.exists():
+            continue
+        stamp = int(asset.stat().st_mtime)
+        html = html.replace(f'"{path.lstrip("/")}"', f'"{path.lstrip("/")}?v={stamp}"')
+    return html.encode("utf-8")
+
+
 def make_handler(vis: Visualiser):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -659,7 +678,7 @@ def make_handler(vis: Visualiser):
         def do_GET(self) -> None:
             route = urlparse(self.path)
             if route.path in ("/", "/index.html"):
-                self._send(PAGE.read_bytes(), "text/html; charset=utf-8")
+                self._send(stamped_page(), "text/html; charset=utf-8")
             elif route.path in ASSETS:
                 name, kind = ASSETS[route.path]
                 self._send((Path(__file__).parent / name).read_bytes(), kind)

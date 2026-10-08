@@ -155,7 +155,7 @@
       <div class="doclegend">
         <span class="chip"><i style="background:var(--keep)"></i>sent to the model</span>
         <span class="chip"><i style="background:var(--drop)"></i>removed, with the reason on hover</span>
-        <span class="chip"><i style="background:#2b3a46"></i>still in play at this point</span>
+        <span class="chip"><i style="background:#ccd5de"></i>still in play at this point</span>
         <span class="chip">the small number is its relevance score</span>
       </div>
     </div>
@@ -336,7 +336,7 @@
     <div class="profilewrap"><svg id="profile" height="190"></svg></div>
     <div class="legend">
       <span><span class="swatch" style="background:var(--keep)"></span>kept</span>
-      <span><span class="swatch" style="background:#3a4150"></span>dropped</span>
+      <span><span class="swatch" style="background:var(--idle)"></span>dropped</span>
       <span><span class="swatch" style="background:var(--warn)"></span>kept below the floor — an
         anchor, or pulled in by dependency closure</span>
       <span><span class="swatch" style="background:var(--drop)"></span>dropped above it — the budget
@@ -352,7 +352,7 @@
     <h2>Every sentence, shaded by its score</h2>
     <div class="doc" id="map-doc"></div>
     <div class="legend">
-      <span><span class="swatch" style="background:linear-gradient(90deg,#1b2430,#4ec9a8)"></span>relevance to the question</span>
+      <span><span class="swatch" style="background:linear-gradient(90deg,#eef1f4,var(--keep))"></span>relevance to the question</span>
       <span><span class="swatch" style="background:var(--keep)"></span>kept — sent to the model</span>
       <span style="text-decoration:line-through;text-decoration-color:var(--drop)">dropped — never read</span>
       <span>hover a sentence for the decision behind it</span>

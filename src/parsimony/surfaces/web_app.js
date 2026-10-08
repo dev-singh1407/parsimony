@@ -21,6 +21,13 @@ const secs = (s) => (s >= 1 ? s.toFixed(1) + "s" : Math.round(s * 1000) + "ms");
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g,
   (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
+/* Canvas and inline SVG take colours as strings, so they cannot use var() and
+   were written as literals -- which is why they stayed dark when the rest of
+   the page went light. Read the token off the page instead, once per draw. */
+const CSS = getComputedStyle(document.documentElement);
+const token = (name, fallback) =>
+  (CSS.getPropertyValue(name) || "").trim() || fallback;
+
 /* ══════════════════════════ tabs ══════════════════════════════════ */
 const TABS = { pipe: "view-pipe", map: "view-map", ab: "view-ab", demo: "view-demo" };
 function show(which) {
@@ -978,7 +985,7 @@ function drawProfile(data) {
     const x = pad.l + i * (plotW / units.length);
     const y = Y(u.score);
     const below = floor !== null && u.score < floor;
-    let fill = u.kept ? "var(--keep)" : "#3a4150";
+    let fill = u.kept ? "var(--keep)" : token("--idle", "#b4bdc6");
     if (u.kept && below) { fill = "var(--warn)"; exceptions++; }
     if (!u.kept && !below) { fill = "var(--drop)"; exceptions++; }
     const why = `${u.kept ? "KEPT" : "DROPPED"} · ${u.tag} · score ${u.score.toFixed(3)}`
@@ -1306,7 +1313,8 @@ $("run-map").onclick = async () => {
 
 /* ════════════════════════════ A/B ═════════════════════════════════ */
 const series = { parsimony: [], baseline: [] };
-const COLOUR = { parsimony: "#4ec9a8", baseline: "#e5c07b" };
+const COLOUR = { parsimony: token("--keep", "#2e9e5b"),
+                 baseline: token("--warn", "#cc7a1a") };
 
 function abSize() {
   const n = $("ab-text").value.length;
@@ -1361,7 +1369,8 @@ function drawChart() {
   const maxN = Math.max(8, ...all.map((p) => p[1]));
   const X = (t) => pad.l + (W - pad.l - pad.r) * (t / maxT);
   const Y = (n) => H - pad.b - (H - pad.t - pad.b) * (n / maxN);
-  g.strokeStyle = "#252c38"; g.fillStyle = "#8994a6";
+  g.strokeStyle = token("--line", "#e4e8ed");
+  g.fillStyle = token("--dim", "#6c7a89");
   g.font = "13px ui-monospace, Consolas, monospace"; g.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
     const n = Math.round(maxN * i / 4), y = Y(n);
@@ -1384,7 +1393,7 @@ function drawChart() {
     g.fillText(arm, X(t) + 9, Y(n) + 4);
   }
   if (!all.length) {
-    g.fillStyle = "#8994a6"; g.textAlign = "center";
+    g.fillStyle = token("--dim", "#6c7a89"); g.textAlign = "center";
     g.fillText("run both arms to plot them", W / 2, H / 2);
   }
 }
