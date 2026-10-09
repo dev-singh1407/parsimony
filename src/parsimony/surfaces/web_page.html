@@ -174,9 +174,10 @@
   </div>
 
   <div class="side-by">
-    <div class="panel">
-      <h2>Your text, losing what the question does not need
-        <span class="hint" id="doc-hint"></span></h2>
+    <details class="panel" open>
+    
+      <summary>Your text, losing what the question does not need
+        <span class="hint" id="doc-hint"></span></summary>
       <div class="docwrap" id="docwrap">
         <div class="dimtext" style="font-size:13px">Attach a document and run — every
           sentence appears here, then leaves when the stage that removed it runs.</div>
@@ -187,22 +188,24 @@
         <span class="chip"><i style="background:#ccd5de"></i>still in play at this point</span>
         <span class="chip">the small number is its relevance score</span>
       </div>
-    </div>
+        </details>
 
-    <div class="panel">
-      <h2>Inside this layer <span class="hint">what it looked at, and what it decided</span></h2>
+    <details class="panel" open>
+    
+      <summary>Inside this layer <span class="hint">what it looked at, and what it decided</span></summary>
       <div id="inspector">
         <div class="dimtext" style="font-size:13px">Pick a layer on the stack, or press
           play and watch each one explain itself.</div>
       </div>
-    </div>
+        </details>
   </div>
 
-  <div class="panel">
-    <h2>Every layer, as the terminal prints it
+  <details class="panel">
+  
+    <summary>Every layer, as the terminal prints it
       <span class="hint">same names, same reasons, same numbers as <code>parsimony chat</code></span>
       <button class="ghost tiny" id="copy-run" title="Copy this table as plain text"
-              style="margin-left:auto">copy as text</button></h2>
+              style="margin-left:auto">copy as text</button></summary>
     <table id="layers">
       <thead><tr>
         <th style="width:26px"></th><th>Layer</th><th>Module</th>
@@ -213,17 +216,18 @@
         <tr class="dim"><td></td><td colspan="6">nothing run yet</td></tr>
       </tbody>
     </table>
-  </div>
+    </details>
 
-  <div class="panel">
-    <h2>What the AI actually received
+  <details class="panel">
+  
+    <summary>What the AI actually received
       <span class="hint">anything marked <b>[removed]</b> was not sent · same panel the
-        terminal prints</span></h2>
+        terminal prints</span></summary>
     <div class="received" id="received">
       <div class="dimtext" style="font-size:13px">run something to see the prompt it
         assembled, section by section</div>
     </div>
-  </div>
+    </details>
 
   <div class="two-col">
     <div class="panel">
