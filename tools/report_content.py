@@ -5,6 +5,8 @@ corrected here is corrected in both. Every figure matches `figures/` and what
 the live demo prints.
 """
 
+from project_counts import adr_count, test_count
+
 TITLE = "Token-Efficient LLM Interaction on CPU-Only Hardware"
 SPECIALISATION = ""   # no specialisation; the template prints one only if given
 GUIDE = "Dr Sathya K"
@@ -181,9 +183,9 @@ SECTIONS = [
                 ("Remaining", "Neural encoder swap; full sweep on the real model; a usable judge; "
                               "a second model for escalation", "Planned"),
             ], ["Phase", "Work", "Status"]),
-            "Current status: all eight modules built, 968 automated tests passing, 39 "
-            "architecture decision records, and every reported figure regenerating from raw logs "
-            "in approximately 100 seconds.",
+            f"Current status: all eight modules built, {test_count():,} automated tests "
+            f"passing, {adr_count()} architecture decision records, and every reported figure "
+            "regenerating from raw logs in approximately 100 seconds.",
         ]),
     ]),
 

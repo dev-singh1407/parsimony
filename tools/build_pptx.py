@@ -20,6 +20,8 @@ from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.util import Emu, Inches, Pt
 
+from project_counts import test_count
+
 ROOT = Path(__file__).resolve().parent.parent
 ARCH = ROOT / "figures" / "diagrams" / "architecture.png"
 REVIEW_DATE = "09-09-2026"
@@ -170,7 +172,7 @@ SLIDES: list[tuple[str, list[tuple[str, int]]]] = [
     # 12 -- conclusion
     ("Conclusion", [
         ("Eight techniques were composed in one instrumented pipeline and "
-         "measured, rather than assumed. 968 automated tests; every table "
+         f"measured, rather than assumed. {test_count():,} automated tests; every table "
          "regenerates from raw logs in ~100 seconds.", 0),
         ("Three results the literature had not reported:", 0),
         ("Savings do not compound, and the shortfall is one interaction, not a "

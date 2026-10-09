@@ -21,6 +21,8 @@ from pptx.util import Pt
 import docx
 from docx.shared import Pt as DocxPt
 
+from project_counts import adr_count, test_count
+
 # --------------------------------------------------------------------- data --
 
 TITLE = "Token-Efficient LLM Interaction on CPU-Only Hardware"
@@ -171,7 +173,8 @@ CONCLUSION = [
     "",
     "For this class of system the deliverable is a CALIBRATION PROCEDURE, not a number.",
     "",
-    "Status: 968 automated tests passing; 43 architecture decision records; all figures",
+    f"Status: {test_count():,} automated tests passing; {adr_count()} architecture "
+    "decision records; all figures",
     "regenerate from raw logs in about 100 seconds.",
 ]
 
@@ -384,7 +387,8 @@ DOCX_SECTIONS = [
         "Sprint 0-1: architecture, contracts, ledger, mock provider, corpus. Sprint 2: all eight "
         "modules and the factorial harness. Sprint 3: real model attached, latency and quality "
         "measured. Sprint 4: calibration transfer, policy transfer, adversarial hardening. "
-        "Current status: all eight modules built, 968 tests passing, 43 decision records.",
+        f"Current status: all eight modules built, {test_count():,} tests passing, "
+        f"{adr_count()} decision records.",
     ]),
     ("3. TECHNICAL SPECIFICATION", [
         "3.1.1 Functional Requirements",

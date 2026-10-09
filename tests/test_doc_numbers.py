@@ -14,6 +14,7 @@ whether the pipeline changed and the CSVs are the thing that moved.
 from __future__ import annotations
 
 import csv
+import importlib.util
 import re
 from pathlib import Path
 
@@ -41,6 +42,15 @@ def _effects() -> dict[str, float]:
 
 def _docs() -> list[tuple[str, str]]:
     return [(p.name, p.read_text(encoding="utf-8")) for p in (README, FINDINGS)]
+
+
+def _project_counts():
+    """`tools/` is not an importable package, so load the module by path."""
+    spec = importlib.util.spec_from_file_location(
+        "project_counts", ROOT / "tools" / "project_counts.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class TestMainEffectsQuotedCorrectly:
@@ -217,6 +227,56 @@ class TestCountsQuotedInTheReadme:
         text = README.read_text(encoding="utf-8")
         for doc in sorted((ROOT / "docs").glob("*.md")):
             assert f"docs/{doc.name}" in text, f"docs/{doc.name} is not linked from README"
+
+
+class TestTheDocumentGeneratorsDoNotStateCountsThemselves:
+    """The generators had drifted further than any document ever did.
+
+    `tools/build_review2.py` still said "968 automated tests passing; 43
+    architecture decision records" when the suite was past 1,200 tests and the
+    decision log past 50 records; `tools/report_content.py` was staler again,
+    at 39. Every test above missed it, because they all read the DOCUMENTS,
+    and these numbers lived in the code that WRITES the documents -- unread
+    until someone regenerated the dossier, which is to say until the stale
+    number was already printed and sitting in front of a panel.
+
+    Both counts now come from `tools/project_counts.py`, derived from the
+    decision log and from the README. A count typed into a generator is a bug
+    here even on the day it happens to be right.
+    """
+
+    #: What a typed-in count looks like. The verb is optional: a bare
+    #: "968 automated tests" in the software table went stale exactly as fast
+    #: as "968 automated tests passing" did in the conclusion.
+    LITERAL_COUNTS = (
+        r"\d[\d,]*\s+automated\s+tests?",
+        r"\d[\d,]*\s+tests?\s+(?:passing|pass)\b",
+        r"\d[\d,]*\s+(?:architecture\s+)?decision\s+records?",
+        r"\d[\d,]*\s+ADRs?\b",
+    )
+
+    def test_no_generator_states_a_test_or_record_count_as_a_literal(self):
+        bad = []
+        for path in sorted((ROOT / "tools").glob("*.py")):
+            text = path.read_text(encoding="utf-8")
+            for pattern in self.LITERAL_COUNTS:
+                for m in re.finditer(pattern, text):
+                    line = text.count("\n", 0, m.start()) + 1
+                    bad.append(f"{path.name}:{line} {m.group(0)!r}")
+        assert not bad, (
+            "a count about the project is typed into a document generator: "
+            + ", ".join(bad)
+            + " -- call adr_count()/test_count() from tools/project_counts.py"
+        )
+
+    def test_the_generators_can_still_find_both_counts(self):
+        """Both are read back out of prose with a regex, so reformatting the
+        README's opening line or an ADR heading breaks the document build.
+        Failing here is better than failing four sections into a .docx."""
+        counts = _project_counts()
+        log = (ROOT / "docs" / "03-decision-log.md").read_text(encoding="utf-8")
+        assert counts.adr_count() == len(set(re.findall(r"^#+ ADR-(\d+)", log, re.M)))
+        assert counts.test_count() > 0, "the README's test count read as zero"
 
 
 class TestTheDocumentsAreStillUtf8:
