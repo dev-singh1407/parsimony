@@ -180,8 +180,15 @@ SECTIONS = [
                  "Complete"),
                 ("Sprint 4", "Calibration transfer, policy transfer, adversarial hardening",
                  "Complete"),
-                ("Remaining", "Neural encoder swap; full sweep on the real model; a usable judge; "
-                              "a second model for escalation", "Planned"),
+                ("Sprint 5", "Neural encoder adopted and its effect on the cache's accept "
+                              "zone measured; escalation to a second model measured and "
+                              "rejected; context tier extended to documents", "Complete"),
+                ("Sprint 6", "External validation on a public benchmark; the relevance floor "
+                              "swept, then replaced by a reading of the score distribution",
+                 "Complete"),
+                ("Remaining", "The factorial sweep under a real provider; energy by "
+                              "instrumentation; a second model in the calibration table; a "
+                              "usable judge", "Open"),
             ], ["Phase", "Work", "Status"]),
             f"Current status: all eight modules built, {test_count():,} automated tests "
             f"passing, {adr_count()} architecture decision records, and every reported figure "

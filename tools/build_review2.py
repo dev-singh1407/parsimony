@@ -471,8 +471,12 @@ def main() -> None:
     ap.add_argument("--outdir", type=Path, default=Path("."))
     a = ap.parse_args()
     a.outdir.mkdir(parents=True, exist_ok=True)
-    build_ppt(a.ppt_template, a.outdir / "Parsimony-Review2.pptx")
-    build_docx(a.docx_template, a.outdir / "Parsimony-Project-I-Report.docx")
+    # Named for what they are. These used to be "Parsimony-Review2.pptx" and
+    # "Parsimony-Project-I-Report.docx" -- the same names build_pptx.py and
+    # build_docx.py write -- so whichever generator ran last silently decided
+    # what those two files contained.
+    build_ppt(a.ppt_template, a.outdir / "Parsimony-Review2-Dossier.pptx")
+    build_docx(a.docx_template, a.outdir / "Parsimony-Review2-Dossier.docx")
 
 
 if __name__ == "__main__":

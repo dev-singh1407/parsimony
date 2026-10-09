@@ -8,15 +8,44 @@
 </head>
 <body>
 
-<header>
-  <h1>Parsimony</h1>
-  <span class="sub" id="state">connecting…</span>
-  <nav>
-    <button id="tab-pipe" aria-selected="true">Pipeline</button>
-    <button id="tab-map" aria-selected="false">Heatmap</button>
-    <button id="tab-ab" aria-selected="false">A/B</button>
-    <button id="tab-demo" aria-selected="false">Demo</button>
+<aside class="sidebar">
+  <div class="brand">
+    <h1>Parsimony</h1>
+    <span class="brandsub">prompt middleware</span>
+  </div>
+  <nav aria-label="views">
+    <button id="tab-pipe" aria-selected="true">
+      <span class="nl">Pipeline</span>
+      <span class="nd">one request, stage by stage</span>
+    </button>
+    <button id="tab-map" aria-selected="false">
+      <span class="nl">Heatmap</span>
+      <span class="nd">every sentence, and why it went</span>
+    </button>
+    <button id="tab-ab" aria-selected="false">
+      <span class="nl">A/B</span>
+      <span class="nd">layers off, then on, same model</span>
+    </button>
+    <button id="tab-demo" aria-selected="false">
+      <span class="nl">Demo</span>
+      <span class="nd">the session totals, large</span>
+    </button>
   </nav>
+  <div class="sidefoot">
+    <div class="srow"><span class="sk">model</span>
+      <span class="sv" id="side-model">—</span></div>
+    <div class="srow"><span class="sk">encoder</span>
+      <span class="sv" id="side-encoder">—</span></div>
+    <div class="srow"><span class="sk">running</span>
+      <span class="sv"><span class="dot" id="side-dot"></span>
+        <span id="side-live">local</span></span></div>
+  </div>
+</aside>
+
+<div class="shell">
+<header>
+  <h2 class="viewtitle" id="viewtitle">Pipeline</h2>
+  <span class="sub" id="state">connecting…</span>
 </header>
 
 <main>
@@ -447,6 +476,7 @@
 </section>
 
 </main>
+</div>
 <div class="tip" id="tip"></div>
 <script src="app.js"></script>
 </body>

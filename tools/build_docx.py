@@ -139,12 +139,15 @@ CONTENT = [
           "unseen conversations."),
     ("p", "Out of scope: training or fine-tuning any model; any technique "
           "requiring access to model internals such as attention weights; GPU "
-          "execution; any paid API, dataset or service; and a graphical user "
-          "interface. The system is exposed through a command-line surface "
-          "only. The escalation router to a larger model was implemented and "
-          "calibrated but is disabled by default, because measurement showed a "
-          "three-billion-parameter model scoring item-for-item identically to "
-          "the 1.5-billion-parameter model on the gold subset."),
+          "execution; and any paid API, dataset or service. The system is "
+          "exposed through a command-line surface and a local inspection page "
+          "served by the same process; neither depends on a web framework, a "
+          "build step or any third-party code, and both run with the network "
+          "switched off. The escalation router to a larger model was "
+          "implemented and calibrated but is disabled by default, because "
+          "measurement showed a three-billion-parameter model scoring "
+          "item-for-item identically to the 1.5-billion-parameter model on the "
+          "gold subset."),
 
     ("h1", "2. PROJECT DESCRIPTION AND GOALS"),
     ("h2", "2.1 Literature Review"),
@@ -280,7 +283,9 @@ CONTENT = [
         ["6", "Experiments E1 to E5; analysis; threats to validity", "Complete"],
         ["7", "Attach the real model via Ollama; re-measure latency and quality against it", "Complete"],
         ["8", "Reporting: project report, research paper, reproducibility package", "Complete"],
-        ["9", "Instrumented energy measurement; per-configuration quality on the real model", "Project-II"],
+        ["9", "External validation on a public benchmark the project did not author", "Complete"],
+        ["10", "Inspection surface: the decision of every layer, shown as it is made", "Complete"],
+        ["11", "Instrumented energy measurement; the factorial sweep under a real provider; a second model in the calibration table", "Project-II"],
     ], "Table 2.3  Project plan and current status")),
 
     ("h1", "3. TECHNICAL SPECIFICATION"),

@@ -37,6 +37,8 @@ function show(which) {
   }
   if (which === "demo") refreshSession();
   if (which === "ab") drawChart();
+  const label = $("tab-" + which).querySelector(".nl");
+  $("viewtitle").textContent = label ? label.textContent : which;
 }
 for (const k of Object.keys(TABS)) $("tab-" + k).onclick = () => show(k);
 
@@ -51,10 +53,19 @@ for (const k of Object.keys(TABS)) $("tab-" + k).onclick = () => show(k);
     $("state").textContent = (s.simulated ? "simulated model" : s.model)
       + "  ·  encoder " + s.encoder;
     $("state").style.color = s.simulated ? "var(--warn)" : "";
+    // The sidebar says the same thing in rows, and settles the question the
+    // old one-liner invited: whether this is a real model or a stand-in. The
+    // page always knew; it had never been asked to say so plainly.
+    $("side-model").textContent = s.model || "—";
+    $("side-encoder").textContent = s.encoder || "—";
+    $("side-live").textContent = s.simulated ? "simulated" : "real model";
+    $("side-dot").className = "dot " + (s.simulated ? "sim" : "live");
   }).catch(() => {
     clearTimeout(giveUp);
     $("state").textContent = "not connected — restart `parsimony web`";
     $("state").style.color = "var(--drop)";
+    $("side-live").textContent = "not connected";
+    $("side-dot").className = "dot";
   });
 })();
 
