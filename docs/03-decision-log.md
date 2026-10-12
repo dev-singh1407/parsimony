@@ -2538,3 +2538,98 @@ Here is the third: **its off-topic questions are all *far* off topic** — the c
 handbook. The common real failure is the *near* case, a question in the document's own domain whose answer
 is simply absent, and the corpus contains none. Both earlier blind spots were found by measuring something
 else; so was this one, by a control built to demonstrate a different finding entirely.
+
+---
+
+### ADR-053 — A word-overlap floor cannot admit a reworded question
+
+**Status.** Adopted, on by default; the old measure stays reachable behind `cache.soft_overlap`.
+12 October 2026.
+
+**Context.** The semantic cache was not clubbing questions that mean the same thing. Reported as a
+failure of the encoder, and it is not one.
+
+Two separate things were wrong, and only the second matters.
+
+#### Half one: the encoder was being shown a fragment
+
+`cache_key_text` strips the interrogative before embedding, on the reasoning that leaving *where* in would
+raise similarity between every pair of where-questions. Under a lexical encoder that reasoning holds.
+Under the neural one it costs more than it saves: stripping the opener and leaving the copula produces
+`is the annual travel budget for the tallinn office`, which is not a sentence anybody trained an encoder
+on. `What's` was worse — the contraction was never expanded, so the apostrophe form shed its verb and kept
+its suffix, and the embedded text began with a bare `s`.
+
+Measured on twelve reworded pairs and seven adversarial ones under `ollama:all-minilm`:
+
+| text handed to the encoder | rewordings over `tau_lo` | adversarial pairs over `tau_lo` | worst rewording |
+|---|---|---|---|
+| `cache_key_text`, as shipped | 8 / 12 | 3 / 7 | 0.447 |
+| the question as asked, courtesy out | **11 / 12** | 3 / 7 | **0.589** |
+
+The distractors do not move at all, and the three that clear the floor are the three the verifier exists to
+catch. So `embed_text` is split from `cache_key_text`: the encoder gets the question, the verifier and the
+overlap floor go on using the stripped form, where stripping is still right. This is ADR-041's lesson a
+third time — a rule calibrated against a weak encoder is a measurement of that encoder.
+
+#### Half two: and then the verifier refused them anyway
+
+Fixing half one moved every rewording *into* the verify zone, where all but one were refused. Not by the
+four checks that are about meaning. By the fifth: content-word Jaccard below `jaccard_min = 0.55`.
+
+They score 0.20 to 0.40, because *manages* and *manager*, *budget* and *allowance*, *borrow* and *loaning*
+are different strings. **Requiring 55% of the words to be identical is requiring the question not to be
+reworded.** This is ADR-050's shape exactly: a floor, not a budget and not a detector, was the binding
+constraint, and six other mechanisms were doing their work and having it discarded downstream.
+
+**What the floor is actually for.** Removing it entirely and keeping the other four checks still refuses
+**7 of 9** adversarial pairs — negation catches *in Leeds* / *not in Leeds*, numbers catch 17×4 / 17×5,
+operative modifiers catch *open* / *close* and *maximum* / *minimum*, entities catch *Leeds* / *Porto*.
+Only two pairs ever depended on the floor.
+
+**Decision.** The measure changes; the safety does not. `soft_overlap` is the same Jaccard with a different
+notion of equal: two words count as the same when the encoder puts them within `word_tau`, aligned greedily
+so each word is spent once — without that, a set holding a word and two of its synonyms matches everything
+and the floor stops meaning anything.
+
+| pair | strict Jaccard | soft overlap |
+|---|---|---|
+| *annual travel budget Tallinn* / *yearly travel allowance Tallinn* | 0.25 | 0.43 |
+| *who manages the Porto office* / *who is the site manager in Porto* | 0.20 | 0.50 |
+| *how long is probation* / *what is the probation period* | 0.40 | 0.75 |
+| the two adversarial pairs that need a floor | — | **0.00 and 0.25** |
+
+`soft_jaccard_min = 0.33`: a third of the content has to correspond. The gap on the measured set runs from
+0.25 to 0.43, so the development-optimal value would be 0.34. The round third is taken on principle, which
+is the discipline ADR-051 used and the reason it held.
+
+**What was measured and rejected.** Question type looked like the other half of the problem: *what is the
+budget* against *how much can they spend* are the same question and different kinds, and relaxing *what* to
+agree with anything gains one rewording. It also serves **all five** controls wrongly — *Where is the office
+budget?* for *What is the office budget?*, *When is the deadline?* for *What is the deadline?*. The check
+earns its place and is unchanged. Two of the five rewordings in the end-to-end set are still refused by it,
+and that is the honest cost.
+
+**Measured end to end**, storing one question and asking another through the real pipeline: rewordings
+served **1 of 5 → 3 of 5**, adversarial pairs wrongly served **0 of 4, unchanged**.
+
+**What would falsify it.** A pair of genuinely different questions whose content words are pairwise close
+under the encoder and which agree on negation, numbers, entities, operative modifiers and question type.
+The nearest the adversarial set comes is *Can I borrow an oscilloscope?* against *Can I borrow a spectrum
+analyser?* at 0.25, which the floor refuses. A set built to attack this directly does not exist yet.
+
+**Cost.** One batched encoder call per verify-zone probe, over the content words not matching exactly.
+`Derived` memoises per word, so a word seen on an earlier probe is a dictionary lookup. When the encoder is
+absent or fails, the measure falls back to exact counting — a missed hit, never a wrong answer.
+
+**Both halves are off by default and turned on in `neural()`**, where `tau_lo = 0.70` already lives. That
+is not caution, it is the finding again: shipped unconditionally, both regress the lexical encoder, and
+two interactive pairs changed decision — *What causes rain?* then *Why does it rain?* stopped hitting.
+Handing a lexical encoder the whole question raises the similarity of every pair that shares an
+interrogative, which is precisely what stripping it is for; and matching words by cosine needs cosines that
+carry synonymy, which a content-hash encoder's do not. The frozen lexical figures are therefore unchanged.
+
+The regression was caught because `eval/calibration.py` claims in its own docstring to mirror the shipping
+stage, and the interactive corpus is decided through it. Hard-wiring the new preparation there made it
+measure a cache that exists under only one encoder. It now reads both settings off the config, which is
+what "mirrors the stage" has to mean.

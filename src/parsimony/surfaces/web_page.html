@@ -93,7 +93,7 @@
         <div class="mhead"><span class="mcode">M2</span>
           <h3>Memory of past answers</h3></div>
         <p class="mwhat">Checks whether you have asked something close enough to this before. If so, the stored answer is reused instead of being written again.</p>
-        <p class="mex"><span class="mexlab">For example</span>Ask the same question twice and the second one comes back at once. Reword it slightly and it still matches, but only if the match is close enough to be safe.</p>
+        <p class="mex"><span class="mexlab">For example</span>Ask &ldquo;Who manages the Porto office?&rdquo;, then &ldquo;Who is the site manager in Porto?&rdquo; &mdash; different words, same question, and the second is answered from memory without the AI running at all. Ask about Leeds instead and it is not, because the place changed.</p>
       </article>
       <article class="mod m3">
         <div class="mhead"><span class="mcode">M3</span>
@@ -202,9 +202,10 @@
               still in it.">
         let it choose its own threshold</button>
       <button class="chip-b" data-q="What is the travel budget for Porto?"
-              data-note="Run this twice. The first is a miss; the second is served from the
-              cache, word for word, with the model never called. Then reword it slightly and
-              watch it verify a 99% match instead.">
+              data-note="Run this twice. The first is a miss; the second comes back from
+              memory, word for word, with the model never called. Then ask the same thing in
+              different words and watch it match that too. Change the office name and watch it
+              refuse, because that is a different question.">
         reuse an answer</button>
     </div>
     <div class="note" id="chip-note"></div>

@@ -221,6 +221,23 @@ class CacheConfig:
     # memoised invariants, so it now always runs.
     verify_always: bool = True
     jaccard_min: float = 0.55
+    # The floor above is over IDENTICAL words, which a reworded question does
+    # not have. With words matched by the encoder instead, the same eight
+    # rewordings score 0.43 to 1.00 where they scored 0.20 to 0.40, and the two
+    # adversarial pairs that depend on a floor at all sit at 0.00 and 0.25.
+    #
+    # A third of the content has to correspond. The gap on the measured set
+    # runs 0.25 to 0.43, so the development-optimal value would be 0.34; the
+    # round third is taken on principle instead (ADR-053).
+    soft_overlap: bool = False
+    soft_jaccard_min: float = 0.33
+    #: How close two words must be to count as the same word.
+    word_tau: float = 0.60
+    #: Embed the question as asked rather than the stripped key text.
+    #: Also off by default, and for the same reason: handing a lexical
+    #: encoder the interrogative raises the similarity of every pair that
+    #: shares one, which is what stripping it is for (ADR-053).
+    embed_full_question: bool = False
     chain_depth: int = 2
     top_k: int = 5
     ttl_seconds: int = 86_400
@@ -431,17 +448,26 @@ NEURAL_EMBEDDER = "ollama:all-minilm"
 def neural(cfg: ParsimonyConfig | None = None) -> ParsimonyConfig:
     """MiniLM embeddings with their own calibration.
 
+    Three settings, all of them properties of this encoder rather than of the
+    technique (Contribution 6 applied to our own stack).
+
     tau_lo moves 0.75 -> 0.70 because the encoder's whole distribution moves:
     at 0.75 two genuine rephrasings in `corpus/interactive_pairs.jsonl` fall
     below the candidate gate that the lexical encoder cleared. Measured: at
     0.70 the false-answer rate on the 45 adversarial pairs stays 0.0%, true
     hits rise 26.7% -> 37.8%, and all 37 free-typing pairs decide correctly.
-    This is Contribution 6 applied to our own stack -- a threshold is a
-    property of an encoder, not of a technique.
+    `embed_full_question` and `soft_overlap` arrive with ADR-053 and are the
+    same argument twice over. Handing this encoder the question as asked lifts
+    rewordings from 8 of 12 over tau_lo to 11 of 12 without moving a single
+    distractor; handing it to the lexical one raises the similarity of every
+    pair sharing a question word, which is what stripping the interrogative is
+    for, and costs two interactive pairs. Matching words by cosine needs
+    cosines that carry synonymy, which a content-hash encoder's do not.
     """
     cfg = cfg or full_stack()
     return replace(cfg, embedder_id=NEURAL_EMBEDDER,
-                   cache=replace(cfg.cache, tau_lo=0.70))
+                   cache=replace(cfg.cache, tau_lo=0.70,
+                                 soft_overlap=True, embed_full_question=True))
 
 
 def context_v1(cfg: ParsimonyConfig | None = None) -> ParsimonyConfig:

@@ -33,6 +33,7 @@ from parsimony.modules.m1_compressor import normalise_lossless
 from parsimony.modules.m2_cache import (
     SemanticCache,
     cache_key_text,
+    embed_text,
     question_types_agree,
     verify_match,
 )
@@ -88,7 +89,8 @@ def _lookup_hits(
 
     Mirrors `CacheLookupStage.propose`, including the two behaviours that make
     reuse work for a person typing freely: both sides are embedded as their
-    CACHE KEY TEXT (courtesy, request framing and plural inflection removed),
+    OWN KEY TEXT -- the stripped form under the lexical encoder, the
+    question as asked under the neural one (ADR-053) --
     and the accept zone refuses a question of a different kind -- "What is
     Java?" against "Where is Java?" reduce to the same content word and score
     cosine 1.000. A calibration that skipped either would be measuring a cache
@@ -100,8 +102,9 @@ def _lookup_hits(
     """
     index = index_factory(embedder.dim) if index_factory is not None else None
     cache = SemanticCache(cfg.cache.ttl_seconds, embedder, index=index)
+    prepare = embed_text if cfg.cache.embed_full_question else cache_key_text
     vec_stored, vec_query = embedder.embed(
-        [cache_key_text(stored_query), cache_key_text(query)]
+        [prepare(stored_query), prepare(query)]
     )
     cache.store("k", stored_query, "stored answer", chain="root", model_id="m", vec=vec_stored)
 
@@ -126,7 +129,10 @@ def _lookup_hits(
         entry.invariants,
         query,
         entry.query,
-        cfg.cache.jaccard_min,
+        cfg.cache.soft_jaccard_min if cfg.cache.soft_overlap
+        else cfg.cache.jaccard_min,
+        embed=(embedder.embed if cfg.cache.soft_overlap else None),
+        word_tau=cfg.cache.word_tau,
     ).passed
 
 

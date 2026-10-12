@@ -159,6 +159,14 @@ MiniLM the negation pair scores 0.996 and walks straight through it: 17.8% false
 2.2% at 0.99. Verification costs microseconds on memoised invariants, so it now runs on every candidate and
 τ_hi is no longer a safety parameter — `verify_always=False` restores the designed behaviour for comparison.
 
+The `jaccard ≥ j_min` term above is over IDENTICAL content words, and ADR-053 measured what that costs: a
+reworded question scores 0.20 to 0.40 and is refused at 0.55 for being reworded. It is now a soft overlap —
+the same Jaccard, with two words counting as one when the encoder puts them within `word_tau`, aligned
+greedily so a word is spent once — against a floor of `soft_jaccard_min = 0.33`. The other four checks are
+untouched, and they are what refuses 7 of 9 adversarial pairs on their own. Both this and
+`embed_full_question` are off by default and set in `neural()`: under the lexical encoder they
+regress two interactive pairs, for the same reason tau_lo differs between the two.
+
 `negation_agree` is the addition beyond the report's text and it is the one that will actually carry the
 adversarial subset: 50 pairs differing by one operative token, and operative tokens are disproportionately
 negations and numerals. Two queries at cosine 0.94 that disagree on a negation are the canonical false hit.

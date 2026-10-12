@@ -234,6 +234,38 @@ def cache_key_text(query: str) -> str:
     return key or canonicalise(query)
 
 
+#: "What's" without this sheds its verb and keeps its suffix: the interrogative
+#: goes and a bare "s" is left at the head of the embedded text.
+_CONTRACTION_RE = re.compile(
+    r"\b(what|who|where|when|why|how|that|it|there)'s\b", re.IGNORECASE)
+_NOT_CONTRACTION_RE = re.compile(r"n't\b", re.IGNORECASE)
+#: Only between digits. "x" is a variable everywhere else.
+_TIMES_RE = re.compile(r"(?<=\d)\s*[x\u00d7*]\s*(?=\d)")
+
+
+def embed_text(query: str) -> str:
+    """The text handed to the encoder -- not the text compared lexically.
+
+    `cache_key_text` strips the interrogative so that two where-questions do
+    not look alike for being where-questions. Under a lexical encoder that is
+    right. Under the neural one it costs more than it saves: what is left is a
+    fragment beginning with a stranded copula, and paraphrase recall drops from
+    8 in 10 to 6 in 10 while the distractors do not move at all.
+
+    So the encoder gets the question as asked, minus the courtesy, with
+    contractions expanded and plurals folded the same way both sides fold them.
+    The verifier and the overlap floor go on using `cache_key_text`, where
+    stripping the opener is still the right call.
+    """
+    s = _CONTRACTION_RE.sub(lambda m: m.group(1) + " is", query)
+    s = _NOT_CONTRACTION_RE.sub(" not", s)
+    s = _TIMES_RE.sub(" times ", s)
+    s = courtesy_stripped(s)
+    key = " ".join(singularise(w) for w in re.findall(r"[a-z0-9]+", s.lower()))
+    # A question that is nothing but courtesy still has to embed something.
+    return key or canonicalise(query)
+
+
 def content_words(key_text: str) -> frozenset[str]:
     """Key-text words carrying subject matter, for the overlap floor."""
     return frozenset(w for w in key_text.split() if w not in STOPWORDS)
@@ -431,8 +463,52 @@ class VerifierResult:
         return f"lexical overlap {self.jaccard:.2f} below floor"
 
 
+def soft_overlap(
+    ca: frozenset[str], cb: frozenset[str], embed, word_tau: float
+) -> float:
+    """Jaccard where two words count as the same if the encoder says so.
+
+    Exact matches are taken first and cost nothing. What is left is aligned
+    greedily, best pair first, each word spent once -- so one word on one side
+    cannot pay for three on the other, which is how a soft measure quietly
+    becomes a meaningless one.
+
+    `embed` is the Derived batch call, which memoises per word, so a word seen
+    on an earlier probe costs a dictionary lookup rather than a forward pass.
+    If it is unavailable or fails this falls back to exact counting, which is
+    the safe direction: a missed hit, not a wrong answer.
+    """
+    exact = ca & cb
+    ra, rb = sorted(ca - exact), sorted(cb - exact)
+    matched = len(exact)
+    if ra and rb and embed is not None:
+        va = vb = None
+        try:
+            both = embed(ra + rb)
+            unit = [v / (float(np.linalg.norm(v)) or 1.0) for v in both]
+            va = dict(zip(ra, unit[:len(ra)]))
+            vb = dict(zip(rb, unit[len(ra):]))
+        except Exception:
+            va = vb = None
+        if va and vb:
+            pairs = sorted(
+                ((float(np.dot(va[x], vb[y])), x, y) for x in ra for y in rb),
+                reverse=True)
+            used_a: set[str] = set()
+            used_b: set[str] = set()
+            for score, x, y in pairs:
+                if score < word_tau or x in used_a or y in used_b:
+                    continue
+                used_a.add(x)
+                used_b.add(y)
+                matched += 1
+    union = len(ca) + len(cb) - matched
+    return matched / union if union else 0.0
+
+
 def verify_match(
-    a: Invariants, b: Invariants, qa: str, qb: str, jaccard_min: float
+    a: Invariants, b: Invariants, qa: str, qb: str, jaccard_min: float,
+    embed=None, word_tau: float = 0.0
 ) -> VerifierResult:
     """Settle a borderline match without a second neural pass.
 
@@ -452,7 +528,8 @@ def verify_match(
     # 0.40 and was refused for a difference that carries no meaning.
     ca = content_words(cache_key_text(qa))
     cb = content_words(cache_key_text(qb))
-    jac = len(ca & cb) / len(ca | cb) if (ca or cb) else 0.0
+    jac = (soft_overlap(ca, cb, embed, word_tau) if embed is not None
+           else (len(ca & cb) / len(ca | cb) if (ca or cb) else 0.0))
 
     neg_a = a.negations | morphological_negations(qa, qb)
     neg_b = b.negations | morphological_negations(qb, qa)
@@ -522,7 +599,7 @@ class SemanticCache:
         self._inv_memo: dict[str, Invariants] = {}
         self.stats = CacheStats()
 
-    def attach_embedder(self, embedder) -> None:
+    def attach_embedder(self, embedder, full_question: bool = False) -> None:
         """Adopt an embedder if constructed without one.
 
         A cache built without an embedder silently has no vector index, so
@@ -536,7 +613,8 @@ class SemanticCache:
         self._index = ExactIndex(embedder.dim)
         # Backfill anything stored before the embedder arrived.
         if self._entries:
-            queries = [cache_key_text(e.query) for e in self._entries.values()]
+            prepare = embed_text if full_question else cache_key_text
+            queries = [prepare(e.query) for e in self._entries.values()]
             for entry, vec in zip(self._entries.values(), embedder.embed(queries)):
                 self._index.add(vec, entry.entry_id)
 
@@ -783,7 +861,8 @@ class CacheLookupStage:
                         {"zone": "miss", "top_k": (),
                          "scoped": scope is not None, "scope_reason": scope})
 
-        vec = ctx.derived.embed_one(cache_key_text(ctx.query))
+        prepare = embed_text if cfg.cache.embed_full_question else cache_key_text
+        vec = ctx.derived.embed_one(prepare(ctx.query))
         candidates = self.cache.search(vec, chain, cfg.model.name, cfg.cache.top_k)
         top_k = tuple((e.entry_id[:12], round(s, 4)) for e, s in candidates)
 
@@ -846,8 +925,13 @@ class CacheLookupStage:
             )
 
         if score >= cfg.cache.tau_lo:
-            result = verify_match(query_inv, best.invariants, ctx.query, best.query,
-                                  cfg.cache.jaccard_min)
+            soft = (cfg.cache.soft_overlap and ctx.derived is not None
+                    and getattr(ctx.derived, "has_embedder", False))
+            result = verify_match(
+                query_inv, best.invariants, ctx.query, best.query,
+                cfg.cache.soft_jaccard_min if soft else cfg.cache.jaccard_min,
+                embed=(ctx.derived.embed if soft else None),
+                word_tau=cfg.cache.word_tau)
             if result.passed:
                 evidence = {"zone": "verify", "tier": "semantic", "score": round(score, 4),
                             "verifier": result.as_dict(), "top_k": top_k,
@@ -895,6 +979,8 @@ class CacheLookupStage:
             # Stored under the SAME normalisation the lookup uses. Storing the
             # raw text and looking up the normalised form was the asymmetry
             # that made a polite question unreachable by its plain form.
-            vec = ctx.derived.embed_one(cache_key_text(ctx.query))
+            prepare = (embed_text if cfg.cache.embed_full_question
+                       else cache_key_text)
+            vec = ctx.derived.embed_one(prepare(ctx.query))
         self.cache.store(key, ctx.query, response, chain=chain,
                          model_id=cfg.model.name, vec=vec)

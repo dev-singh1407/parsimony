@@ -169,7 +169,8 @@ class Pipeline:
         self.cache = (
             cache if cache is not None else SemanticCache(cfg.cache.ttl_seconds, self.embedder, max_entries=cfg.cache.max_entries)
         )
-        self.cache.attach_embedder(self.embedder)
+        self.cache.attach_embedder(self.embedder,
+                                   cfg.cache.embed_full_question)
         self.registry = registry or default_registry(self.cache)
         self.gate = gate or FidelityGate()
         self.sink = sink
