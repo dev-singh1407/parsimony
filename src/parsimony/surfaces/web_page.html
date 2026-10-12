@@ -17,6 +17,10 @@
       exactly what it cut and why.</p>
   </div>
   <nav aria-label="views">
+    <button id="tab-arch" aria-selected="false">
+      <span class="nl">Architecture</span>
+      <span class="nd">the six parts, and what each does</span>
+    </button>
     <button id="tab-pipe" aria-selected="true">
       <span class="nl">Pipeline</span>
       <span class="nd">watch one question go through</span>
@@ -30,7 +34,7 @@
       <span class="nd">with it on, and with it off</span>
     </button>
     <button id="tab-demo" aria-selected="false">
-      <span class="nl">Demo</span>
+      <span class="nl">Totals</span>
       <span class="nd">the totals so far, in big numbers</span>
     </button>
   </nav>
@@ -52,6 +56,109 @@
 </header>
 
 <main>
+
+<!-- ═══════════════════════ ARCHITECTURE ═════════════════════════ -->
+<section class="view" id="view-arch" hidden>
+  <p class="lede">What this is, before you watch it run. Your question does not go
+    straight to the AI. It passes through six parts first, each with one job, and each
+    able to leave the question exactly as it found it. Nothing here needs the internet:
+    every part of this runs on the laptop in front of you.</p>
+
+  <div class="panel">
+    <h2>Where it sits</h2>
+    <div class="journey">
+      <div class="jbox you"><b>You</b><span>a question, and maybe a document</span></div>
+      <div class="jarrow">&rarr;</div>
+      <div class="jbox mid"><b>Parsimony</b><span>takes out what the answer does not
+        need</span></div>
+      <div class="jarrow">&rarr;</div>
+      <div class="jbox ai"><b>The AI model</b><span>qwen2.5:1.5b, on this laptop</span></div>
+    </div>
+    <div class="note">Without this in the middle, the model reads every word you send,
+      one at a time, before it writes anything back. That reading is most of the wait.
+      Send it less and the wait gets shorter &mdash; as long as nothing that mattered was
+      taken out, which is what the rest of this page is about.</div>
+  </div>
+
+  <div class="panel">
+    <h2>The six parts <span class="hint">in the order they run</span></h2>
+    <div class="archgrid">
+      <article class="mod m6">
+        <div class="mhead"><span class="mcode">M6</span>
+          <h3>Shortcut router</h3></div>
+        <p class="mwhat">Looks at the question first. If it is arithmetic, a date, or a simple lookup, it answers on the spot and the AI is never called.</p>
+        <p class="mex"><span class="mexlab">For example</span>Ask it <b>17 &times; 4</b> and it replies 68. Nothing is sent anywhere, and nothing is generated.</p>
+      </article>
+      <article class="mod m2">
+        <div class="mhead"><span class="mcode">M2</span>
+          <h3>Memory of past answers</h3></div>
+        <p class="mwhat">Checks whether you have asked something close enough to this before. If so, the stored answer is reused instead of being written again.</p>
+        <p class="mex"><span class="mexlab">For example</span>Ask the same question twice and the second one comes back at once. Reword it slightly and it still matches, but only if the match is close enough to be safe.</p>
+      </article>
+      <article class="mod m3">
+        <div class="mhead"><span class="mcode">M3</span>
+          <h3>Conversation trimmer</h3></div>
+        <p class="mwhat">In a long chat, most of what was said earlier has nothing to do with the new question. This keeps the turns that matter and drops the rest, then puts them in a fixed order.</p>
+        <p class="mex"><span class="mexlab">For example</span>Twenty turns about three different topics become the four turns that touch the one you just asked about.</p>
+      </article>
+      <article class="mod m1">
+        <div class="mhead"><span class="mcode">M1</span>
+          <h3>Document compressor</h3></div>
+        <p class="mwhat">The big one. You attach a document; most of it is irrelevant to your question. Every sentence is scored, and only the ones that earn their place are sent. It then tidies spacing, drops repeated sentences, and shortens wordy phrasing.</p>
+        <p class="mex"><span class="mexlab">For example</span>A 49-sentence staff handbook goes in. Twelve sentences come out, and the answer is still right. That is 823 words down to 219.</p>
+      </article>
+      <article class="mod m4">
+        <div class="mhead"><span class="mcode">M4</span>
+          <h3>Prompt builder</h3></div>
+        <p class="mwhat">Puts the parts that never change at the very front. The AI can reuse the work it already did on those instead of reading them again from scratch.</p>
+        <p class="mex"><span class="mexlab">For example</span>The system instructions sit in the same place every time, so the model skips straight past them.</p>
+      </article>
+      <article class="mod m5">
+        <div class="mhead"><span class="mcode">M5</span>
+          <h3>Answer-length budget</h3></div>
+        <p class="mwhat">Decides how long the answer is allowed to be before it starts. A question with a one-line answer does not need five hundred words.</p>
+        <p class="mex"><span class="mexlab">For example</span>A factual question is capped at 128 words. An open-ended one is given more room.</p>
+      </article>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>The two parts that are not steps</h2>
+    <div class="archgrid">
+      <article class="mod m8">
+        <div class="mhead"><span class="mcode">M8</span>
+          <h3>The safety check</h3></div>
+        <p class="mwhat">Nothing above is allowed to change your question by itself. Each
+          part can only <i>propose</i> a change. M8 reads the proposal, compares what the
+          text meant before and after, and puts it back if the meaning moved. It cannot be
+          skipped, switched off, or implemented differently by one part than another.</p>
+        <p class="mex"><span class="mexlab">For example</span>Two sentences give two
+          different dates. The repeat-remover thinks the second is a duplicate and asks to
+          delete it. M8 refuses, because the dates differ. The saving is lost on purpose.</p>
+      </article>
+      <article class="mod m7">
+        <div class="mhead"><span class="mcode">M7</span>
+          <h3>Learning from old chats</h3></div>
+        <p class="mwhat">This one does not run while you wait. It runs separately,
+          afterwards, over conversations that already happened, and writes down what it
+          found so the system does not start from nothing the next day.</p>
+        <p class="mex"><span class="mexlab">For example</span>If you explain the same
+          background every morning, it notices, and that background is pinned where the
+          model can reuse it.</p>
+      </article>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>How to check any of this</h2>
+    <div class="note">Every claim on this page is something you can watch happen.
+      Open <b>Pipeline</b> and run a question: each of the six reports what it did, in its
+      own words, including the ones that did nothing. Open <b>Heatmap</b> to see M1 score
+      every sentence of a document and show you where it cut. Open <b>A/B</b> to ask the
+      same question with all of this switched off and compare the two answers. The
+      <b>Totals</b> tab counts how many changes M8 checked, and how many it refused.</div>
+  </div>
+</section>
 
 <!-- ══════════════════════════ PIPELINE ══════════════════════════ -->
 <section class="view" id="view-pipe">
@@ -302,26 +409,26 @@
         bars right of it were not.</span></h2>
 
     <div class="modebar" id="modebar">
-      <span class="modelab">The floor is</span>
-      <button class="mode on" id="mode-fixed" aria-pressed="true">a constant you choose</button>
-      <button class="mode" id="mode-adaptive" aria-pressed="false">read off the scores</button>
+      <span class="modelab">Decide the cut-off by</span>
+      <button class="mode on" id="mode-fixed" aria-pressed="true">a number I set</button>
+      <button class="mode" id="mode-adaptive" aria-pressed="false">reading the scores</button>
       <span class="modewhy" id="mode-why"></span>
     </div>
 
     <div class="modebar" id="encbar" hidden>
-      <span class="modelab">Sentences scored by</span>
+      <span class="modelab">Score the sentences with</span>
       <button class="mode on" id="enc-shipped" aria-pressed="true"></button>
       <button class="mode" id="enc-other" aria-pressed="false"></button>
       <span class="modewhy" id="enc-why"></span>
     </div>
 
     <div class="dial" id="dial">
-      <label for="floor">Relevance floor</label>
+      <label for="floor">Cut-off score</label>
       <input type="range" id="floor" min="0" max="0.30" step="0.01" value="0.15">
       <output class="dialv" id="floor-v">0.15</output>
       <button class="ghost tiny" id="floor-reset">back to shipped</button>
 
-      <label for="ratio">Token budget</label>
+      <label for="ratio">Most of the document it may send</label>
       <input type="range" id="ratio" min="0.05" max="0.80" step="0.05" value="0.35">
       <output class="dialv" id="ratio-v">35%</output>
       <button class="ghost tiny" id="dials-reset">reset both</button>
@@ -329,7 +436,8 @@
       <div class="dial-read" id="floor-read"></div>
       <div class="dial-read" id="binding"></div>
     </div>
-    <div class="profilewrap"><svg id="profile" height="190"></svg></div>
+    <div class="working" id="map-working" hidden></div>
+    <div class="profilewrap" id="profilewrap"><svg id="profile" height="190"></svg></div>
     <div class="legend">
       <span><span class="swatch" style="background:var(--keep)"></span>kept</span>
       <span><span class="swatch" style="background:var(--idle)"></span>dropped</span>

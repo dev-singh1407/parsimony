@@ -655,6 +655,18 @@ def make_handler(vis: Visualiser):
         def log_message(self, fmt, *args):      # quiet: the terminal belongs to the user
             pass
 
+        def handle_one_request(self):
+            """A client that walks away is not an error worth printing.
+
+            Reloading the page, closing the tab, or navigating during a stream
+            all leave the response half-written. The stdlib default is to print
+            the traceback; there is nothing here for anyone to act on, and the
+            terminal may be on a projector."""
+            try:
+                super().handle_one_request()
+            except (ConnectionError, BrokenPipeError):
+                self.close_connection = True
+
         # -- helpers ----------------------------------------------------
         def _send(self, body: bytes, content_type: str, status: int = 200) -> None:
             self.send_response(status)

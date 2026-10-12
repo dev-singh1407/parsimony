@@ -56,8 +56,8 @@ Prompt  ██████████████████████░░
 │ approach is sufficient. It is worth considering the trade-offs before    │
 │ deciding.                                                                │
 ╰──────────────────────────────────────────────────────────────────────────╯╭─ What the AI actually received  struck-through text was removed before s─╮
-│ Instructions        You are a concise, accurate assistant.   (always     │
-│                     first, never changes)                                │
+│ Instructions        Be accurate and brief. Answer only what was          │
+│                     asked.   (always first, never changes)               │
 │ Your question       Hello, I was wondering if you could please explain   │
 │                     what recursion is? Thanks!                           │
 │ sent as             Explain what recursion is?                           │

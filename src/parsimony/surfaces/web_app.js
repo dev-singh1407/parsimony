@@ -29,7 +29,8 @@ const token = (name, fallback) =>
   (CSS.getPropertyValue(name) || "").trim() || fallback;
 
 /* ══════════════════════════ tabs ══════════════════════════════════ */
-const TABS = { pipe: "view-pipe", map: "view-map", ab: "view-ab", demo: "view-demo" };
+const TABS = { arch: "view-arch", pipe: "view-pipe", map: "view-map",
+               ab: "view-ab", demo: "view-demo" };
 function show(which) {
   for (const [k, v] of Object.entries(TABS)) {
     $("tab-" + k).setAttribute("aria-selected", String(k === which));
@@ -1324,6 +1325,7 @@ async function runMap(floor, ratio) {
   // a line the run did not use.
   if (adaptiveFloor) floor = null;
   $("dial") && $("dial").classList.add("busy");
+  mapWorking(true);
   try {
     const r = await fetch("/api/compress", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -1338,7 +1340,33 @@ async function runMap(floor, ratio) {
     floorLabel(data);
     showEncoderBar(data);
   } catch (e) { $("map-err").textContent = String(e); }
+  mapWorking(false);
   $("dial") && $("dial").classList.remove("busy");
+}
+
+/* The eight to twelve seconds this takes on a CPU, said out loud. Without it
+   the controls read as dead: nothing on the screen moves until the scores come
+   back, and the chart still shows the previous answer as though it were this
+   one. */
+function mapWorking(on) {
+  const bar = $("map-working");
+  if (bar) {
+    if (on) {
+      const n = lastMap && lastMap.units ? lastMap.units.length : 0;
+      const enc = (lastMap && lastMap.encoder) ? ` with <b>${esc(lastMap.encoder)}</b>` : "";
+      bar.innerHTML = '<span class="spinner"></span>Scoring '
+        + (n ? `all ${n} sentences` : "every sentence") + enc
+        + " again. On a laptop processor this takes a few seconds.";
+    }
+    bar.hidden = !on;
+  }
+  const wrap = $("profilewrap");
+  if (wrap) wrap.classList.toggle("stale", on);
+  for (const id of ["mode-fixed", "mode-adaptive", "enc-shipped", "enc-other",
+                    "floor-reset", "dials-reset"]) {
+    const el = $(id);
+    if (el) el.disabled = on;
+  }
 }
 
 function dialsChanged() {

@@ -362,7 +362,7 @@ class ParsimonyConfig:
     # (31.1% true), but 0.90 is not (4.4% false), so the default stays at 0.97
     # rather than sitting one adversarial pair away from the cliff.
     embedder_id: str = "content-v1"
-    system_prompt: str = "You are a concise, accurate assistant."
+    system_prompt: str = "Be accurate and brief. Answer only what was asked."
     # Standing facts mined by M7. Part of M4's invariant zone, so it is
     # byte-stable across turns and lengthens the reusable KV prefix.
     context_digest: str = ""
