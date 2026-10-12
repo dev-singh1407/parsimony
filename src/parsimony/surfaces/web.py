@@ -284,7 +284,8 @@ class Visualiser:
         "m3_history": ("History selector", "history",
                        "Which earlier turns does this question actually need?"),
         "m3_arrange": ("History arranger", "history",
-                       "Order the surviving turns so the prompt prefix stays stable"),
+                       "Order the surviving turns so the start of the prompt is the"
+                       " same as last time"),
         "m1_context": ("Context compressor", "compress",
                        "Keep only the sentences of the documents this question needs"),
         "m1_tier1": ("Tier 1 — normalise", "compress",
@@ -294,7 +295,8 @@ class Visualiser:
         "m1_tier3": ("Tier 3 — rewrite", "compress",
                      "Shorten phrasing, and reject any edit that costs more than it saves"),
         "m4_assembler": ("Prefix-stable assembler", "assemble",
-                         "Pin invariants to the prompt head so the KV cache survives"),
+                         "Put the parts that never change first, so the model can reuse"
+                         " the work it already did on them"),
         "m5_budgeter": ("Output budgeter", "budget",
                         "Classify the answer and cap how long it may run"),
         "m6b_router": ("Escalation router", "route",

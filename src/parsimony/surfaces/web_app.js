@@ -86,8 +86,8 @@ async function refreshSession() {
       // whether the rate was timed here or estimated needs a run to answer, so
       // that half waits.
       $("demo-basis").innerHTML =
-        "<b>Tokens pruned</b> will be measured exactly: what the prompt was written with, "
-        + "minus what was sent. <b>Seconds saved</b> is those pruned tokens at the prefill "
+        "<b>Tokens removed</b> will be measured exactly: what the prompt was written with, "
+        + "minus what was sent. <b>Seconds saved</b> is those removed tokens at the prefill "
         + "rate, and this line will say whether that rate was timed on this machine or "
         + "taken from the project's recorded one.";
       $("demo-extra").innerHTML = "";
@@ -97,8 +97,8 @@ async function refreshSession() {
     $("c-secs").textContent = t.seconds_saved.toFixed(1) + "s";
     $("c-secs-k").textContent = t.timed_here ? "seconds saved" : "seconds saved (estimated)";
     $("demo-basis").innerHTML =
-      "<b>Tokens pruned</b> is measured exactly: what the prompt was written with, minus "
-      + "what was sent. <b>Seconds saved</b> is those pruned tokens at the prefill rate — "
+      "<b>Tokens removed</b> is measured exactly: what the prompt was written with, minus "
+      + "what was sent. <b>Seconds saved</b> is those removed tokens at the prefill rate — "
       + (t.timed_here
         ? "the milliseconds per token this machine actually took on the prompt it did read."
         : "<b>and that rate was not timed here.</b> Either the model is simulated or the "
@@ -111,16 +111,17 @@ async function refreshSession() {
     $("d-kv").textContent = t.kv_mb_saved ? t.kv_mb_saved.toFixed(0) + " MB" : "—";
     $("demo-extra").innerHTML = t.requests
       ? "<b>Answered without the model</b> counts requests the calculator or the cache settled "
-        + "outright: zero prompt tokens, zero generated. <b>Edits the gate refused</b> are "
-        + "savings the system declined in order to stay correct, which is the number a "
-        + "compression project is least likely to show you. <b>KV cache never allocated</b> is "
-        + "the pruned tokens priced at this model's own key-value footprint, read from the "
+        + "outright: zero prompt tokens, zero generated. <b>Changes refused and undone</b> "
+        + "are savings the system declined in order to stay correct, which is the number a "
+        + "compression project is least likely to show you. <b>Model memory never allocated</b> "
+        + "is the removed tokens priced at this model's own key-value footprint, read from the "
         + "runtime's metadata rather than assumed; it shows a dash where the model cannot "
         + "report it."
       : "";
     $("demo-sub").textContent = t.requests
       ? `${t.requests} request${t.requests > 1 ? "s" : ""} — ${fmt(t.tokens_written)} tokens `
-        + `written, ${fmt(t.tokens_sent)} sent (${t.percent.toFixed(0)}% never read)`
+        + `in the prompts, ${fmt(t.tokens_sent)} sent to the model `
+        + `(${t.percent.toFixed(0)}% removed before sending)`
       : "nothing run yet — use the Pipeline or A/B tab";
   } catch (e) { /* server gone; keep the last honest figure */ }
 }
@@ -362,7 +363,7 @@ function drawTrack() {
   const ms = (v) => (v >= 10 ? v.toFixed(0) : v.toFixed(1));
   $("track-note").innerHTML = (!RUN.stages.length || total < 5 || rest < 1) ? "" :
     `<b>${esc(labelFor(top.name))}</b> is ${(100 * top.ms / total).toFixed(0)}% of it `
-    + `(${ms(top.ms)} ms) — the other ${rest} stage${rest === 1 ? "" : "s"} `
+    + `(${ms(top.ms)} ms) — the other ${rest} layer${rest === 1 ? "" : "s"} `
     + `share ${ms(total - top.ms)} ms between them.`;
 }
 
@@ -450,7 +451,7 @@ function paintAll() {
       + `${esc(OUTCOME_WORD[s.outcome] || s.outcome)} · ${fmt(s.before)} → ${fmt(s.after)} tokens`
       + `</span>`
     : `<span class="sub">${RUN.stages.length ? "before anything ran — press play, or use ← →"
-        : "run something, then scrub through it stage by stage"}</span>`;
+        : "run something, then step through it layer by layer"}</span>`;
   const gs = $("gate-summary");
   if (gs) gs.textContent = gateSummary();
   paintDoc();
@@ -669,7 +670,7 @@ function paintKv(kv, tokens) {
   const mb = kv.bytes_saved / 1048576;
   $("kv-n").textContent = (mb >= 1 ? mb.toFixed(1) + " MB" : Math.round(kv.bytes_saved / 1024)
     + " KB") + " of key-value cache never allocated";
-  $("kv-how").textContent = `${fmt(tokens.removed)} tokens never read × `
+  $("kv-how").textContent = `${fmt(tokens.removed)} tokens removed × `
     + `${fmt(kv.per_token)} bytes each — ${kv.how}`;
 }
 
@@ -851,6 +852,55 @@ $("pipe-text").addEventListener("input", () => { sizeContext(); remember(); });
 $("pq").addEventListener("input", remember);
 recall();
 
+/* The result in words, above the result in figures.
+   Four outcomes, and they are not the same claim: a request that was cut, one
+   that was already short enough, one the cache answered without a model, and
+   one where the saving is the project's recorded rate rather than a stopwatch
+   on this machine. Saying "saved 5.6 s" for the last of those would be a
+   measurement the page has not taken. */
+function sayPlainly(d) {
+  const el = $("plain-result"), k = d.tokens, t = d.timing;
+  const secs = (v) => `<b class="time">${v.toFixed(1)} s</b>`;
+  const how = t.timed_here ? ", timed on this machine"
+            : t.reused ? ", though the runtime reused an earlier prompt, so "
+                         + "that is not a cold read"
+            : ", at the project's recorded rate for this model rather than a "
+              + "stopwatch reading taken just now";
+  // A reverted layer is a saving the fidelity gate would not let through. It is
+  // the reason a run can end with nothing removed, so it is read first.
+  const refused = (d.layers || []).filter((l) => l.outcome === "reverted").length;
+  const cuts = refused === 1 ? "A cut was" : `<b class="drop">${refused}</b> cuts were`;
+  const they = refused === 1 ? "it" : "they";
+
+  if (d.served_without_model) {
+    el.innerHTML = "This question had been asked before, so the model was "
+      + "never called at all. Answering it again would have meant reading "
+      + `<b>${fmt(k.original)}</b> tokens first, about ${secs(t.saved_s)} `
+      + `of waiting${how}.`;
+  } else if (!k.removed && refused) {
+    el.innerHTML = `Nothing was removed, and that is the result. ${cuts} `
+      + `proposed and then refused, because the check below found ${they} `
+      + "would have changed what the request means &mdash; so the model saw "
+      + `all <b>${fmt(k.original)}</b> tokens. A compressor that never `
+      + "declines a saving is the one not to trust.";
+  } else if (!k.removed) {
+    el.innerHTML = "Nothing was removed. Every layer read this request and "
+      + "decided it was already as short as it could safely be, so the model "
+      + `saw all <b>${fmt(k.original)}</b> tokens &mdash; which the layers `
+      + "report plainly, rather than inventing a saving.";
+  } else {
+    el.innerHTML = `The model read <b class="keep">${fmt(k.final)}</b> tokens `
+      + `instead of <b>${fmt(k.original)}</b>: <b class="drop">`
+      + `${fmt(k.removed)}</b> of them never reached it. That is about `
+      + `${secs(t.saved_s)} of reading this laptop did not have to do${how}. `
+      + "Every layer below says what it took out and why."
+      + (refused ? ` ${cuts} proposed on top of that and refused, because `
+                   + `the check below found ${they} would have changed what the `
+                   + "request means." : "");
+  }
+  el.hidden = false;
+}
+
 $("run-pipe").onclick = () => {
   const question = $("pq").value.trim();
   $("pipe-err").textContent = "";
@@ -869,6 +919,7 @@ $("run-pipe").onclick = () => {
   $("measured").innerHTML = '<li class="dimtext">measuring…</li>';
   $("prompt-tok").textContent = ""; $("answer-tok").textContent = "";
   $("pipe-timing").textContent = "";
+  $("plain-result").hidden = true;
   drawStack(); paintAll();
   $("run-pipe").disabled = true;
   $("run-pipe").innerHTML = '<span class="spinner"></span>running';
@@ -908,7 +959,8 @@ $("run-pipe").onclick = () => {
     countTo($("m-removed"), d.tokens.removed);
     countTo($("m-saved"), d.timing.saved_s, "s");
     $("m-saved-k").textContent = d.timing.timed_here
-      ? "prefill not spent (measured here)" : "prefill not spent (estimated rate)";
+      ? "seconds not waited (timed here)"
+      : "seconds not waited (recorded rate)";
     const C = 2 * Math.PI * 32;
     $("ring-fg").style.strokeDashoffset = String(C * (1 - d.tokens.ratio));
     $("m-ratio").textContent = Math.round(d.tokens.ratio * 100) + "%";
@@ -925,6 +977,7 @@ $("run-pipe").onclick = () => {
         + (t.timed_here ? ", measured on this machine."
           : t.reused ? " — but the runtime reused an earlier prompt, so that rate is not cold."
           : " — the model is simulated, so that rate is the project's recorded figure.");
+    sayPlainly(d);
     paintTokenBar(d.tokens); paintKv(d.kv, d.tokens);
     paintReceived(d.received); paintMeasured(d.measured);
     buildDoc(); fillChannels(); drawTrack(); goTo(-1);
@@ -1062,11 +1115,12 @@ function renderMap(data) {
   $("map-profile-panel").hidden = false;
   const kept = data.units.filter((u) => u.kept).length;
   $("map-numbers").innerHTML = [
-    ["tokens written", fmt(data.tokens_before)], ["tokens sent", fmt(data.tokens_after)],
-    ["removed", data.removed_pct.toFixed(0) + "%"],
+    ["tokens in the document", fmt(data.tokens_before)],
+    ["sent to the model", fmt(data.tokens_after)],
+    ["of the document removed", data.removed_pct.toFixed(0) + "%"],
     ["sentences kept", `${kept} / ${data.units.length}`],
-    ["encoder time", data.encoder_ms.toFixed(0) + "ms"],
-    ["deciding", data.decide_ms.toFixed(0) + "ms"],
+    ["scoring the sentences", data.encoder_ms.toFixed(0) + "ms"],
+    ["choosing between them", data.decide_ms.toFixed(0) + "ms"],
   ].map(([k, v]) => `<div class="stat"><div class="n">${v}</div><div class="k">${k}</div></div>`)
     .join("");
   const bits = [`stopped by <b>${esc(data.stopped_by)}</b>`,

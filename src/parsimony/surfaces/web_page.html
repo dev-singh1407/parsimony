@@ -12,11 +12,13 @@
   <div class="brand">
     <h1>Parsimony</h1>
     <span class="brandsub">prompt middleware</span>
+    <p class="brandwhat">Cuts a prompt down before the model reads it, and shows
+      every decision it made. Same answer, fewer tokens, less waiting.</p>
   </div>
   <nav aria-label="views">
     <button id="tab-pipe" aria-selected="true">
       <span class="nl">Pipeline</span>
-      <span class="nd">one request, stage by stage</span>
+      <span class="nd">one request, layer by layer</span>
     </button>
     <button id="tab-map" aria-selected="false">
       <span class="nl">Heatmap</span>
@@ -52,6 +54,11 @@
 
 <!-- ══════════════════════════ PIPELINE ══════════════════════════ -->
 <section class="view" id="view-pipe">
+  <p class="lede">One question, start to finish. Each layer in turn decides whether to
+    change the request before the model sees it, and every decision is shown here &mdash;
+    including the ones that chose to do nothing, which is the part a saving figure on its
+    own would hide. The <b>M1</b>&ndash;<b>M6</b> marks down the left of the stack say which
+    part of the architecture a layer belongs to.</p>
 
   <div class="panel">
     <div class="row">
@@ -80,13 +87,13 @@
       <button class="chip-b" data-q="Explain the deadline. The deadline is 15 March. The deadline is 16 March."
               data-note="The repeat remover wants to delete the second date as a duplicate. The
               fidelity gate refuses, because the two dates differ. A saving correctly declined.">
-        watch the gate refuse</button>
+        refuse a saving, on purpose</button>
       <button class="chip-b" data-q="When does the office close for Christmas?"
               data-doc="1" data-note="Open the Heatmap and switch the floor to &ldquo;read off the
               scores&rdquo;. Three sentences score 3.3x above the rest, the rule cuts there
               instead of at 0.15, and the prompt loses a quarter of its tokens with the answer
               still in it.">
-        read the floor off the scores</button>
+        let it choose its own threshold</button>
       <button class="chip-b" data-q="What is the travel budget for Porto?"
               data-note="Run this twice. The first is a miss; the second is served from the
               cache, word for word, with the model never called. Then reword it slightly and
@@ -103,14 +110,16 @@
     <div id="pipe-err" class="err"></div>
   </div>
 
+  <p class="verdict-line" id="plain-result" hidden></p>
+
   <div class="metrics">
     <div class="metric"><div class="mv" id="m-before">—</div>
-      <div class="mk">tokens written</div></div>
+      <div class="mk">tokens in the prompt</div></div>
     <div class="metric arrow">→</div>
     <div class="metric"><div class="mv keep" id="m-after">—</div>
-      <div class="mk">tokens sent</div></div>
+      <div class="mk">sent to the model</div></div>
     <div class="metric"><div class="mv drop" id="m-removed">—</div>
-      <div class="mk">never read</div></div>
+      <div class="mk">removed before sending</div></div>
     <div class="metric">
       <div class="ring">
         <svg viewBox="0 0 78 78" width="78" height="78" aria-hidden="true">
@@ -119,10 +128,10 @@
         </svg>
         <div class="ring-label" id="m-ratio">—</div>
       </div>
-      <div class="mk">of the prompt sent</div>
+      <div class="mk">of the prompt survived</div>
     </div>
     <div class="metric"><div class="mv time" id="m-saved">—</div>
-      <div class="mk" id="m-saved-k">prefill not spent</div></div>
+      <div class="mk" id="m-saved-k">seconds not waited</div></div>
   </div>
 
   <div class="tokenbar" id="tokenbar" hidden>
@@ -139,27 +148,27 @@
   <div class="transport" id="transport">
     <div class="tbar">
       <button class="ghost icon" id="t-first" title="Back to the start">|◀</button>
-      <button class="ghost icon" id="t-prev" title="Previous stage">◀</button>
-      <button class="ghost icon" id="t-play" title="Play through the stages">▶ Play</button>
-      <button class="ghost icon" id="t-next" title="Next stage">▶|</button>
+      <button class="ghost icon" id="t-prev" title="Previous layer">◀</button>
+      <button class="ghost icon" id="t-play" title="Play through the layers">▶ Play</button>
+      <button class="ghost icon" id="t-next" title="Next layer">▶|</button>
       <button class="ghost icon" id="t-last" title="Jump to the end">▶▶</button>
       <div class="now" id="t-now" role="status" aria-live="polite">
-        <span class="sub">run something, then scrub through it stage by stage</span>
+        <span class="sub">run something, then step through it layer by layer</span>
       </div>
       <div class="narrow" style="min-width:150px">
-        <select id="t-speed" title="How long each stage is held on screen">
-          <option value="1400">Slow — 1.4s a stage</option>
-          <option value="800" selected>Steady — 0.8s a stage</option>
-          <option value="350">Quick — 0.35s a stage</option>
+        <select id="t-speed" title="How long each layer is held on screen">
+          <option value="1400">Slow — 1.4s a layer</option>
+          <option value="800" selected>Steady — 0.8s a layer</option>
+          <option value="350">Quick — 0.35s a layer</option>
         </select>
       </div>
     </div>
     <div class="track" id="track" role="group"
-         aria-label="stages of this request, click one to jump to it"></div>
+         aria-label="layers of this request, click one to jump to it"></div>
     <div class="ticks">
       <span id="tick-l">0 ms</span>
-      <span class="dimtext" id="tick-note">segment width = that stage's measured share of middleware time,
-        with a floor so every stage stays clickable</span>
+      <span class="dimtext" id="tick-note">each segment is that layer's measured share of the
+        middleware's own time, with a floor so even the fastest stays clickable</span>
       <span id="tick-r">—</span>
     </div>
     <div class="note" id="track-note"></div>
@@ -180,7 +189,7 @@
         <span class="hint" id="doc-hint"></span></summary>
       <div class="docwrap" id="docwrap">
         <div class="dimtext" style="font-size:13px">Attach a document and run — every
-          sentence appears here, then leaves when the stage that removed it runs.</div>
+          sentence appears here, then leaves when the layer that removed it runs.</div>
       </div>
       <div class="doclegend">
         <span class="chip"><i style="background:var(--keep)"></i>sent to the model</span>
@@ -192,7 +201,7 @@
 
     <details class="panel" open>
     
-      <summary>Inside this layer <span class="hint">what it looked at, and what it decided</span></summary>
+      <summary>Inside one layer <span class="hint">click any layer on the stack above to see what it read and what it decided</span></summary>
       <div id="inspector">
         <div class="dimtext" style="font-size:13px">Pick a layer on the stack, or press
           play and watch each one explain itself.</div>
@@ -202,10 +211,11 @@
 
   <details class="panel">
   
-    <summary>Every layer, as the terminal prints it
+    <summary>Every layer, as a table
       <span class="hint">same names, same reasons, same numbers as <code>parsimony chat</code></span>
       <button class="ghost tiny" id="copy-run" title="Copy this table as plain text"
               style="margin-left:auto">copy as text</button></summary>
+    <div class="tablewrap">
     <table id="layers">
       <thead><tr>
         <th style="width:26px"></th><th>Layer</th><th>Module</th>
@@ -216,13 +226,14 @@
         <tr class="dim"><td></td><td colspan="6">nothing run yet</td></tr>
       </tbody>
     </table>
+    </div>
     </details>
 
   <details class="panel">
   
     <summary>What the AI actually received
-      <span class="hint">anything marked <b>[removed]</b> was not sent · same panel the
-        terminal prints</span></summary>
+      <span class="hint">anything marked <b>[removed]</b> was not sent · the same panel
+        <code>parsimony chat</code> prints</span></summary>
     <div class="received" id="received">
       <div class="dimtext" style="font-size:13px">run something to see the prompt it
         assembled, section by section</div>
@@ -231,7 +242,7 @@
 
   <div class="two-col">
     <div class="panel">
-      <h2>Measured <span class="hint">the terminal's own wording</span></h2>
+      <h2>Measured <span class="hint">what this run cost, in the same words the command line uses</span></h2>
       <ul class="measured" id="measured"><li class="dimtext">nothing run yet</li></ul>
       <details style="margin-top:10px">
         <summary class="dimtext" style="cursor:pointer;font-size:12.5px">
@@ -249,6 +260,8 @@
 
 <!-- ══════════════════════════ HEATMAP ═══════════════════════════ -->
 <section class="view" id="view-map" hidden>
+  <p class="lede">Why each sentence of a document was kept or dropped: the score it was
+    given, the threshold it was judged against, and the exceptions that survive below it.</p>
   <div class="panel">
     <h2>Ask something of a document</h2>
     <div class="row">
@@ -275,14 +288,14 @@
   </div>
 
   <div class="panel" id="map-stats" hidden>
-    <h2>What it decided</h2>
+    <h2>What it decided <span class="hint">for this question, against this document</span></h2>
     <div class="stats" id="map-numbers"></div>
     <div class="note" id="map-note"></div>
   </div>
 
   <div class="panel" id="map-profile-panel" hidden>
-    <h2>The selection rule, and every exception to it
-      <span class="hint">sentences sorted by score · the line is the relevance floor</span></h2>
+    <h2>How the cut was decided
+      <span class="hint">every sentence, tallest score first · the dashed line is the threshold below which a sentence is dropped</span></h2>
 
     <div class="modebar" id="modebar">
       <span class="modelab">The floor is</span>
@@ -312,9 +325,22 @@
       <div class="dial-read" id="floor-read"></div>
       <div class="dial-read" id="binding"></div>
     </div>
+    <div class="profilewrap"><svg id="profile" height="190"></svg></div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--keep)"></span>kept</span>
+      <span><span class="swatch" style="background:var(--idle)"></span>dropped</span>
+      <span><span class="swatch" style="background:var(--warn)"></span>kept below the line — a sentence the
+        question named, or one held so a pronoun still refers to something</span>
+      <span><span class="swatch" style="background:var(--drop)"></span>dropped above it — the budget
+        ran out</span>
+      <span id="legend-cliff" hidden><span class="swatch"
+        style="background:var(--keep);opacity:.4"></span>the cliff the floor was read from — the
+        steepest fall between two adjacent ranks</span>
+    </div>
+    <div class="note" id="profile-note"></div>
     <div class="note" id="floor-note">
-      Drag it. Everything below the line is dropped, so this is the dial that decides how much
-      survives — and the shipped 0.15 is a choice with a measured price, not a constant.
+      Drag the relevance floor above and the chart moves with it. Everything below the line is
+      dropped, so that dial decides how much survives — and the shipped 0.15 is a choice with a measured price, not a constant.
       On a public multi-hop benchmark, moving it to 0.05 recovers the answer on 10% more
       questions and costs 14 points of context (ADR-050). Moving it here changes this page only;
       the system keeps its own setting.
@@ -366,19 +392,6 @@
       reason to move a default four ADRs of measurement sit behind. What it replaces is the
       <i>remedy</i> &mdash; reach for this instead of the lower constant (ADR-051).
     </div>
-    <div class="profilewrap"><svg id="profile" height="190"></svg></div>
-    <div class="legend">
-      <span><span class="swatch" style="background:var(--keep)"></span>kept</span>
-      <span><span class="swatch" style="background:var(--idle)"></span>dropped</span>
-      <span><span class="swatch" style="background:var(--warn)"></span>kept below the floor — an
-        anchor, or pulled in by dependency closure</span>
-      <span><span class="swatch" style="background:var(--drop)"></span>dropped above it — the budget
-        ran out</span>
-      <span id="legend-cliff" hidden><span class="swatch"
-        style="background:var(--keep);opacity:.4"></span>the cliff the floor was read from — the
-        steepest fall between two adjacent ranks</span>
-    </div>
-    <div class="note" id="profile-note"></div>
   </div>
 
   <div class="panel" id="map-doc-panel" hidden>
@@ -395,6 +408,10 @@
 
 <!-- ════════════════════════════ A/B ═════════════════════════════ -->
 <section class="view" id="view-ab" hidden>
+  <p class="lede">The same question put twice to the same model on this laptop: once with
+    the layers switched off, once with them on. Read the two answers at the bottom first
+    &mdash; the claim is that they say the same thing &mdash; then compare what each of them
+    cost.</p>
   <div class="panel">
     <h2>The same question, twice, against the real model</h2>
     <div class="row">
@@ -403,9 +420,9 @@
         <input type="text" id="abq"
                placeholder="What is the annual travel budget for the Tallinn office?">
       </div>
-      <div class="narrow"><button class="go" id="run-ab">Run both arms</button></div>
+      <div class="narrow"><button class="go" id="run-ab">Run both</button></div>
       <div class="narrow"><button class="ghost" id="ab-sample">Attach the handbook</button></div>
-      <div class="narrow"><button class="ghost" id="copy-map">Take the Pipeline tab's</button></div>
+      <div class="narrow"><button class="ghost" id="copy-map">Copy the question and context from Pipeline</button></div>
     </div>
     <details style="margin-top:10px">
       <summary class="dimtext" style="cursor:pointer;font-size:13px">
@@ -424,7 +441,7 @@
   </div>
 
   <div class="panel">
-    <h2>Answer tokens produced over time</h2>
+    <h2>Answer tokens produced over time <span class="hint">the flat stretch before a line climbs is the model reading the prompt</span></h2>
     <!-- Sized by the script from its own box, in device pixels; the attributes
          here are only what it draws at before the first frame. -->
     <canvas id="chart"></canvas>
@@ -436,13 +453,13 @@
   </div>
 
   <div class="panel" id="ab-table-panel" hidden>
-    <h2>Measured</h2>
+    <h2>Measured <span class="hint">the two runs, line for line</span></h2>
     <table id="ab-table"></table>
     <div class="note" id="ab-note"></div>
   </div>
 
   <div class="panel">
-    <h2>Answers</h2>
+    <h2>Answers <span class="hint">the point of the comparison: shorter input, same answer</span></h2>
     <div class="arm"><h3>parsimony <span class="tag" id="ab-tag-p"></span></h3>
       <div class="answer" id="ab-ans-parsimony"></div></div>
     <div class="arm"><h3>baseline <span class="tag" id="ab-tag-b"></span></h3>
@@ -452,9 +469,12 @@
 
 <!-- ═══════════════════════════ DEMO ═════════════════════════════ -->
 <section class="view" id="view-demo" hidden>
+  <p class="lede">Everything this session has saved, added up: every run on the Pipeline and
+    A/B tabs lands here. Among the figures below the totals is the safety record &mdash; how
+    many changes were checked for lost meaning, and how many were refused and put back.</p>
   <div class="counters">
     <div class="counter blue"><div class="n" id="c-tokens">—</div>
-      <div class="k">tokens pruned</div></div>
+      <div class="k">tokens removed</div></div>
     <div class="counter green"><div class="n" id="c-secs">—</div>
       <div class="k"><span id="c-secs-k">seconds saved</span></div></div>
   </div>
@@ -466,11 +486,11 @@
     <div class="sec"><div class="sv warnv" id="d-nomodel">—</div>
       <div class="sk">answered without the model</div></div>
     <div class="sec"><div class="sv" id="d-gate">—</div>
-      <div class="sk">edits the gate checked</div></div>
+      <div class="sk">changes checked for lost meaning</div></div>
     <div class="sec"><div class="sv dropv" id="d-refused">—</div>
-      <div class="sk">edits it refused</div></div>
+      <div class="sk">changes refused and undone</div></div>
     <div class="sec"><div class="sv" id="d-kv">—</div>
-      <div class="sk">KV cache never allocated</div></div>
+      <div class="sk">model memory never allocated</div></div>
   </div>
 
   <div class="panel" style="margin-top:26px">

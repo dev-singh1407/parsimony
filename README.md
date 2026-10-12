@@ -40,7 +40,7 @@ bootstrap/effect-size/Pareto statistics, threshold calibration, a cross-vocabula
 `reproduce.py`.
 
 **Surfaces.** A terminal view that draws each layer as it runs (`parsimony chat`, `ask`), a local web
-visualiser you can scrub through stage by stage (`parsimony web`), LaTeX and proof-document export
+visualiser you can step through layer by layer (`parsimony web`), LaTeX and proof-document export
 (`parsimony export`), and the studies as commands: `longctx`, `followups`, `longbench`, `compare`,
 `calibrate`.
 
@@ -327,7 +327,7 @@ parsimony export --proof kestrel_q2                 # a PDF showing every remova
 machine. It shades every sentence of a document by the score the encoder gave it and names the decision
 behind each one on hover; it runs the same question with the layers off and on against the real model and
 plots both as they generate (one after the other, because two generations on one CPU measure contention,
-not compression); and it keeps a running count of tokens pruned and seconds saved, labelled *estimated*
+not compression); and it keeps a running count of tokens removed and seconds saved, labelled *estimated*
 unless this machine timed the rate itself.
 
 `parsimony export` writes the results out without retyping them: the tables read `figures/*.csv`, so a
