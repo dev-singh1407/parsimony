@@ -12,25 +12,26 @@
   <div class="brand">
     <h1>Parsimony</h1>
     <span class="brandsub">prompt middleware</span>
-    <p class="brandwhat">Cuts a prompt down before the model reads it, and shows
-      every decision it made. Same answer, fewer tokens, less waiting.</p>
+    <p class="brandwhat">A small AI model is slow because it has to read every
+      word you send it. This cuts out the words it does not need, then shows you
+      exactly what it cut and why.</p>
   </div>
   <nav aria-label="views">
     <button id="tab-pipe" aria-selected="true">
       <span class="nl">Pipeline</span>
-      <span class="nd">one request, layer by layer</span>
+      <span class="nd">watch one question go through</span>
     </button>
     <button id="tab-map" aria-selected="false">
       <span class="nl">Heatmap</span>
-      <span class="nd">every sentence, and why it went</span>
+      <span class="nd">which sentences were kept, and why</span>
     </button>
     <button id="tab-ab" aria-selected="false">
       <span class="nl">A/B</span>
-      <span class="nd">layers off, then on, same model</span>
+      <span class="nd">with it on, and with it off</span>
     </button>
     <button id="tab-demo" aria-selected="false">
       <span class="nl">Demo</span>
-      <span class="nd">the session totals, large</span>
+      <span class="nd">the totals so far, in big numbers</span>
     </button>
   </nav>
   <div class="sidefoot">
@@ -54,11 +55,10 @@
 
 <!-- ══════════════════════════ PIPELINE ══════════════════════════ -->
 <section class="view" id="view-pipe">
-  <p class="lede">One question, start to finish. Each layer in turn decides whether to
-    change the request before the model sees it, and every decision is shown here &mdash;
-    including the ones that chose to do nothing, which is the part a saving figure on its
-    own would hide. The <b>M1</b>&ndash;<b>M6</b> marks down the left of the stack say which
-    part of the architecture a layer belongs to.</p>
+  <p class="lede">Ask a question and watch what happens to it before the AI ever sees it.
+    Eleven small checks run in order. Each one looks at your question and either changes it
+    or leaves it alone, and each one has to say which it did. The ones that changed nothing
+    are shown too, because a system that only reported its wins would not be honest.</p>
 
   <div class="panel">
     <div class="row">
@@ -175,7 +175,7 @@
   </div>
 
   <div class="panel">
-    <h2>The architecture, and the request moving down it
+    <h2>Your question, moving down the stack
       <span class="hint" id="stack-hint">words in the channels are your own text ·
         red ones are leaving · click a layer to inspect it</span></h2>
     <div class="stackwrap"><div class="vstack" id="stack"></div></div>
@@ -201,7 +201,8 @@
 
     <details class="panel" open>
     
-      <summary>Inside one layer <span class="hint">click any layer on the stack above to see what it read and what it decided</span></summary>
+      <summary>A closer look at one step
+        <span class="hint">click any box in the stack above</span></summary>
       <div id="inspector">
         <div class="dimtext" style="font-size:13px">Pick a layer on the stack, or press
           play and watch each one explain itself.</div>
@@ -211,8 +212,9 @@
 
   <details class="panel">
   
-    <summary>Every layer, as a table
-      <span class="hint">same names, same reasons, same numbers as <code>parsimony chat</code></span>
+    <summary>All of it as a table
+      <span class="hint">the same rows the command-line version prints, so the screen and
+        the transcript cannot disagree</span>
       <button class="ghost tiny" id="copy-run" title="Copy this table as plain text"
               style="margin-left:auto">copy as text</button></summary>
     <div class="tablewrap">
@@ -231,9 +233,8 @@
 
   <details class="panel">
   
-    <summary>What the AI actually received
-      <span class="hint">anything marked <b>[removed]</b> was not sent · the same panel
-        <code>parsimony chat</code> prints</span></summary>
+    <summary>What the AI was actually sent
+      <span class="hint">anything marked <b>[removed]</b> never left this machine</span></summary>
     <div class="received" id="received">
       <div class="dimtext" style="font-size:13px">run something to see the prompt it
         assembled, section by section</div>
@@ -242,7 +243,7 @@
 
   <div class="two-col">
     <div class="panel">
-      <h2>Measured <span class="hint">what this run cost, in the same words the command line uses</span></h2>
+      <h2>What this run cost <span class="hint">time, tokens, and where each figure came from</span></h2>
       <ul class="measured" id="measured"><li class="dimtext">nothing run yet</li></ul>
       <details style="margin-top:10px">
         <summary class="dimtext" style="cursor:pointer;font-size:12.5px">
@@ -260,10 +261,12 @@
 
 <!-- ══════════════════════════ HEATMAP ═══════════════════════════ -->
 <section class="view" id="view-map" hidden>
-  <p class="lede">Why each sentence of a document was kept or dropped: the score it was
-    given, the threshold it was judged against, and the exceptions that survive below it.</p>
+  <p class="lede">Attach a document and ask something about it. Every sentence gets a score
+    for how much it has to do with your question. Sentences above the line are sent to the
+    AI, sentences below it are not. This page shows the score for all of them, so you can
+    check for yourself that nothing important was thrown away.</p>
   <div class="panel">
-    <h2>Ask something of a document</h2>
+    <h2>Ask something about a document</h2>
     <div class="row">
       <div>
         <label for="q">Question</label>
@@ -288,14 +291,15 @@
   </div>
 
   <div class="panel" id="map-stats" hidden>
-    <h2>What it decided <span class="hint">for this question, against this document</span></h2>
+    <h2>What it decided <span class="hint">for this question, on this document</span></h2>
     <div class="stats" id="map-numbers"></div>
     <div class="note" id="map-note"></div>
   </div>
 
   <div class="panel" id="map-profile-panel" hidden>
-    <h2>How the cut was decided
-      <span class="hint">every sentence, tallest score first · the dashed line is the threshold below which a sentence is dropped</span></h2>
+    <h2>Every sentence, best score first
+      <span class="hint">the dashed line is the cut-off. Bars left of it were sent to the AI,
+        bars right of it were not.</span></h2>
 
     <div class="modebar" id="modebar">
       <span class="modelab">The floor is</span>
@@ -395,7 +399,8 @@
   </div>
 
   <div class="panel" id="map-doc-panel" hidden>
-    <h2>Every sentence, shaded by its score</h2>
+    <h2>The document itself <span class="hint">the darker a sentence, the better it
+      matched your question</span></h2>
     <div class="doc" id="map-doc"></div>
     <div class="legend">
       <span><span class="swatch" style="background:linear-gradient(90deg,#eef1f4,var(--keep))"></span>relevance to the question</span>
@@ -408,12 +413,11 @@
 
 <!-- ════════════════════════════ A/B ═════════════════════════════ -->
 <section class="view" id="view-ab" hidden>
-  <p class="lede">The same question put twice to the same model on this laptop: once with
-    the layers switched off, once with them on. Read the two answers at the bottom first
-    &mdash; the claim is that they say the same thing &mdash; then compare what each of them
-    cost.</p>
+  <p class="lede">The same question, asked twice, on this laptop. Once with this system
+    switched off, once with it on. Scroll to the two answers first and check they say the
+    same thing. Then come back up and look at what each one cost in time.</p>
   <div class="panel">
-    <h2>The same question, twice, against the real model</h2>
+    <h2>Ask it twice</h2>
     <div class="row">
       <div style="flex:4 1 380px">
         <label for="abq">Question</label>
@@ -431,17 +435,19 @@
                 placeholder="Paste documents here, or attach the handbook."></textarea>
     </details>
     <div class="note">
-      One after the other, never at once: two generations on one CPU compete for the same
-      cores, so a simultaneous "race" would measure contention, not compression. Both arms run
-      cold, with a per-prompt nonce, or the second would be served from the runtime's cache and
-      measured as nearly free.
+      The two runs happen one after the other, never at the same time. This laptop has one
+      processor. If both ran at once they would slow each other down, and the test would be
+      measuring that instead of anything useful. Each run also gets a hidden tag that makes it
+      unique, so the second one cannot quietly reuse the first one's answer and look fast.
     </div>
     <div class="note" id="ab-live-note"></div>
     <div id="ab-err" class="err"></div>
   </div>
 
   <div class="panel">
-    <h2>Answer tokens produced over time <span class="hint">the flat stretch before a line climbs is the model reading the prompt</span></h2>
+    <h2>Words coming out, second by second
+      <span class="hint">while a line is flat the AI is still reading. The sooner a line
+        lifts off, the sooner you saw an answer.</span></h2>
     <!-- Sized by the script from its own box, in device pixels; the attributes
          here are only what it draws at before the first frame. -->
     <canvas id="chart"></canvas>
@@ -453,13 +459,14 @@
   </div>
 
   <div class="panel" id="ab-table-panel" hidden>
-    <h2>Measured <span class="hint">the two runs, line for line</span></h2>
+    <h2>The two runs, side by side</h2>
     <table id="ab-table"></table>
     <div class="note" id="ab-note"></div>
   </div>
 
   <div class="panel">
-    <h2>Answers <span class="hint">the point of the comparison: shorter input, same answer</span></h2>
+    <h2>The two answers <span class="hint">this is the part that matters: less was sent,
+      and the answer did not get worse</span></h2>
     <div class="arm"><h3>parsimony <span class="tag" id="ab-tag-p"></span></h3>
       <div class="answer" id="ab-ans-parsimony"></div></div>
     <div class="arm"><h3>baseline <span class="tag" id="ab-tag-b"></span></h3>
@@ -469,9 +476,9 @@
 
 <!-- ═══════════════════════════ DEMO ═════════════════════════════ -->
 <section class="view" id="view-demo" hidden>
-  <p class="lede">Everything this session has saved, added up: every run on the Pipeline and
-    A/B tabs lands here. Among the figures below the totals is the safety record &mdash; how
-    many changes were checked for lost meaning, and how many were refused and put back.</p>
+  <p class="lede">Everything saved so far, added up. Every run on the other tabs lands here.
+    The smaller figures underneath are the safety record: how many cuts were checked to make
+    sure they did not change the meaning, and how many were put back because they would have.</p>
   <div class="counters">
     <div class="counter blue"><div class="n" id="c-tokens">—</div>
       <div class="k">tokens removed</div></div>
