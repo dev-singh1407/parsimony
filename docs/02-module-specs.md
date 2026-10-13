@@ -167,6 +167,16 @@ untouched, and they are what refuses 7 of 9 adversarial pairs on their own. Both
 `embed_full_question` are off by default and set in `neural()`: under the lexical encoder they
 regress two interactive pairs, for the same reason tau_lo differs between the two.
 
+ADR-055 changed two more of the five terms, after measuring eighty pairs rather than five. The modifier
+term compared two sets for equality, which also fires when one question uses a word the other does not —
+*long*, *close*, *allowed* — and refused seven rewordings in forty for words that oppose nothing; it now
+asks whether the same opposition group is used **both ways round**. And the number term read digits only,
+so *the first week* and *the second week* agreed on numbers; numbers written as words are numbers now,
+ordinals folded onto their cardinal.
+
+Measured end to end on those eighty: rewordings served **4/40 → 24/40**, near misses wrongly served
+**0/40 throughout**.
+
 `negation_agree` is the addition beyond the report's text and it is the one that will actually carry the
 adversarial subset: 50 pairs differing by one operative token, and operative tokens are disproportionately
 negations and numerals. Two queries at cosine 0.94 that disagree on a negation are the canonical false hit.

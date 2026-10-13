@@ -302,3 +302,80 @@ class TestWhatKindOfAnswerIsWanted:
         assert question_types_agree(qa, qb), "fixture is wrong: these must agree on the surface"
         assert question_types_agree(qa, qb, emb.embed), (
             "the resolver overturned an agreement the openers had already reached")
+
+
+class TestAModifierHasToOppose:
+    """A word one question uses and the other does not is wording, not an
+    inversion. Set equality treated it as one, and refused seven rewordings in
+    forty for words like "long", "close" and "allowed" (ADR-055)."""
+
+    def test_the_same_opposition_both_ways_round_is_caught(self):
+        from parsimony.infra.nlp import modifiers_oppose
+        assert modifiers_oppose("What is the maximum rate?", "What is the minimum rate?")
+        assert modifiers_oppose("flights under six hours", "flights over six hours")
+        assert modifiers_oppose("Is encryption required?", "Is encryption optional?")
+
+    def test_a_word_only_one_side_uses_is_not_an_opposition(self):
+        from parsimony.infra.nlp import modifiers_oppose
+        assert not modifiers_oppose("How long is probation?",
+                                    "What is the probation period?")
+        assert not modifiers_oppose("When does the office close?",
+                                    "What are the closing dates?")
+        assert not modifiers_oppose("Can I take a laptop abroad?",
+                                    "Am I allowed to take a laptop abroad?")
+
+    def test_a_text_using_both_sides_still_differs_from_one_using_neither(self):
+        """"between the minimum and the maximum" holds both sides of a group."""
+        from parsimony.infra.nlp import modifiers_oppose
+        assert modifiers_oppose("What is between the minimum and maximum rate?",
+                                "What is the maximum rate?")
+
+
+class TestNumbersWrittenAsWords:
+    """"the first week" and "the second week" differ by a number and nothing
+    else. With digits only, the extractor saw neither, so they agreed on
+    numbers, agreed on everything else, and one was served for the other."""
+
+    def test_ordinals_are_numbers(self):
+        from parsimony.infra.nlp import RegexInvariantExtractor
+        ex = RegexInvariantExtractor()
+        assert ex.extract("What does the first week cover?").numbers != \
+            ex.extract("What does the second week cover?").numbers
+
+    def test_an_ordinal_folds_onto_its_cardinal(self):
+        """"the second week" and "week two" are the same week."""
+        from parsimony.infra.nlp import RegexInvariantExtractor
+        ex = RegexInvariantExtractor()
+        assert ex.extract("the second week").numbers == ex.extract("week two").numbers
+
+    def test_a_number_word_inside_another_word_is_not_a_number(self):
+        from parsimony.infra.nlp import RegexInvariantExtractor
+        ex = RegexInvariantExtractor()
+        assert not ex.extract("money for someone, nonetheless").numbers
+
+    def test_digits_still_work(self):
+        from parsimony.infra.nlp import RegexInvariantExtractor
+        ex = RegexInvariantExtractor()
+        assert ex.extract("17 times 4").numbers != ex.extract("17 times 5").numbers
+
+
+class TestTheResolverStaysOutOfOpenerOnlyPairs:
+    """"What is the deadline?" and "When is the deadline?" have one content word
+    between them and it is the same word, so the opener carries the whole
+    question. Without this guard the resolver reads "deadline" as a
+    when-question and serves one for the other."""
+
+    PAIRS = [
+        ("What is the deadline?", "When is the deadline?"),
+        ("What is the office budget?", "Where is the office budget?"),
+        ("What is the travel policy?", "Why is the travel policy?"),
+    ]
+
+    @pytest.mark.parametrize("qa,qb", PAIRS)
+    def test_identical_content_words_mean_the_opener_decides(self, qa, qb):
+        _cfg, emb = _neural()
+        from parsimony.modules.m2_cache import (
+            cache_key_text, content_words, question_types_agree)
+        assert content_words(cache_key_text(qa)) == content_words(cache_key_text(qb)), \
+            "fixture is wrong: these must share their content words"
+        assert not question_types_agree(qa, qb, emb.embed)

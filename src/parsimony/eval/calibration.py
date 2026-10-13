@@ -136,6 +136,7 @@ def _lookup_hits(
         embed=(embedder.embed if cfg.cache.soft_overlap else None),
         word_tau=cfg.cache.word_tau,
         resolve_kind=cfg.cache.resolve_question_kind,
+        oppose_only=cfg.cache.modifier_opposition_only,
     ).passed
 
 

@@ -78,6 +78,24 @@ _NUM_RE = re.compile(
     rf"(?<![\w.])[$€£₹]?\d+(?:,\d{{3}})*(?:\.\d+)?(?:\s?(?:{_UNITS})(?![A-Za-z]))?"
 )
 
+#: Numbers written as words. "the first week" and "the second week" differ by a
+#: number and nothing else, and with digits only the extractor saw neither, so
+#: they agreed on numbers, agreed on everything else, and one was served for the
+#: other. Ordinals are folded onto their cardinal so "second" and "2" are one
+#: number rather than two.
+_NUMBER_WORDS = {
+    "one": "1", "first": "1", "two": "2", "second": "2", "three": "3",
+    "third": "3", "four": "4", "fourth": "4", "five": "5", "fifth": "5",
+    "six": "6", "sixth": "6", "seven": "7", "seventh": "7", "eight": "8",
+    "eighth": "8", "nine": "9", "ninth": "9", "ten": "10", "tenth": "10",
+    "eleven": "11", "twelve": "12", "twenty": "20", "thirty": "30",
+    "forty": "40", "fifty": "50", "sixty": "60", "hundred": "100",
+    "thousand": "1000",
+}
+_NUMBER_WORD_RE = re.compile(
+    r"\b(?:%s)\b" % "|".join(sorted(_NUMBER_WORDS, key=len, reverse=True)),
+    re.IGNORECASE)
+
 # --------------------------------------------------------------------------
 # Negations — a closed lexicon. Missing one lets a meaning flip through, which
 # is exactly the failure the adversarial corpus subset is built to catch.
@@ -139,8 +157,13 @@ _OPPOSITION_PAIRS: tuple[tuple[frozenset[str], frozenset[str]], ...] = (
     (frozenset({"import", "imports", "input", "inputs", "upload", "download"}),
      frozenset({"export", "exports", "output", "outputs"})),
     (frozenset({"average", "mean"}), frozenset({"median", "mode"})),
-    (frozenset({"more", "greater", "higher", "above"}),
-     frozenset({"less", "fewer", "lower", "below"})),
+    (frozenset({"more", "greater", "higher", "above", "over"}),
+     frozenset({"less", "fewer", "lower", "below", "under"})),
+    # "under six hours" against "over six hours" passed every check and was
+    # served: both are thresholds on the same number, and the number check sees
+    # one 'six' on each side and agrees.
+    (frozenset({"required", "mandatory", "compulsory", "obligatory"}),
+     frozenset({"optional", "voluntary", "discretionary"})),
     (frozenset({"always", "every", "all"}),
      frozenset({"never", "rarely", "sometimes", "occasionally"})),
     (frozenset({"include", "includes", "enable", "enabled", "allow", "allowed"}),
@@ -230,6 +253,8 @@ class RegexInvariantExtractor:
         text = sanitise(text)
 
         numbers = frozenset(m.group(0).strip() for m in _NUM_RE.finditer(text))
+        numbers |= frozenset(_NUMBER_WORDS[m.group(0).lower()]
+                             for m in _NUMBER_WORD_RE.finditer(text))
 
         negations = frozenset(
             w.group(0).lower()
@@ -394,6 +419,24 @@ def operative_modifiers(text: str) -> frozenset[tuple[int, int]]:
         for w in _TOKEN_RE.findall(sanitise(text).lower())
         if w in _TERM_TO_POLARITY
     )
+
+
+def modifiers_oppose(a: str, b: str) -> bool:
+    """Do these two use the same opposition the opposite way round?
+
+    The older test was set equality, which also fires when one question simply
+    uses a word the other does not: "how long is probation" carries `long` from
+    the brief/detailed group and "what is the probation period" carries nothing,
+    so a rewording was refused for a word that opposes nothing.
+
+    An inversion needs both sides present. A term appearing once is wording.
+    """
+    sides_a: dict[int, set[int]] = {}
+    sides_b: dict[int, set[int]] = {}
+    for store, text in ((sides_a, a), (sides_b, b)):
+        for group, side in operative_modifiers(text):
+            store.setdefault(group, set()).add(side)
+    return any(sides_a[g] != sides_b[g] for g in sides_a.keys() & sides_b.keys())
 
 
 def describe_modifiers(text: str) -> frozenset[str]:

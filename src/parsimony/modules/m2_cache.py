@@ -40,6 +40,7 @@ from parsimony.core.types import Invariants, RequestContext, RouteTier
 from parsimony.infra.embedding import STOPWORDS, ExactIndex
 from parsimony.infra.nlp import (
     RegexInvariantExtractor,
+    modifiers_oppose,
     morphological_negations,
     operative_modifiers,
     sanitise,
@@ -206,6 +207,14 @@ def question_types_agree(a: str, b: str, embed=None) -> bool:
     # disagreements between two "what" questions: "What is machine learning?"
     # and "Define machine learning" agreed on the surface and resolved to "why"
     # and "who", costing three pairs of the free-typing corpus.
+    #
+    # And not when the opener is the ONLY difference. "What is the deadline?"
+    # and "When is the deadline?" have one content word between them and it is
+    # the same word, so the opener carries the whole question; a reworded
+    # question restates its subject as well. Without this the resolver reads
+    # "deadline" as a when-question and serves one for the other.
+    if content_words(cache_key_text(a)) == content_words(cache_key_text(b)):
+        return False
     ra = resolved_question_kind(a, embed)
     rb = resolved_question_kind(b, embed)
     return ra is None or rb is None or ra == rb
@@ -485,10 +494,14 @@ class VerifierResult:
 #: as nouns because a question's subject is a noun phrase. Sentences describing
 #: each kind were measured first and are worse: 11 of 15 against 13 of 15, and
 #: they put a headcount, a manager's name and a travel policy all in "where".
+#: Keys are `question_type`'s OWN vocabulary, and must stay that way: a
+#: specific opener keeps its surface kind while a "what" question gets a
+#: resolved one, so a resolver that answers "duration" where the surface says
+#: "quantity" can never agree with anything. Durations fold into quantity
+#: because "how long" already does.
 ANSWER_KINDS = {
-    "quantity": "amount number budget cost count total",
-    "duration": "period duration length of time",
-    "time": "date day schedule deadline",
+    "quantity": "amount number budget cost count total period duration length",
+    "when": "date day time schedule deadline",
     "who": "person name manager owner",
     "where": "place location address building",
     "why": "reason cause purpose",
@@ -571,7 +584,8 @@ def soft_overlap(
 
 def verify_match(
     a: Invariants, b: Invariants, qa: str, qb: str, jaccard_min: float,
-    embed=None, word_tau: float = 0.0, resolve_kind: bool = False
+    embed=None, word_tau: float = 0.0, resolve_kind: bool = False,
+    oppose_only: bool = False
 ) -> VerifierResult:
     """Settle a borderline match without a second neural pass.
 
@@ -599,7 +613,9 @@ def verify_match(
     mod_a, mod_b = operative_modifiers(qa), operative_modifiers(qb)
 
     negation_agree = neg_a == neg_b
-    modifier_agree = mod_a == mod_b
+    # Presence on one side is wording; an inversion needs both sides.
+    modifier_agree = (not modifiers_oppose(qa, qb) if oppose_only
+                      else mod_a == mod_b)
     number_agree = a.numbers == b.numbers
     entity_agree = a.entities == b.entities
     question_agree = question_types_agree(
@@ -996,7 +1012,8 @@ class CacheLookupStage:
                 cfg.cache.soft_jaccard_min if soft else cfg.cache.jaccard_min,
                 embed=(ctx.derived.embed if soft else None),
                 word_tau=cfg.cache.word_tau,
-                resolve_kind=cfg.cache.resolve_question_kind)
+                resolve_kind=cfg.cache.resolve_question_kind,
+                oppose_only=cfg.cache.modifier_opposition_only)
             if result.passed:
                 evidence = {"zone": "verify", "tier": "semantic", "score": round(score, 4),
                             "verifier": result.as_dict(), "top_k": top_k,

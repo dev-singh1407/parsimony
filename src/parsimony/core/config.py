@@ -233,6 +233,10 @@ class CacheConfig:
     soft_jaccard_min: float = 0.33
     #: How close two words must be to count as the same word.
     word_tau: float = 0.60
+    #: Treat a modifier difference as an inversion only when both sides use
+    #: the same opposition group. Set equality also fires on a word one
+    #: question happens to use, which refuses rewordings (ADR-055).
+    modifier_opposition_only: bool = False
     #: Resolve a "what" question to the kind of answer its subject implies,
     #: instead of comparing surface interrogatives (ADR-054). Needs an
     #: encoder whose geometry carries meaning, so it travels with the two
@@ -473,7 +477,8 @@ def neural(cfg: ParsimonyConfig | None = None) -> ParsimonyConfig:
     return replace(cfg, embedder_id=NEURAL_EMBEDDER,
                    cache=replace(cfg.cache, tau_lo=0.70,
                                  soft_overlap=True, embed_full_question=True,
-                                 resolve_question_kind=True))
+                                 resolve_question_kind=True,
+                                 modifier_opposition_only=True))
 
 
 def context_v1(cfg: ParsimonyConfig | None = None) -> ParsimonyConfig:

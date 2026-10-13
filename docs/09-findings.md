@@ -3,7 +3,7 @@
 **Status:** all eight modules built · **1,132 tests passing** · every number below regenerates with
 `python reproduce.py`
 
-This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (54 ADRs);
+This is the results summary. Design rationale lives in [`03-decision-log.md`](03-decision-log.md) (55 ADRs);
 this document is what those decisions *found*.
 
 **Which numbers came from where.** Sections 1–7 and 9 run against `MockProvider`, a deterministic stand-in:

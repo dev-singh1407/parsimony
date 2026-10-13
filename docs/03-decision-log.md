@@ -2701,3 +2701,77 @@ content words are pairwise close, and which agree on negation, numbers, entities
 in the control set is *Who manages the Porto office?* against *How many people does the Porto office
 employ?*, which the resolver separates as *who* against *quantity*. A set built to attack the resolver
 directly does not exist yet, and the resolver's own 2-in-15 error rate is the place to build it.
+
+---
+
+### ADR-055 — Eighty pairs, and what measuring properly found
+
+**Status.** Adopted; all three changes travel with the neural encoder. 13 October 2026.
+
+**Context.** ADR-053 and ADR-054 were measured on five end-to-end pairs and three hand-written control
+sets, and reported 4 of 5. That is not a number. **Eighty pairs** — forty rewordings that should be served
+and forty near misses that must not be, written in one sitting from the handbook's subject matter before
+any arm was run, and decided through the real pipeline rather than the verifier in isolation.
+
+They are deliberately **not** added to `corpus/interactive_pairs.jsonl`: that instrument is frozen, and
+adding questions to a frozen instrument after seeing a failure is not measurement (ADR-047).
+
+| arm | reused | wrongly served | recall | precision |
+|---|---|---|---|---|
+| before ADR-053 | 4 / 40 | 0 / 40 | 10% | 100% |
+| + ADR-053 | 11 / 40 | 0 / 40 | 28% | 100% |
+| + ADR-054 and this | **24 / 40** | **0 / 40** | **60%** | **100%** |
+
+The honest headline is not 60%. It is that the first measurement said 4 of 5 and the real number was
+**45%, with two near misses being served** — and both of those facts were invisible at five pairs.
+
+#### One: the resolver spoke a vocabulary the surface check does not
+
+`question_type` returns `quantity` for "how long" and `when` for "when". ADR-054's prototypes were named
+`duration` and `time`. A specific opener keeps its surface kind and a *what* question gets a resolved one,
+so those two could never be equal: *How long is probation?* resolved to quantity against duration, *When
+must receipts be submitted?* to when against time. **Nine of twenty-two** remaining misses, and a plain bug.
+The prototype keys are now `question_type`'s own vocabulary, and durations fold into quantity exactly as
+"how long" already did.
+
+#### Two: two near misses were being served, and nothing caught them
+
+*What is the limit for flights **under** six hours?* against ***over** six hours*, and *Is encryption
+**required**?* against ***optional***. Both pass every check: the numbers agree (one "six" each side), the
+entities agree, the negations agree, and neither word pair is in any opposition group — the table had
+above/below and more/less but not over/under, and nothing at all for required/optional.
+
+A third appeared once the modifier rule below was loosened: *the **first** week* against *the **second**
+week*. That one is not a modifier difference at all, it is a **number** difference, and the extractor only
+read digits. Numbers written as words are numbers now, with ordinals folded onto their cardinal so *the
+second week* and *week two* are one number rather than two.
+
+#### Three: a modifier check that fires on absence refuses rewordings
+
+`operative_modifiers(a) != operative_modifiers(b)` is set equality, so any term from any opposition group
+that appears in one question and not the other is a mismatch:
+
+| rewording refused | the word, and the group it belongs to |
+|---|---|
+| *How long is probation?* / *What is the probation period?* | **long**, from brief/detailed |
+| *When does the office close?* / *What are the closing dates?* | **close**, from open/close |
+| *Can I take a laptop abroad?* / *Am I allowed to…* | **allowed**, from include/exclude |
+
+None of those opposes anything; the other side simply does not use the word. **Seven of twenty-two** misses.
+The check exists to catch an *inversion*, so it now compares oppositions: two questions disagree when they
+use the same group on **different sides**. Set equality stays reachable behind
+`modifier_opposition_only=False`.
+
+This is the loosest of the three changes and the one most likely to be wrong, because a one-sided term
+*can* matter — *What is the maximum hotel rate?* against *What is the hotel rate?* is a case nothing in the
+eighty covers. It is held by both frozen instruments, which were authored for exactly this question and not
+by whoever wrote the eighty.
+
+#### What is still missed, and why it is not fixed here
+
+Sixteen rewordings remain. The dominant cause is that the candidate never reaches the verifier at all:
+**ten of twenty-two** scored below `tau_lo = 0.70` — *Why were the Tallinn staff acquired?* against *What
+was the reason Harlow acquired Rakvere Systems?* sits at 0.16. That threshold is ADR-041's, calibrated for
+this encoder against the adversarial corpus, and moving it is a separate measurement with its own risk: the
+verifier would have to carry every extra candidate it admits. It is the obvious next sweep and it is not
+this ADR.
