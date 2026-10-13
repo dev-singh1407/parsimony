@@ -2775,3 +2775,56 @@ was the reason Harlow acquired Rakvere Systems?* sits at 0.16. That threshold is
 this encoder against the adversarial corpus, and moving it is a separate measurement with its own risk: the
 verifier would have to carry every extra candidate it admits. It is the obvious next sweep and it is not
 this ADR.
+
+---
+
+### ADR-056 — The ceiling, measured: 65%, and what the last 35% would cost
+
+**Status.** Adopted: `tau_lo` 0.70 → 0.60, `soft_jaccard_min` 0.33 → 0.25, `word_tau` 0.60 → 0.50, under
+the neural encoder. 13 October 2026.
+
+**Context.** ADR-055 left sixteen rewordings refused in forty and named the likely cause: ten scored below
+`tau_lo = 0.70` and never reached the verifier at all. The obvious inference was ADR-050's shape a third
+time — a gate discarding work the mechanisms behind it had already done.
+
+**The obvious inference was wrong, and so was the one after it.**
+
+Sweeping `tau_lo` alone, from 0.70 down to 0.40: recall moves 24 → 25 of 40, and at 0.55 a frozen
+interactive pair changes decision. Sweeping the overlap floor alone, from 0.33 down to **0.15**: recall
+does not move at all.
+
+Neither is the binding constraint **on its own**, because they are in series. A pair below `tau_lo` is
+never a candidate, so lowering the floor cannot reach it; lower the gate instead and the same pair arrives
+at an overlap floor that refuses it. Diagnosing each check independently said *overlap, 11 of 16* and that
+reading is an artefact of ignoring the order they run in.
+
+Swept together, with `word_tau` at 0.50:
+
+| `tau_lo` | floor 0.33 | floor 0.25 | floor 0.20 | cost |
+|---|---|---|---|---|
+| 0.70 | 25 | 25 | 25 | — |
+| **0.60** | 25 | **26** | 26 | **nothing** |
+| 0.55 | 26 | 28 | 28 | one frozen interactive pair |
+| 0.50 | 27 | 29 | 30 | that pair, **and 2 wrong answers served** |
+| 0.45 | 27 | 29 | 30 | that pair, **and 3 wrong answers served** |
+
+**Decision.** `tau_lo = 0.60`, `soft_jaccard_min = 0.25`, `word_tau = 0.50`. On the forty rewordings that
+is **26 of 40**; adversarial false hits stay **0**, the interactive corpus stays **0 wrong**, and the forty
+near misses stay **0 served**.
+
+**The honest part is the row below it.** Thirty of forty is available, and it costs two wrong answers and a
+pair of a corpus authored before any of this existed. A compressor that trades a wrong answer for four
+points of reuse is not the thing this project claims to be, so 65% is where it stops. The table is here so
+that a reader can see the trade rather than take the number on trust.
+
+**These values are development-optimal** on an eighty-pair set written for this purpose, which is weaker
+than ADR-051's discipline and is stated rather than hidden. What stops it being overfitting in the
+direction that matters is that the safety side is judged by two corpora this work did not author: the
+sweep moves a threshold ADR-041 set, and it moves it only as far as ADR-041's own instrument allows.
+
+**Where the remaining fourteen are.** Not behind a threshold. With every gate removed they are refused by
+the four meaning checks — the resolver mis-reading a kind (five), an entity the other side does not name
+(three), a number (one) — and by genuinely low overlap between questions that share almost no vocabulary:
+*Why were the Tallinn staff acquired?* against *What was the reason Harlow acquired Rakvere Systems?* sits
+at cosine **0.16**. No threshold reaches that. It needs the encoder to know that Rakvere Systems is the
+Tallinn acquisition, which is a retrieval problem and not a cache one.

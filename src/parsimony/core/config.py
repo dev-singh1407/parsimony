@@ -230,9 +230,9 @@ class CacheConfig:
     # runs 0.25 to 0.43, so the development-optimal value would be 0.34; the
     # round third is taken on principle instead (ADR-053).
     soft_overlap: bool = False
-    soft_jaccard_min: float = 0.33
+    soft_jaccard_min: float = 0.25
     #: How close two words must be to count as the same word.
-    word_tau: float = 0.60
+    word_tau: float = 0.50
     #: Treat a modifier difference as an inversion only when both sides use
     #: the same opposition group. Set equality also fires on a word one
     #: question happens to use, which refuses rewordings (ADR-055).
@@ -460,7 +460,14 @@ def neural(cfg: ParsimonyConfig | None = None) -> ParsimonyConfig:
     Three settings, all of them properties of this encoder rather than of the
     technique (Contribution 6 applied to our own stack).
 
-    tau_lo moves 0.75 -> 0.70 because the encoder's whole distribution moves:
+    tau_lo moves 0.75 -> 0.60. The first step, to 0.70, was ADR-041's and is
+    quoted below. The second is ADR-056's: swept jointly with the overlap floor
+    against four instruments, 0.60 with a floor of 0.25 is the furthest either
+    can move while BOTH frozen corpora stay exactly where they are. One notch
+    further costs an interactive pair, and two notches start serving wrong
+    answers.
+
+    The original reasoning:
     at 0.75 two genuine rephrasings in `corpus/interactive_pairs.jsonl` fall
     below the candidate gate that the lexical encoder cleared. Measured: at
     0.70 the false-answer rate on the 45 adversarial pairs stays 0.0%, true
@@ -475,7 +482,7 @@ def neural(cfg: ParsimonyConfig | None = None) -> ParsimonyConfig:
     """
     cfg = cfg or full_stack()
     return replace(cfg, embedder_id=NEURAL_EMBEDDER,
-                   cache=replace(cfg.cache, tau_lo=0.70,
+                   cache=replace(cfg.cache, tau_lo=0.60,
                                  soft_overlap=True, embed_full_question=True,
                                  resolve_question_kind=True,
                                  modifier_opposition_only=True))

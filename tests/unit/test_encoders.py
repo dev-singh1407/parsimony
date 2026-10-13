@@ -104,7 +104,13 @@ class TestTheNeuralEncoder:
     def test_the_preset_carries_its_own_calibration(self):
         cfg = neural()
         assert cfg.embedder_id == NEURAL_EMBEDDER
-        assert cfg.cache.tau_lo == 0.70, "a threshold belongs to the encoder it was set for"
+        # 0.75 -> 0.70 was ADR-041; 0.70 -> 0.60 is ADR-056, swept jointly with
+        # the overlap floor against both frozen corpora. Pinned because a
+        # threshold belongs to the encoder it was set for, and because moving
+        # one without re-running that sweep is how a calibration rots.
+        assert cfg.cache.tau_lo == 0.60
+        assert cfg.cache.soft_jaccard_min == 0.25
+        assert cfg.cache.word_tau == 0.50
 
     def test_it_is_safe_and_reuses_more_at_its_own_calibration(self, embedder):
         pairs = load_adversarial()
