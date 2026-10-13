@@ -188,9 +188,27 @@ def question_type(query: str) -> str | None:
     return "yesno" if _AUX_RE.match(_LEADING_PHRASE_RE.sub("", s)) else None
 
 
-def question_types_agree(a: str, b: str) -> bool:
+def question_types_agree(a: str, b: str, embed=None) -> bool:
+    """Whether these two ask for the same kind of thing.
+
+    With an encoder, the comparison is over the kind of answer each wants
+    rather than the word that asked for it (ADR-054). Without one it is the
+    surface opener, which refuses three rewordings in six and is the safe
+    direction to be wrong in.
+    """
     ka, kb = question_type(a), question_type(b)
-    return ka is None or kb is None or ka == kb
+    if ka is None or kb is None or ka == kb:
+        return True
+    if embed is None:
+        return False
+    # Only ever consulted to RESCUE a pair the openers refuse, never to overturn
+    # one they accept. Without that the resolver's own noise invents
+    # disagreements between two "what" questions: "What is machine learning?"
+    # and "Define machine learning" agreed on the surface and resolved to "why"
+    # and "who", costing three pairs of the free-typing corpus.
+    ra = resolved_question_kind(a, embed)
+    rb = resolved_question_kind(b, embed)
+    return ra is None or rb is None or ra == rb
 
 
 #: Suffixes that only look plural. Stripping the "s" destroys these words:
@@ -463,6 +481,51 @@ class VerifierResult:
         return f"lexical overlap {self.jaccard:.2f} below floor"
 
 
+#: One prototype per kind the opener vocabulary already distinguishes, written
+#: as nouns because a question's subject is a noun phrase. Sentences describing
+#: each kind were measured first and are worse: 11 of 15 against 13 of 15, and
+#: they put a headcount, a manager's name and a travel policy all in "where".
+ANSWER_KINDS = {
+    "quantity": "amount number budget cost count total",
+    "duration": "period duration length of time",
+    "time": "date day schedule deadline",
+    "who": "person name manager owner",
+    "where": "place location address building",
+    "why": "reason cause purpose",
+    "how": "process procedure method policy steps",
+}
+_KIND_VECTORS: dict[str, "np.ndarray"] = {}
+
+
+def resolved_question_kind(query: str, embed) -> str | None:
+    """The kind of answer this question asks for, rather than the word used.
+
+    A specific opener states its own kind and keeps it. "What" states nothing --
+    it is the generic interrogative, which is why comparing surface openers
+    refuses "what is the annual travel budget" against "how much can they
+    spend". Its subject is what fixes the kind, so that is what gets compared.
+
+    Falls back to the surface kind if the encoder is unavailable: a missed
+    reuse, never a wrong one.
+    """
+    kind = question_type(query)
+    if kind != "what" or embed is None:
+        return kind
+    subject = cache_key_text(query).strip()
+    if not subject:
+        return kind
+    try:
+        if not _KIND_VECTORS:
+            vectors = embed(list(ANSWER_KINDS.values()))
+            for name, vec in zip(ANSWER_KINDS, vectors):
+                _KIND_VECTORS[name] = vec / (float(np.linalg.norm(vec)) or 1.0)
+        v = embed([subject])[0]
+        v = v / (float(np.linalg.norm(v)) or 1.0)
+    except Exception:
+        return kind
+    return max(_KIND_VECTORS, key=lambda k: float(np.dot(v, _KIND_VECTORS[k])))
+
+
 def soft_overlap(
     ca: frozenset[str], cb: frozenset[str], embed, word_tau: float
 ) -> float:
@@ -508,7 +571,7 @@ def soft_overlap(
 
 def verify_match(
     a: Invariants, b: Invariants, qa: str, qb: str, jaccard_min: float,
-    embed=None, word_tau: float = 0.0
+    embed=None, word_tau: float = 0.0, resolve_kind: bool = False
 ) -> VerifierResult:
     """Settle a borderline match without a second neural pass.
 
@@ -539,7 +602,8 @@ def verify_match(
     modifier_agree = mod_a == mod_b
     number_agree = a.numbers == b.numbers
     entity_agree = a.entities == b.entities
-    question_agree = question_types_agree(qa, qb)
+    question_agree = question_types_agree(
+        qa, qb, embed if resolve_kind else None)
 
     return VerifierResult(
         passed=(
@@ -931,13 +995,18 @@ class CacheLookupStage:
                 query_inv, best.invariants, ctx.query, best.query,
                 cfg.cache.soft_jaccard_min if soft else cfg.cache.jaccard_min,
                 embed=(ctx.derived.embed if soft else None),
-                word_tau=cfg.cache.word_tau)
+                word_tau=cfg.cache.word_tau,
+                resolve_kind=cfg.cache.resolve_question_kind)
             if result.passed:
                 evidence = {"zone": "verify", "tier": "semantic", "score": round(score, 4),
                             "verifier": result.as_dict(), "top_k": top_k,
                             "probe_only": self.probe_only, "best_entry": best.entry_id,
                             "question_type": question_type(ctx.query),
-                            "stored_question_type": question_type(best.query)}
+                            "stored_question_type": question_type(best.query),
+                            # The claim worth showing a reader is that these two
+                            # are one question in different words. An entry id
+                            # does not make it; the question does.
+                            "matched_query": best.query}
                 if self.probe_only:
                     return NoOp("no_yield", "probe: verified hit (not acted on)", evidence)
                 self.cache.stats.semantic_hits += 1

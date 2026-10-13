@@ -2633,3 +2633,71 @@ The regression was caught because `eval/calibration.py` claims in its own docstr
 stage, and the interactive corpus is decided through it. Hard-wiring the new preparation there made it
 measure a cache that exists under only one encoder. It now reads both settings off the config, which is
 what "mirrors the stage" has to mean.
+
+---
+
+### ADR-054 — Compare what kind of answer is wanted, not which word asked for it
+
+**Status.** Adopted, and travels with ADR-053's other two settings: on under the neural encoder, off
+otherwise. 13 October 2026.
+
+**Context.** After ADR-053 every remaining refusal of a reworded question was the question-kind check, and
+it refuses for a reason that is right in general. *What is the deadline?* and *When is the deadline?* are
+different questions. A pair whose kinds differ cannot simply be allowed — measured, relaxing *what* to
+agree with anything serves **all five** controls wrongly.
+
+But *what* is the generic interrogative. It states no kind of its own, which is exactly why comparing
+surface openers refuses *what is the annual travel budget for Tallinn* against *how much can Tallinn staff
+spend in a year* — the same question, asked twice. Its **subject** states the kind: a budget is an amount,
+a period is a duration, a site manager is a person.
+
+**Decision.** A *what* question is resolved against seven prototype nouns and the resolved kinds are
+compared. A specific opener states its own kind and is never overruled.
+
+Three sets, and the third exists because the second alone would not have caught anything:
+
+| set | what it holds | strict openers | resolved kinds |
+|---|---|---|---|
+| reworded, kinds differ | should be served | 0 / 6 | **3 / 6** |
+| same words, opener changed | must never be served | 7 / 7 refused | **7 / 7 refused** |
+| same subject, different question, different words | must never be served | 6 / 6 refused | **6 / 6 refused** |
+
+**A first version was discarded.** The obvious rule — "the opener is decisive only when it is the *only*
+difference" — gains three and breaks two, serving *Who sets the loan period?* for *What is the loan
+period?* and *How many people does Porto employ?* for *Who manages Porto?*. Soft overlap cannot separate
+them either: the gained pairs score 0.67, 0.50, 0.40 and the broken ones 0.67 and 0.40, completely
+overlapping. The distinction is not lexical, which is what sent this to the subject.
+
+**The prototypes are nouns, and that was measured too.** Sentences describing each kind — *"an amount, a
+number, a sum of money"* — resolve 11 of 15 labelled questions correctly and put a headcount, a site
+manager's name and a travel policy all in *where*. Bare nouns resolve **13 of 15**. A question's subject is
+a noun phrase; comparing it against a definition compares a phrase with a sentence. The labels were written
+from the questions before any prototype set was chosen, so the number means something.
+
+Both remaining errors fall towards refusal, which is the direction to be wrong in.
+
+**Measured end to end**, storing one question and asking another through the real pipeline: rewordings
+served **3 of 5 → 4 of 5**, adversarial pairs wrongly served **0 of 4, unchanged**. Against the original
+behaviour before ADR-053, that is **1 of 5 → 4 of 5**.
+
+**Cost.** Seven prototype embeddings, computed once per process and held; one subject embedding per *what*
+question, and only when the two kinds disagree and everything else has already passed. Without an encoder
+it falls back to the surface opener.
+
+**It is only ever consulted to rescue a pair the openers refuse**, never to overturn one they accept, and
+that guard was missing from the first version. Shipped without it, the resolver's own noise invented
+disagreements between questions that already agreed: *What is machine learning?* and *Define machine
+learning* are both *what* on the surface and resolve to *why* and *who*, because their subjects differ by a
+stranded copula. Three free-typing pairs of `corpus/interactive_pairs.jsonl` changed decision — all three
+in the safe direction, all three wrong.
+
+The guard makes the mechanism **monotone**: turning it on can add matches and can never remove one. Any
+other shape makes it a second, noisier opinion about pairs that were already settled, and it is pinned by
+test. The project's own frozen corpus caught this where three hand-written control sets did not, which is
+the argument for having one.
+
+**What would falsify it.** A pair of different questions whose subjects resolve to the same kind, whose
+content words are pairwise close, and which agree on negation, numbers, entities and modifiers. The nearest
+in the control set is *Who manages the Porto office?* against *How many people does the Porto office
+employ?*, which the resolver separates as *who* against *quantity*. A set built to attack the resolver
+directly does not exist yet, and the resolver's own 2-in-15 error rate is the place to build it.

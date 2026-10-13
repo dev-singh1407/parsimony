@@ -220,6 +220,22 @@
 
   <p class="verdict-line" id="plain-result" hidden></p>
 
+  <div class="panel recall" id="recall" hidden>
+    <h2>Answered from memory <span class="hint">the AI was not run at all</span></h2>
+    <div class="recall-pair">
+      <div class="recall-side">
+        <span class="recall-lab">you asked, just now</span>
+        <p class="recall-q" id="recall-new"></p>
+      </div>
+      <div class="recall-link"><span id="recall-score"></span>alike</div>
+      <div class="recall-side">
+        <span class="recall-lab">you asked, earlier</span>
+        <p class="recall-q" id="recall-old"></p>
+      </div>
+    </div>
+    <div class="note" id="recall-why"></div>
+  </div>
+
   <div class="metrics">
     <div class="metric"><div class="mv" id="m-before">—</div>
       <div class="mk">tokens in the prompt</div></div>

@@ -233,6 +233,11 @@ class CacheConfig:
     soft_jaccard_min: float = 0.33
     #: How close two words must be to count as the same word.
     word_tau: float = 0.60
+    #: Resolve a "what" question to the kind of answer its subject implies,
+    #: instead of comparing surface interrogatives (ADR-054). Needs an
+    #: encoder whose geometry carries meaning, so it travels with the two
+    #: settings below.
+    resolve_question_kind: bool = False
     #: Embed the question as asked rather than the stripped key text.
     #: Also off by default, and for the same reason: handing a lexical
     #: encoder the interrogative raises the similarity of every pair that
@@ -467,7 +472,8 @@ def neural(cfg: ParsimonyConfig | None = None) -> ParsimonyConfig:
     cfg = cfg or full_stack()
     return replace(cfg, embedder_id=NEURAL_EMBEDDER,
                    cache=replace(cfg.cache, tau_lo=0.70,
-                                 soft_overlap=True, embed_full_question=True))
+                                 soft_overlap=True, embed_full_question=True,
+                                 resolve_question_kind=True))
 
 
 def context_v1(cfg: ParsimonyConfig | None = None) -> ParsimonyConfig:

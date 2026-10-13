@@ -202,3 +202,103 @@ class TestAgainstTheRealEncoder:
         out = pipe.run(qb, (), conversation_id="c", turn_index=1)
         assert not out.row.cache_hit, (
             f"served the answer to {qa!r} for {qb!r}")
+
+
+class TestWhatKindOfAnswerIsWanted:
+    """ADR-054. "What" is the generic interrogative and states no kind of its
+    own; its subject does. Comparing resolved kinds instead of surface openers
+    is what lets "what is the annual travel budget" match "how much can they
+    spend" without letting "what is the deadline" match "when is the deadline".
+
+    The controls matter more than the gains and are checked first.
+    """
+
+    #: Same subject, same words, a different opener. The opener IS the question
+    #: here, so none of these may ever be served.
+    OPENER_IS_THE_QUESTION = [
+        ("What is the office budget?", "Where is the office budget?"),
+        ("What is the loan period?", "Who sets the loan period?"),
+        ("What is the travel policy?", "Why is the travel policy?"),
+        ("When does the office close?", "Why does the office close?"),
+        ("How many people work in Porto?", "Where do people work in Porto?"),
+    ]
+
+    #: Different questions about one subject, differently worded. The case the
+    #: resolver could plausibly let through.
+    SAME_SUBJECT_DIFFERENT_QUESTION = [
+        ("What is the travel budget for Leeds?", "How do I claim back travel expenses?"),
+        ("How long is a standard equipment loan?", "Who has to approve an equipment loan?"),
+        ("Who manages the Porto office?", "How many people does the Porto office employ?"),
+        ("How much is the hotel allowance?", "When must expense receipts be submitted?"),
+    ]
+
+    #: Reworded, and differing in opener. These are the gain.
+    SAME_QUESTION_DIFFERENT_OPENER = [
+        ("What is the annual travel budget for the Tallinn office?",
+         "How much can Tallinn staff spend on travel in a year?"),
+        ("How do I borrow test equipment?",
+         "What is the process for loaning equipment?"),
+        ("Who manages the Porto office?",
+         "What is the name of the Porto site manager?"),
+    ]
+
+    @pytest.mark.parametrize("qa,qb", OPENER_IS_THE_QUESTION)
+    def test_a_changed_opener_on_the_same_words_still_disagrees(self, qa, qb):
+        _cfg, emb = _neural()
+        from parsimony.modules.m2_cache import question_types_agree
+        assert not question_types_agree(qa, qb, emb.embed)
+
+    @pytest.mark.parametrize("qa,qb", SAME_SUBJECT_DIFFERENT_QUESTION)
+    def test_a_different_question_about_one_subject_still_disagrees(self, qa, qb):
+        _cfg, emb = _neural()
+        from parsimony.modules.m2_cache import question_types_agree
+        assert not question_types_agree(qa, qb, emb.embed)
+
+    @pytest.mark.parametrize("qa,qb", SAME_QUESTION_DIFFERENT_OPENER)
+    def test_the_same_question_agrees_despite_a_different_opener(self, qa, qb):
+        _cfg, emb = _neural()
+        from parsimony.modules.m2_cache import question_types_agree
+        assert question_types_agree(qa, qb, emb.embed)
+        assert not question_types_agree(qa, qb), (
+            "this pair is only interesting because the surface openers differ")
+
+    def test_a_specific_opener_is_never_overruled_by_its_subject(self):
+        """Only "what" is resolved. "How much is the deadline" is nonsense, and
+        the resolver must not invent a kind for a question that stated one."""
+        _cfg, emb = _neural()
+        from parsimony.modules.m2_cache import resolved_question_kind
+        for q, kind in [("When is the deadline?", "when"),
+                        ("Who manages Porto?", "who"),
+                        ("Where is the lab?", "where")]:
+            assert resolved_question_kind(q, emb.embed) == kind
+
+    def test_without_an_encoder_it_falls_back_to_the_surface_opener(self):
+        from parsimony.modules.m2_cache import question_type, resolved_question_kind
+        q = "What is the annual travel budget?"
+        assert resolved_question_kind(q, None) == question_type(q)
+
+    #: Pairs whose SURFACE openers already agree. The resolver must not be
+    #: consulted for these at all. Shipped without that guard, it was, and its
+    #: own noise invented disagreements: "What is machine learning?" and
+    #: "Define machine learning" resolved to "why" and "who", which cost three
+    #: pairs of corpus/interactive_pairs.jsonl.
+    ALREADY_AGREE = [
+        ("What is machine learning?", "Define machine learning"),
+        ("What is photosynthesis?", "Describe photosynthesis"),
+        ("Which city is the capital of Japan?", "What is the capital of Japan?"),
+        ("What is the travel budget?", "What is the travel budget for the team?"),
+    ]
+
+    @pytest.mark.parametrize("qa,qb", ALREADY_AGREE)
+    def test_the_resolver_cannot_overturn_an_agreement(self, qa, qb):
+        """It may only ever RESCUE a pair the openers refuse.
+
+        That makes the whole mechanism monotone: turning it on can add matches
+        and can never remove one. Any other shape makes it a second, noisier
+        opinion about pairs that were already settled.
+        """
+        _cfg, emb = _neural()
+        from parsimony.modules.m2_cache import question_types_agree
+        assert question_types_agree(qa, qb), "fixture is wrong: these must agree on the surface"
+        assert question_types_agree(qa, qb, emb.embed), (
+            "the resolver overturned an agreement the openers had already reached")

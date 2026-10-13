@@ -475,7 +475,12 @@ class Visualiser:
             unit.update(scored.get(" ".join(unit["text"].split()).casefold(), {}))
 
         # -- the terminal's own table, same labels and same sentences ------
+        # Which earlier question this one was answered from, if any.
         by_name = {t.name: t for t in outcome.traces}
+        matched_query = next(
+            (t.evidence.get("matched_query") for t in outcome.traces
+             if t.name.startswith("m2_cache") and isinstance(t.evidence, dict)
+             and t.evidence.get("matched_query")), None)
         layers = []
         for stage in stages:
             trace = by_name.get(stage["name"])
@@ -515,7 +520,7 @@ class Visualiser:
                        if row.tokens_in_original else 1.0},
             "route": {"tier": row.route_tier, "served_by": outcome.served_by},
             "cache": {"consulted": row.cache_consulted, "hit": row.cache_hit,
-                      "zone": row.cache_zone,
+                      "zone": row.cache_zone, "matched": matched_query,
                       "top_k": [[k, round(v, 3)] for k, v in (row.cache_top_k or ())][:3]},
             "gate": {"fired": row.gate_fired,
                      "events": [g.invariant_class for g in (row.gate_events or ())]},

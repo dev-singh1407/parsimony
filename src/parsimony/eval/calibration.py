@@ -119,7 +119,9 @@ def _lookup_hits(
     entry, score = found[0]
 
     if score >= cfg.cache.tau_hi and not (verifier_on and cfg.cache.verify_always):
-        return True if not verifier_on else question_types_agree(query, entry.query)
+        return True if not verifier_on else question_types_agree(
+            query, entry.query,
+            embedder.embed if cfg.cache.resolve_question_kind else None)
     if score < cfg.cache.tau_lo:
         return False
     if not verifier_on:
@@ -133,6 +135,7 @@ def _lookup_hits(
         else cfg.cache.jaccard_min,
         embed=(embedder.embed if cfg.cache.soft_overlap else None),
         word_tau=cfg.cache.word_tau,
+        resolve_kind=cfg.cache.resolve_question_kind,
     ).passed
 
 

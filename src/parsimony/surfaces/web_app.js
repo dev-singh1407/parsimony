@@ -859,6 +859,31 @@ recall();
    one where the saving is the project's recorded rate rather than a stopwatch
    on this machine. Saying "saved 5.6 s" for the last of those would be a
    measurement the page has not taken. */
+/* The match, shown rather than asserted.
+
+   "Reused an earlier answer - 74% match" proves nothing to a reader who cannot
+   see what it matched. Both questions, side by side, and they can judge for
+   themselves whether the system was right to treat them as one. */
+function showRecall(d) {
+  const box = $("recall"), c = d.cache || {};
+  if (!c.hit || !c.matched) { box.hidden = true; return; }
+  const same = c.matched.trim() === ($("pq").value || "").trim();
+  $("recall-new").textContent = $("pq").value;
+  $("recall-old").textContent = c.matched;
+  // The similarity is the top candidate's, which the summary already carries.
+  const top = (c.top_k && c.top_k.length) ? c.top_k[0][1] : null;
+  const pct = top != null ? Math.round(top * 100) : null;
+  $("recall-score").textContent = same ? "100%" : (pct != null ? pct + "%" : "—");
+  $("recall-why").textContent = same
+    ? "The same question, word for word, so the stored answer was returned "
+      + "straight away. No tokens were sent and nothing was generated."
+    : "Different words, judged to be the same question. Before reusing the "
+      + "answer the system checked that the two agree on their numbers, names, "
+      + "negations and on what kind of thing is being asked for \u2014 change any "
+      + "one of those and it refuses.";
+  box.hidden = false;
+}
+
 function sayPlainly(d) {
   const el = $("plain-result"), k = d.tokens, t = d.timing;
   const secs = (v) => `<b class="time">${v.toFixed(1)} s</b>`;
@@ -921,6 +946,7 @@ $("run-pipe").onclick = () => {
   $("prompt-tok").textContent = ""; $("answer-tok").textContent = "";
   $("pipe-timing").textContent = "";
   $("plain-result").hidden = true;
+  $("recall").hidden = true;
   drawStack(); paintAll();
   $("run-pipe").disabled = true;
   $("run-pipe").innerHTML = '<span class="spinner"></span>running';
@@ -979,6 +1005,7 @@ $("run-pipe").onclick = () => {
           : t.reused ? " — but the runtime reused an earlier prompt, so that rate is not cold."
           : " — the model is simulated, so that rate is the project's recorded figure.");
     sayPlainly(d);
+    showRecall(d);
     paintTokenBar(d.tokens); paintKv(d.kv, d.tokens);
     paintReceived(d.received); paintMeasured(d.measured);
     buildDoc(); fillChannels(); drawTrack(); goTo(-1);
