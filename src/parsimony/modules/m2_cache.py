@@ -509,6 +509,34 @@ ANSWER_KINDS = {
 }
 _KIND_VECTORS: dict[str, "np.ndarray"] = {}
 
+#: What ends the head of a complement and begins what the question is
+#: about. Deliberately short: "in", "at", "to" and "on" turn up inside
+#: heads once hyphens are tokenised -- "sign-in process" becomes "sign in
+#: process" and cutting at "in" leaves "sign", which resolves to why.
+_HEAD_TAIL_RE = re.compile(r"\b(?:of|for|from|about)\b")
+_HEAD_LEAD_RE = re.compile(
+    r"^(?:is|are|was|were|the|a|an|my|our|your|their|its)\b\s*")
+
+
+def complement_head(subject: str) -> str:
+    """The noun phrase that states the kind, before what it is about.
+
+    "the headcount of the Porto office" is a headcount; "the booking
+    process for the roof terrace" is a process. Resolving on all of it
+    lets the office and the terrace outvote the word that carries the
+    kind, and both resolved to `where`.
+    """
+    s = subject
+    for _ in range(3):
+        shorter = _HEAD_LEAD_RE.sub("", s)
+        if shorter == s:
+            break
+        s = shorter
+    cut = _HEAD_TAIL_RE.search(s)
+    if cut:
+        s = s[:cut.start()]
+    return s.strip() or subject
+
 
 def resolved_question_kind(query: str, embed) -> str | None:
     """The kind of answer this question asks for, rather than the word used.
@@ -524,7 +552,7 @@ def resolved_question_kind(query: str, embed) -> str | None:
     kind = question_type(query)
     if kind != "what" or embed is None:
         return kind
-    subject = cache_key_text(query).strip()
+    subject = complement_head(cache_key_text(query)).strip()
     if not subject:
         return kind
     try:

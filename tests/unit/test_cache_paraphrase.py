@@ -379,3 +379,44 @@ class TestTheResolverStaysOutOfOpenerOnlyPairs:
         assert content_words(cache_key_text(qa)) == content_words(cache_key_text(qb)), \
             "fixture is wrong: these must share their content words"
         assert not question_types_agree(qa, qb, emb.embed)
+
+
+class TestTheHeadStatesTheKind:
+    """ADR-057. "the headcount of the Porto office" is a headcount; "the booking
+    process for the roof terrace" is a process. Resolving on all of it let the
+    office and the terrace outvote the word carrying the kind, and both came
+    back `where`."""
+
+    def test_the_head_is_what_comes_before_what_it_is_about(self):
+        from parsimony.modules.m2_cache import cache_key_text, complement_head
+        for q, want in [
+            ("What is the headcount of the Porto office?", "headcount"),
+            ("What is the booking process for the roof terrace?", "booking process"),
+            ("What is the method for allocating parking?", "method"),
+            ("What is the deadline?", "deadline"),
+        ]:
+            assert complement_head(cache_key_text(q)) == want
+
+    def test_a_tokenised_hyphen_does_not_truncate_the_head(self):
+        """"sign-in process" becomes "sign in process"; cutting at "in" leaves
+        "sign", which resolves to `why`. Only of/for/from/about end a head."""
+        from parsimony.modules.m2_cache import cache_key_text, complement_head
+        assert complement_head(cache_key_text("What is the sign-in process for visitors?")) \
+            == "sign in process"
+
+    def test_a_head_is_never_empty(self):
+        from parsimony.modules.m2_cache import complement_head
+        for subject in ("of", "the", "", "   ", "for"):
+            assert complement_head(subject) == subject or complement_head(subject)
+
+    def test_the_kinds_it_now_gets_right(self):
+        _cfg, emb = _neural()
+        from parsimony.modules.m2_cache import resolved_question_kind
+        for q, kind in [
+            ("What is the headcount of the Porto office?", "quantity"),
+            ("What is the method for allocating parking?", "how"),
+            ("What is the booking process for the roof terrace?", "how"),
+            ("What is the name of the Porto site manager?", "who"),
+            ("What is the address of the Leeds office?", "where"),
+        ]:
+            assert resolved_question_kind(q, emb.embed) == kind, q

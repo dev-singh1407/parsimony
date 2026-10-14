@@ -2828,3 +2828,55 @@ the four meaning checks — the resolver mis-reading a kind (five), an entity th
 *Why were the Tallinn staff acquired?* against *What was the reason Harlow acquired Rakvere Systems?* sits
 at cosine **0.16**. No threshold reaches that. It needs the encoder to know that Rakvere Systems is the
 Tallinn acquisition, which is a retrieval problem and not a cache one.
+
+---
+
+### ADR-057 — The head of the complement states the kind, not the whole subject
+
+**Status.** Adopted, with ADR-054's resolver. 14 October 2026.
+
+**Context.** ADR-056 put the ceiling at 26 of 40 and said where the remaining fourteen were: five behind a
+mis-read kind, three an entity, one a number, the rest genuinely low similarity. The five were the cheapest
+to look at, because the resolver's own accuracy was already known to be imperfect — 13 of 15.
+
+They share a shape:
+
+| question | resolved | should be |
+|---|---|---|
+| What is the **headcount** of the Porto office? | who | quantity |
+| What is the **method** for allocating parking? | where | how |
+| What is the **booking process** for the roof terrace? | where | how |
+
+In each, the word stating what is being asked for is the **first noun**, and everything after it says what
+the question is *about*. Embedding all of it lets "Porto office" and "roof terrace" outvote the one word
+carrying the kind — which is why three of the five came back `where`.
+
+**Decision.** Resolve on the head of the complement. English puts it first in these: *the N of X*, *the N
+for X*.
+
+| what is embedded | labelled questions resolved correctly |
+|---|---|
+| the whole subject (ADR-054) | 13 / 18 |
+| **the head noun phrase** | **16 / 18** |
+| the first content word alone | 9 / 18 |
+
+The third row is the one that makes the first two mean something: a single word does far worse than the
+whole subject, so this is not "less context is better". It is that the head is a *phrase* — "booking
+process", not "booking" — and the rest is a different question.
+
+Only `of`, `for`, `from` and `about` end a head. `in`, `at`, `to` and `on` appear *inside* heads once
+hyphens are tokenised: "sign-in process" becomes "sign in process", and cutting at `in` leaves "sign",
+which resolves to `why`. That cost two of the eighteen before the preposition set was narrowed, and it is
+pinned by test.
+
+**Measured end to end** on the eighty: rewordings served **26 of 40 → 29 of 40** (65% → 72.5%), near
+misses wrongly served **0**, adversarial false hits **0**, interactive corpus **0 wrong**.
+
+**The thresholds did not move, and that is the point.** Re-running ADR-056's joint sweep with the better
+resolver: `tau_lo = 0.60` with a floor of `0.25` is still the furthest either can go for free, and 0.55
+still costs a frozen interactive pair. The ceiling rose from 65% to 72.5% without loosening anything —
+the gain is a mechanism reading its input correctly, not a gate being opened.
+
+**Two of the eighteen are still wrong and both labels are arguable**: "time limit" resolves to `when` where
+the label says `quantity`, and "main work" to `why` where the label says `how`. They are left wrong rather
+than relabelled, because moving a label to meet a result is how an instrument stops being one.
