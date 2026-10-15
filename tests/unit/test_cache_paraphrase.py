@@ -420,3 +420,44 @@ class TestTheHeadStatesTheKind:
             ("What is the address of the Leeds office?", "where"),
         ]:
             assert resolved_question_kind(q, emb.embed) == kind, q
+
+
+class TestEntitiesAreComparedByTheirWords:
+    """ADR-058. Two bugs that only showed up once pairs were measured in bulk."""
+
+    def test_a_capitalised_auxiliary_is_not_part_of_a_name(self):
+        """"Do Tallinn staff work a shorter week?" extracted "Do Tallinn".
+
+        The guard that drops a sentence-initial capital only fired on single
+        words, and the multi-word exemption exists for "New Delhi" -- which it
+        must still protect.
+        """
+        from parsimony.infra.nlp import RegexInvariantExtractor
+        ex = RegexInvariantExtractor()
+        assert ex.extract("Do Tallinn staff work a shorter week?").entities == \
+            frozenset({"Tallinn"})
+        assert "New Delhi" in ex.extract("New Delhi is the capital.").entities
+
+    def test_adjacent_names_and_separated_names_compare_equal(self):
+        """The proper-noun regex takes runs, so "Leeds Christmas" is one span
+        while "Leeds ... Christmas" is two. Same names, and set equality
+        refused the pair."""
+        from parsimony.infra.nlp import RegexInvariantExtractor, entity_words
+        ex = RegexInvariantExtractor()
+        joined = ex.extract("What are the Leeds Christmas closing dates?").entities
+        apart = ex.extract("When does the Leeds office close for Christmas?").entities
+        assert joined != apart, "fixture is wrong: the spans must differ"
+        assert entity_words(joined) == entity_words(apart)
+
+    def test_genuinely_different_names_still_differ(self):
+        from parsimony.infra.nlp import RegexInvariantExtractor, entity_words
+        ex = RegexInvariantExtractor()
+        assert entity_words(ex.extract("Who manages Porto?").entities) != \
+            entity_words(ex.extract("Who manages Leeds?").entities)
+
+    def test_the_spans_themselves_are_left_alone(self):
+        """A span is what a trace shows a reader; only the comparison changed."""
+        from parsimony.infra.nlp import RegexInvariantExtractor
+        ex = RegexInvariantExtractor()
+        assert "Rakvere Systems" in ex.extract(
+            "Harlow acquired Rakvere Systems in 2019.").entities

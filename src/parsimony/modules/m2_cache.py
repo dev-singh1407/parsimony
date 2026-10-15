@@ -40,6 +40,7 @@ from parsimony.core.types import Invariants, RequestContext, RouteTier
 from parsimony.infra.embedding import STOPWORDS, ExactIndex
 from parsimony.infra.nlp import (
     RegexInvariantExtractor,
+    entity_words,
     modifiers_oppose,
     morphological_negations,
     operative_modifiers,
@@ -645,7 +646,10 @@ def verify_match(
     modifier_agree = (not modifiers_oppose(qa, qb) if oppose_only
                       else mod_a == mod_b)
     number_agree = a.numbers == b.numbers
-    entity_agree = a.entities == b.entities
+    # Compared by the words the spans hold, not the spans: the regex takes
+    # runs, so two adjacent names are one span and the same two apart are
+    # two (ADR-058).
+    entity_agree = entity_words(a.entities) == entity_words(b.entities)
     question_agree = question_types_agree(
         qa, qb, embed if resolve_kind else None)
 

@@ -280,8 +280,15 @@ class RegexInvariantExtractor:
             # phrase is multi-word (e.g. "New Delhi" at a sentence start is real).
             if m.start() in starts and " " not in val:
                 continue
-            if first in _STOP_PROPER and " " not in val:
-                continue
+            if first in _STOP_PROPER:
+                # "New Delhi" at a sentence start is a real entity and the
+                # multi-word exemption protects it. "Do Tallinn" is multi-word
+                # for a different reason: a capitalised auxiliary in front of a
+                # real name. Drop the stop word, keep what it was in front of.
+                rest = val.split(None, 1)
+                if len(rest) == 1:
+                    continue
+                val = rest[1]
             ents.add(val)
 
         return Invariants(
@@ -404,6 +411,21 @@ _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 def shingles(text: str) -> frozenset[str]:
     return frozenset(_TOKEN_RE.findall(sanitise(text).lower()))
+
+
+def entity_words(entities: frozenset[str]) -> frozenset[str]:
+    """The words the entity spans are built from, for comparison.
+
+    The proper-noun regex takes runs, so two names that happen to be adjacent
+    become one span and the same two names apart become two. "When does the
+    Leeds office close for Christmas?" yields {Leeds, Christmas} and "What are
+    the Leeds Christmas closing dates?" yields {"Leeds Christmas"} -- the same
+    two names, and set equality refuses the pair.
+
+    Spans are kept as they are, because a span is what a trace shows a reader.
+    This is only what they are compared BY.
+    """
+    return frozenset(w.lower() for span in entities for w in span.split())
 
 
 def operative_modifiers(text: str) -> frozenset[tuple[int, int]]:

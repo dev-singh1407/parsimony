@@ -2880,3 +2880,53 @@ the gain is a mechanism reading its input correctly, not a gate being opened.
 **Two of the eighteen are still wrong and both labels are arguable**: "time limit" resolves to `when` where
 the label says `quantity`, and "main work" to `why` where the label says `how`. They are left wrong rather
 than relabelled, because moving a label to meet a result is how an instrument stops being one.
+
+---
+
+### ADR-058 — Two entity bugs that only bulk measurement could show
+
+**Status.** Adopted. 14 October 2026.
+
+**Context.** After ADR-057 the eighty-pair set refused eleven rewordings; three were the entity check. Two
+of the three are extractor bugs, and neither is visible on a single pair — both need two phrasings of the
+same question side by side before anything looks wrong.
+
+#### A capitalised auxiliary is not part of a name
+
+*Do Tallinn staff work a shorter week?* extracts the entity **"Do Tallinn"**. The guard is:
+
+```python
+if first in _STOP_PROPER and " " not in val:
+    continue
+```
+
+The single-word condition is there, by its own comment, so that *"New Delhi"* at the start of a sentence
+survives. That is right. But *"Do Tallinn"* is multi-word for an entirely different reason — a capitalised
+auxiliary in front of a real name — and the exemption cannot tell them apart. The exemption should protect
+the **phrase**, not the stop word in front of it, so a leading stop word is stripped and what remains is
+kept. *New Delhi* is untouched, because *New* is not a stop word.
+
+#### The same two names, two different shapes
+
+*When does the Leeds office close for Christmas?* extracts `{Leeds, Christmas}`. *What are the Leeds
+Christmas closing dates?* extracts `{"Leeds Christmas"}` — one span, because there the two words are
+adjacent and the proper-noun pattern takes runs. Identical names, two shapes, and set equality refuses a
+genuine rewording.
+
+The spans are **kept as they are**, because a span is what a trace shows a reader. Only the comparison
+changes: entities are compared by the words their spans are built from. `{Leeds, Christmas}` and
+`{"Leeds Christmas"}` agree; `{Tallinn}` against `{Harlow, Rakvere Systems}` still does not, which is the
+third of the three and is not a bug — those are genuinely different names for the same acquisition, and
+knowing they refer to one thing is a retrieval problem (ADR-056).
+
+**Measured end to end** on the eighty: rewordings served **29 of 40 → 31 of 40** (72.5% → 78%). Near misses
+wrongly served **0**, adversarial false hits **0**, interactive corpus **0 wrong**.
+
+**Taken together, ADR-053 through ADR-058 move reuse from 4 of 40 to 31 of 40 — 10% to 78% — with the
+false-serve count at zero throughout.** Not one of the five moved a threshold except ADR-056, and that one
+moved it only as far as a corpus authored years before the work allowed.
+
+**What is left is nine**, and they are honest misses: six where the two phrasings simply do not look alike
+to the encoder (*How do I borrow test equipment?* against *What is the process for loaning equipment?* at
+cosine 0.59), two where the overlap between the words is genuinely small, and one where the two questions
+name the same thing differently. None is reachable by tuning.
