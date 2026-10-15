@@ -43,15 +43,20 @@ class _Stub:
     GROUPS = (("manage", "manager", "runs"), ("budget", "allowance", "spend"))
 
     def __call__(self, words):
+        # Every ungrouped word gets a dimension of its own, assigned in the
+        # order it is first seen. `hash()` is randomised per process, so
+        # bucketing by it made two unrelated words collide into one direction
+        # on roughly one run in six and this suite fail for no reason.
+        seen: dict[str, int] = {}
         out = []
         for w in words:
-            v = np.zeros(8, dtype=np.float32)
+            v = np.zeros(len(self.GROUPS) + len(words), dtype=np.float32)
             for i, group in enumerate(self.GROUPS):
                 if w in group:
                     v[i] = 1.0
                     break
             else:
-                v[2 + (hash(w) % 6)] = 1.0
+                v[len(self.GROUPS) + seen.setdefault(w, len(seen))] = 1.0
             out.append(v)
         return np.vstack(out)
 

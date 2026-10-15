@@ -2930,3 +2930,61 @@ moved it only as far as a corpus authored years before the work allowed.
 to the encoder (*How do I borrow test equipment?* against *What is the process for loaning equipment?* at
 cosine 0.59), two where the overlap between the words is genuinely small, and one where the two questions
 name the same thing differently. None is reachable by tuning.
+
+---
+
+### ADR-059 — An encoder outage must not make the compressor braver
+
+**Status.** Adopted; the old behaviour stays reachable behind
+`context_offtopic_without_encoder`. 16 October 2026.
+
+**Context.** A web test failed intermittently — `test_a_reading_and_a_constant_are_told_apart_in_what_is_sent`
+passed on a warm machine and failed on a cold one, both arms reporting *"not reached: the context is off
+topic"*. Chasing the flake found a behaviour bug underneath it.
+
+The off-topic rule is
+
+```python
+off_topic = coverage < topic_floor and (best_cosine is None
+                                        or best_cosine < topic_cosine)
+```
+
+and `best_cosine is None` has **two causes that the rule reads as one**:
+
+* `context_dense_weight <= 0` — there is no dense term by configuration, and coverage alone is the whole
+  rule. This is the designed, frozen behaviour.
+* **no encoder answered** — Ollama is down, or the pipeline was built without one. Nothing whatever is
+  known about the cosine.
+
+The second is resolved as though the encoder *had* been consulted and *had* declined to rescue. The cosine
+arm exists precisely to rescue a question whose words differ from the document's (ADR-052), so reading
+"could not ask" as "would not rescue" throws the document away on exactly the questions the arm was added
+for.
+
+**Measured** on the sample handbook with the encoder removed:
+
+| question | encoder up | encoder down, before | encoder down, after |
+|---|---|---|---|
+| When does the office close for Christmas? | 11 sentences, 211 tokens | **1 sentence, 17 tokens** | 8 sentences, 155 tokens |
+| What is the annual travel budget for Tallinn? | 12 / 219 | 11 / 199 | 11 / 199 |
+| **What is the capital of Peru?** (control) | off topic | off topic | **off topic** |
+
+The answer to the Christmas question is in those eleven sentences. Before this, an outage silently deleted
+it and the model was asked a question with its evidence removed.
+
+**Decision.** A missing cosine counts as a negative verdict only when there was nothing to consult. When an
+encoder was expected and absent, nothing is known, and the selector keeps the context.
+
+**The direction matters more than the fix.** Keeping a context that should have gone costs tokens;
+discarding one that should have stayed costs the answer. Every other part of this system fails toward the
+missed saving — the gate reverts a doubtful edit, the cache refuses a doubtful reuse, soft overlap falls
+back to exact counting when the encoder is gone. The off-topic rule was the one place that failed the other
+way, and it did so only during an outage, which is when it is least likely to be noticed.
+
+**The control is the important test.** *What is the capital of Peru?* is still refused during an outage,
+because zero term coverage is decisive on its own and owes nothing to an encoder. The fix loosens only the
+arm that cannot be evaluated.
+
+**And the flake is gone** as a consequence rather than by being patched: the two floor modes now differ in
+what they send whether or not the encoder is warm, because the context is no longer annihilated before
+either mode has a floor to apply.

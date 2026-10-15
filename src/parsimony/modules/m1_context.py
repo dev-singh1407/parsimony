@@ -425,9 +425,21 @@ def dense_scores(derived, query: str, units: list[Unit],
     return scores
 
 
+def encoder_was_expected(derived, cfg: ParsimonyConfig) -> bool:
+    """The dense term is configured on, and no encoder answered.
+
+    One helper for both call sites, because the distinction it draws is exactly
+    the one `dense_scores` returning None erases, and two call sites deciding
+    it separately is how they drift.
+    """
+    return (cfg.compression.context_dense_weight > 0
+            and not getattr(derived, "has_embedder", False))
+
+
 def select(query: str, units: list[Unit], cfg: ParsimonyConfig,
            dense: list[float] | None = None,
-           titles: dict[tuple[str, int], str] | None = None) -> Selection:
+           titles: dict[tuple[str, int], str] | None = None,
+           encoder_missing: bool = False) -> Selection:
     c = cfg.compression
     total = sum(u.tokens for u in units)
     budget = max(c.context_min_keep_tokens, math.ceil(c.context_target_ratio * total))
@@ -503,8 +515,16 @@ def select(query: str, units: list[Unit], cfg: ParsimonyConfig,
     present = set().union(*(set(u.terms) for u in units)) if units else set()
     coverage = len(wanted_terms & present) / len(wanted_terms) if wanted_terms else 1.0
     best_cosine = max(dense) if dense else None
-    off_topic = coverage < c.context_topic_floor and (
-        best_cosine is None or best_cosine < c.context_topic_cosine)
+    # A missing cosine means two different things. With no dense term
+    # configured there is nothing to consult and coverage alone decides, which
+    # is the designed rule. With an encoder expected and absent, nothing is
+    # KNOWN -- and reading that as "it would not have rescued this" discards
+    # the document during an outage (ADR-059).
+    if best_cosine is not None:
+        cosine_says_off = best_cosine < c.context_topic_cosine
+    else:
+        cosine_says_off = not encoder_missing or c.context_offtopic_without_encoder
+    off_topic = coverage < c.context_topic_floor and cosine_says_off
     # ...and coverage of exactly zero is decisive on its own (ADR-052). The
     # cosine arm is there to rescue a paraphrase, and a paraphrase shares
     # SOMETHING -- an entity, a number, a noun. Nothing at all is not a
@@ -683,7 +703,8 @@ def audit(ctx: RequestContext, cfg: ParsimonyConfig) -> ContextAudit:
     else:
         dense = dense_scores(d, ctx.query, units, cfg)
         titles = {("doc", i): doc.title for i, doc in enumerate(ctx.documents)}
-        selection = select(ctx.query, units, cfg, dense, titles)
+        selection = select(ctx.query, units, cfg, dense, titles,
+                           encoder_was_expected(d, cfg))
         for i, u in enumerate(units):
             tag, detail = selection.reasons.get(i, ("FLOOR", ""))
             rows.append(UnitAudit(i, u.source, labels.get(u.source, "context"), u.position,
@@ -749,7 +770,8 @@ class ContextCompressor:
 
         dense = dense_scores(d, ctx.query, units, cfg)
         titles = {("doc", i): doc.title for i, doc in enumerate(ctx.documents)}
-        sel = select(ctx.query, units, cfg, dense, titles)
+        sel = select(ctx.query, units, cfg, dense, titles,
+                     encoder_was_expected(d, cfg))
 
         by_source: dict[tuple[str, int], list[Unit]] = {}
         index: dict[tuple[str, int], list[int]] = {}

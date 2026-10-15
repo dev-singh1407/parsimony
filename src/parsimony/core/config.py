@@ -152,6 +152,11 @@ class CompressionConfig:
     # a paraphrase shares something, and nothing at all is not a paraphrase
     # (ADR-052).
     context_topic_zero_coverage: bool = True
+    #: Declare a context off topic even when no encoder could be consulted.
+    #: The cosine arm exists to rescue a question whose words differ from the
+    #: document's; treating "could not ask" as "would not rescue" throws the
+    #: document away during an outage. True restores that (ADR-059).
+    context_offtopic_without_encoder: bool = False
     context_anchor_bonus: float = 0.5
     # A sentence under the heading "Porto office" is about Porto whether or not
     # it says so. Without this, "Who manages the Porto office?" keeps "The LEEDS
