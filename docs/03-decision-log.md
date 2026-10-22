@@ -2988,3 +2988,89 @@ arm that cannot be evaluated.
 **And the flake is gone** as a consequence rather than by being patched: the two floor modes now differ in
 what they send whether or not the encoder is warm, because the context is no longer annihilated before
 either mode has a floor to apply.
+
+---
+
+### ADR-060 — The gate asked half its own question
+
+**Status.** Adopted, unconditionally. 22 October 2026.
+
+**Context.** M8 is the claim the architecture rests on: a module can only *propose*, and the gate refuses
+anything that changes what the request means. It was covered by eight hand-written examples, all passing —
+which is exactly how M2 came to report 4 of 5 when the real number was 45% (ADR-055).
+
+So the same treatment: **forty rewrites that change the meaning and must be refused, twelve that preserve
+it and must be allowed**, written from the handbook's subject matter before the gate was run on any of them.
+The second set is not decoration — a gate that refuses everything scores perfectly on the first and leaves
+a compressor that compresses nothing.
+
+| | before | after |
+|---|---|---|
+| meaning-changing rewrites let through | **22 / 40 (55%)** | **3 / 40 (8%)** |
+| meaning-preserving rewrites refused | 1 / 12 (8%) | **0 / 12** |
+
+#### Why half
+
+```python
+lost = self.invariants_of(source).missing_from(target)
+```
+
+A value that was never there cannot be missing. The gate asked *"was anything lost?"* and nothing else, so
+it was blind to anything **added**, and to every class the extractor does not model. Among the twenty-two it
+passed:
+
+> *Visitors must sign in at reception.* → *Visitors must **not** sign in at reception.*
+> *The change is possible.* → *The change is **impossible**.*
+> *The **maximum** nightly rate is 140 pounds.* → *The **minimum** nightly rate is 140 pounds.*
+> *Laptops **must** be encrypted.* → *Laptops **may** be encrypted.*
+> *Hotel costs are reimbursed up to 140 **pounds**.* → *…140 **euros**.*
+> ***Only** firmware engineers take the course.* → *Firmware engineers take the course.*
+
+**The remedy was already in the repository.** M2's verifier checks exactly these things — `modifiers_oppose`
+for max/min, over/under, required/optional, before/after; `morphological_negations` for
+possible/impossible. They were built for the cache and never given to the gate, which makes the stronger
+claim. Four checks are added on the REWRITE path only:
+
+1. **negation must agree**, not merely survive — catching additions;
+2. **no opposition used both ways round**;
+3. **a unit may not be swapped** — *140 pounds* and *140 euros* agree on every invariant the gate extracts
+   and are different amounts of money; a number without its unit is a different number;
+4. **a qualifier may not be dropped** — *only*, *all*, *must*, *may*, *if*, *limited*: words that qualify a
+   claim rather than state it.
+
+SELECT and EXTRACT are untouched. Dropping whole turns is the entire point of M3 and dropping whole
+sentences is the point of M1, and a uniform gate would veto both permanently (ADR-003).
+
+**There is no configuration flag**, which breaks this project's habit of keeping old behaviour measurable.
+The gate is "always on, never ablated" by design; a switch that makes it weaker again would contradict the
+one property the architecture actually guarantees.
+
+#### Three regressions this caused, and what they taught
+
+The stricter gate reverts more, and three existing tests caught it immediately.
+
+* **`smallest` was put in two opposition groups.** A new longer/shorter group added *smallest* and
+  *largest*, which already live in the minimum/maximum group — and `_TERM_TO_POLARITY` is a dict, so the
+  last one won and *"the smallest value"* stopped matching *"the least value"*. The new group is now
+  longer/shorter only. A term may belong to exactly one opposition.
+* **The reason a rewrite is refused is part of its contract.** *"50000 dollars"* → *"large"* loses a number
+  **and** a unit; reporting `unit` broke a test asserting `number`. Loss of a number or entity is the most
+  specific thing that can be said about a bad rewrite, so it is now said first.
+* **Qualifiers live in the asking as well as the claim.** *"if you could please explain"* contains *could*,
+  and removing the politeness dropped it — so the gate reverted M1 tier 1's commonest edit. Request framing
+  is stripped before qualifiers are read: *"could you"*, *"if you could"*, *"it should be noted that"*.
+  This one would have quietly disabled politeness removal on every polite question.
+
+#### What the gate still cannot see
+
+Three of the forty, recorded rather than hidden, and pinned by a test that fails if they ever start being
+caught:
+
+* **attribution dropped** — *"The handbook states that parking is allocated by lottery"* → *"Parking is
+  allocated by lottery"*. Who asserts a claim is part of it.
+* **word order** — *"designed in Tallinn and built in Leeds"* → *"designed in Leeds and built in
+  Tallinn"*. Both entities are present on both sides; a set comparison cannot see an order.
+* **a qualifying phrase rather than a word** — *"allowed with manager approval"* → *"allowed"*.
+
+All three need structure the gate does not model. Naming them is worth more than a number that pretends
+they are not there.

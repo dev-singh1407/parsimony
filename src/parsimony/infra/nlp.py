@@ -149,6 +149,7 @@ _OPPOSITION_PAIRS: tuple[tuple[frozenset[str], frozenset[str]], ...] = (
      frozenset({"worst", "worse", "expensive", "costliest"})),
     (frozenset({"fastest", "faster", "quickest"}),
      frozenset({"slowest", "slower"})),
+    (frozenset({"longer", "longest"}), frozenset({"shorter", "shortest"})),
     (frozenset({"increase", "increases", "raise", "raises", "grow", "add"}),
      frozenset({"decrease", "decreases", "reduce", "reduces", "shrink", "remove"})),
     (frozenset({"before", "prior", "preceding", "earlier"}),
@@ -441,6 +442,100 @@ def operative_modifiers(text: str) -> frozenset[tuple[int, int]]:
         for w in _TOKEN_RE.findall(sanitise(text).lower())
         if w in _TERM_TO_POLARITY
     )
+
+
+#: Words that qualify a claim rather than state it. Dropping one changes what
+#: is asserted: "only firmware engineers" is not "firmware engineers", "may be
+#: flagged" is not "is flagged", "if escalated, X" is not "X". Closed and
+#: deliberately short -- every entry is a word whose removal a reader would
+#: call a change of meaning rather than of tone.
+QUALIFIERS = frozenset("""
+only solely exclusively merely
+all every each both any none most some few several
+must shall required mandatory may might can could should optional
+if unless except provided whenever
+before after until within
+least approximately approx roughly nearly almost
+always never usually sometimes rarely often typically
+per maximum minimum limited capped
+""".split())
+
+
+#: Request framing, where a modal belongs to the ASKING and not to the
+#: claim. "Could you tell me X" and "It should be noted that X" both assert
+#: X; the modal is addressed to the reader. Deliberately narrower than M2's
+#: framing stripper, which has a different job: this one only has to stop
+#: the gate refusing M1 tier 1's politeness removal, its commonest edit.
+_REQUEST_FRAMING = (
+    re.compile(r"\b(?:can|could|would|will|should|might) you\b", re.IGNORECASE),
+    re.compile(r"\b(?:if )?you (?:can|could|would|will|might)\b", re.IGNORECASE),
+    re.compile(r"\bit (?:should|must|can|may) be noted that\b", re.IGNORECASE),
+    re.compile(r"\b(?:i|we) (?:would like|was wondering|am wondering)\b", re.IGNORECASE),
+    re.compile(r"\bplease\b|\bkindly\b", re.IGNORECASE),
+)
+
+
+def claim_only(text: str) -> str:
+    """`text` with request framing removed, so a modal in the asking is not
+    mistaken for one in the claim."""
+    out = text
+    for pattern in _REQUEST_FRAMING:
+        out = pattern.sub(" ", out)
+    return out
+
+
+#: Currency and measure words. "Hotel costs are reimbursed up to 140 pounds"
+#: and "...up to 140 euros" agree on every invariant the gate extracts -- same
+#: number, same entities, same negations -- and are different amounts of money.
+#: A number without its unit is a different number.
+UNIT_WORDS = frozenset("""
+pounds pound sterling gbp euros euro eur dollars dollar usd rupees rupee inr
+pence cents
+days day weeks week months month years year hours hour minutes minute seconds
+kilometres kilometers km miles mile metres meters feet foot inches inch
+kilograms kilogram kg grams gram pounds lbs tonnes tons
+percent percentage
+""".split())
+
+
+def unit_words(text: str) -> frozenset[str]:
+    """Currency and measure words present, lower-cased."""
+    return frozenset(w for w in _TOKEN_RE.findall(sanitise(text).lower())
+                     if w in UNIT_WORDS)
+
+
+def qualifiers(text: str) -> frozenset[str]:
+    """Qualifier words present, lower-cased.
+
+    Some entries double as filler, and that is accepted deliberately: a gate
+    that waves "only firmware engineers" through to "firmware engineers" is
+    worse than one that occasionally refuses a harmless tightening. The refusal
+    costs tokens; the alternative costs the answer.
+    """
+    return frozenset(
+        w for w in _TOKEN_RE.findall(claim_only(sanitise(text)).lower())
+        if w in QUALIFIERS)
+
+
+#: "isn't" and "is not" are the same negation, and the lexicon holds both
+#: forms, so without expanding them an expansion reads as one negation lost and
+#: another gained -- and the gate refused a rewrite that changed nothing.
+_CONTRACTED_NEGATIONS = {
+    "isn't": "is not", "aren't": "are not", "wasn't": "was not",
+    "weren't": "were not", "don't": "do not", "doesn't": "does not",
+    "didn't": "did not", "won't": "will not", "can't": "can not",
+    "couldn't": "could not", "shouldn't": "should not",
+    "wouldn't": "would not", "mustn't": "must not", "haven't": "have not",
+    "hasn't": "has not", "hadn't": "had not", "cannot": "can not",
+}
+
+
+def negation_set(text: str) -> frozenset[str]:
+    """Negations present, with contracted forms expanded first."""
+    expanded = sanitise(text).lower()
+    for short, long in _CONTRACTED_NEGATIONS.items():
+        expanded = expanded.replace(short, long)
+    return RegexInvariantExtractor().extract(expanded).negations
 
 
 def modifiers_oppose(a: str, b: str) -> bool:

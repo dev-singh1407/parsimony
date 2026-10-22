@@ -21,6 +21,14 @@ from dataclasses import dataclass
 from parsimony.core.ledger import GateEvent
 from parsimony.core.proposals import TransformKind
 from parsimony.core.types import Invariants, RequestContext
+from parsimony.core.types import InvariantClass
+from parsimony.infra.nlp import (
+    modifiers_oppose,
+    morphological_negations,
+    negation_set,
+    qualifiers,
+    unit_words,
+)
 from parsimony.infra.nlp import RegexInvariantExtractor, split_sentences
 
 #: Any Unicode letter or digit. Deliberately not [A-Za-z0-9]: the whole point
@@ -148,15 +156,73 @@ class FidelityGate:
                 "rewrite removed all content",
             )
 
-        lost = self.invariants_of(source).missing_from(target)
-        if not lost:
-            return Verdict.ok()
-        events = tuple(
-            GateEvent(module_id=module_id, invariant_class=cls.value, lost_values=tuple(sorted(vals)))
-            for cls, vals in lost.items()
+        # A lost number or entity is the most specific thing that can be said
+        # about a bad rewrite, so it is said first.
+        #
+        # Negation is deliberately excluded here and checked by equality below.
+        # Leaving it in the loss comparison refuses "isn't" -> "is not", which
+        # loses nothing: the lexicon holds both forms, so the expansion reads
+        # as one negation gone and another arrived.
+        lost = {cls: vals for cls, vals in
+                self.invariants_of(source).missing_from(target).items()
+                if cls is not InvariantClass.NEGATION}
+        if lost:
+            events = tuple(
+                GateEvent(module_id=module_id, invariant_class=cls.value,
+                          lost_values=tuple(sorted(vals)))
+                for cls, vals in lost.items()
+            )
+            summary = ", ".join(f"{c.value}:{len(v)}" for c, v in lost.items())
+            return Verdict(False, events, f"rewrite dropped {summary}")
+
+        # "Was anything lost?" is only half the question. A value that was never
+        # there cannot be missing, so loss alone is blind to anything ADDED and
+        # to every class the extractor does not model. Measured on forty
+        # meaning-changing rewrites, loss alone passed twenty-two of them --
+        # including "must sign in" -> "must NOT sign in" and "maximum" ->
+        # "minimum". What follows is what M2's verifier already did for the
+        # cache and was never given to the gate, which makes the stronger
+        # claim (ADR-060).
+        #
+        # REWRITE only. SELECT drops whole turns on purpose and EXTRACT drops
+        # whole sentences; neither is a change of meaning by itself.
+        if negation_set(source) != negation_set(target):
+            return self._refuse(module_id, "negation", source, target,
+                                "rewrite changed a negation")
+        if morphological_negations(source, target) or morphological_negations(
+                target, source):
+            return self._refuse(module_id, "negation", source, target,
+                                "rewrite changed a negation")
+        if modifiers_oppose(source, target):
+            return self._refuse(module_id, "modifier", source, target,
+                                "rewrite reversed an opposition")
+        swapped = unit_words(source) - unit_words(target)
+        if swapped:
+            return Verdict(
+                False,
+                (GateEvent(module_id=module_id, invariant_class="unit",
+                           lost_values=tuple(sorted(swapped))),),
+                "rewrite changed unit:%d" % len(swapped),
+            )
+        dropped = qualifiers(source) - qualifiers(target)
+        if dropped:
+            return Verdict(
+                False,
+                (GateEvent(module_id=module_id, invariant_class="qualifier",
+                           lost_values=tuple(sorted(dropped))),),
+                "rewrite dropped qualifier:%d" % len(dropped),
+            )
+        return Verdict.ok()
+
+    @staticmethod
+    def _refuse(module_id: str, cls: str, source: str, target: str,
+                why: str) -> Verdict:
+        return Verdict(
+            False,
+            (GateEvent(module_id=module_id, invariant_class=cls,
+                       lost_values=(source[:60],)),),
+            why,
         )
-        summary = ", ".join(f"{c.value}:{len(v)}" for c, v in lost.items())
-        return Verdict(False, events, f"rewrite dropped {summary}")
 
     def _check_select(
         self, before: RequestContext, after: RequestContext, module_id: str
