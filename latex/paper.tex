@@ -387,42 +387,46 @@ embed, compare, serve above a threshold. Experiment E3
 failure modes and measures their frequency, but proposes no run-time mechanism
 to prevent them. Module M8 is that mechanism, and E3 evaluates it.
 
-\paragraph{The two base papers.} Of the forty surveyed, two are the papers this
-work is built upon rather than merely compared against, one for each of its two
-load-bearing modules.
+\paragraph{The two base papers.} Two of the surveyed works are the papers this
+project is built upon rather than merely compared against, one for each of its
+two load-bearing modules. Both are recent, and both are closer to what was
+actually built than the 2023 papers that founded their respective strands.
 
-\textbf{[2] LLMLingua} (Jiang, Wu, Lin, Yang and Qiu; EMNLP 2023) is the base
-paper for the compression side. It establishes the problem --- shorten the prompt
-before a black-box model reads it --- and the three-part shape every later system
-inherits: a budget controller, a compression step, and an alignment between the
-small model doing the compressing and the large one doing the answering.
-Parsimony keeps the first and replaces the second: compression here is
-\emph{extractive and question-aware} at sentence granularity, using BM25 blended
-with a sentence encoder, so that no second language model is needed and the
-decision for every sentence can be shown to a reader. The budget controller
-survives as M5. What LLMLingua measures on datacentre GPUs against an
-uncompressed baseline, Experiments E1, E2 and E6 measure on a CPU against the
-other modules, which is where the budget turns out not to be the binding
-constraint at all.
+\textbf{[41] CPC} (Liskavets et al., AAAI-25) is the base paper for the
+compression side. It compresses at \emph{sentence} granularity using a
+context-aware sentence encoder that scores each sentence's relevance to the
+question being asked, and reports inference up to 10.93$\times$ faster than the
+best token-level method. That is the same design decision M1 makes --- sentence
+level, question aware, no second language model --- arrived at independently, and
+CPC supplies the published justification this project previously had only its
+own reasoning for. What CPC does not ask is which constraint stops selection:
+Experiment E6 (Section~\ref{sec:e6}) finds it is the relevance floor rather than
+the token budget, and E1 measures what happens when compression is composed with
+the other modules rather than evaluated alone. LLMLingua [2] remains the
+foundational statement of the problem and the origin of the budget controller
+that survives as M5; LongLLMLingua [3] makes compression question-aware but pays
+conditional perplexity under a second model, which is the cost a CPU-only
+deployment cannot meet and the reason an encoder-based antecedent is the
+relevant one.
 
-\textbf{[16] GPTCache} (Bang; NLP-OSS 2023) is the base paper for the reuse
-side, and the one this work contradicts most directly. It establishes the design
-every semantic cache follows --- embed the query, compare against stored queries,
-serve above a similarity threshold --- and reports 2--10$\times$ speedups when the
-cache hits. Parsimony adopts the architecture and rejects the sufficiency of the
-threshold: E3 shows the false-hit rate is flat at 51.1\% for every threshold
-from 0.80 to 0.99, because a one-token meaning inversion is, to an encoder, a
-near-duplicate. The verifier that replaces the threshold is this project's
-principal contribution to caching, and E7 then measures the question GPTCache
-leaves open --- not whether reuse is safe, but how much legitimate reuse a safe
-cache permits.
-
-A third paper, \textbf{[3] LongLLMLingua}, is the closest methodological sibling
-to M1, since it is the one prior system that makes compression
-\emph{question-aware}. It is treated as related work rather than as a base paper
-because its mechanism is conditional perplexity under a second language model,
-which a CPU-only deployment cannot afford and which this work deliberately
-avoids.
+\textbf{[42] vCache} (Schroeder et al., ICLR 2026) is the base paper for the
+reuse side, and the strongest relationship in this survey. It argues that a
+single static similarity threshold gives a semantic cache \emph{no formal
+correctness guarantee}, and replaces it with a per-prompt threshold learned
+online under a user-specified error bound. Experiment E3
+(Section~\ref{sec:e3}), measured before that paper was read, reaches the same
+diagnosis from a different direction: the false-hit rate is flat at 51.1\% for
+every threshold from 0.80 to 0.99, because to an encoder a one-token negation
+inversion is a near-duplicate. The two agree on the diagnosis and diverge on the
+remedy. vCache estimates how wrong a threshold is likely to be and bounds it;
+Parsimony compares numbers, entities, negations, operative modifiers and the
+kind of answer wanted, and refuses \emph{categorically} when any of them differ
+--- four set comparisons, microseconds, no second neural pass, and a false-hit
+rate of 0.0\% (0/45). The statistical remedy suits high-volume serving; the
+categorical one suits a single-user CPU deployment. GPTCache [16] remains the
+foundational design both inherit and both argue is insufficient as stated. What
+vCache leaves open is how much \emph{legitimate} reuse a verified cache permits,
+which is what E7 (Section~\ref{sec:e7}) measures.
 
 % ================================================== 2 RESEARCH GAPS ====
 \section{Research Gaps Identified}
@@ -2028,7 +2032,7 @@ measurement, per-configuration quality against the real model, and replication o
 the prefill coefficient on a second CPU.
 
 % ================================================ REFERENCES ==========
-\begin{thebibliography}{40}
+\begin{thebibliography}{42}
 \footnotesize
 \bibitem{r1} Li, Y., Dong, B., Lin, C., Guerin, F. \emph{Compressing Context to Enhance Inference Efficiency of Large Language Models.} EMNLP, 2023. arXiv:2310.06201.
 \bibitem{r2} Jiang, H., Wu, Q., Lin, C.-Y., Yang, Y., Qiu, L. \emph{LLMLingua: Compressing Prompts for Accelerated Inference of Large Language Models.} EMNLP, 2023. arXiv:2310.05736.
@@ -2070,6 +2074,8 @@ the prefill coefficient on a second CPU.
 \bibitem{r38} \emph{Precise Length Control for Large Language Models.} Natural Language Processing Journal, Elsevier.
 \bibitem{r39} \emph{BudgetThinker: Empowering Budget-Aware LLM Reasoning with Control Tokens.} arXiv:2508.17196.
 \bibitem{r40} \emph{An Empirical Study of LLM Reasoning Ability Under Strict Output Length Constraint.} arXiv:2504.14350.
+\bibitem{r41} Liskavets, B., Ushakov, M., Yastrebov, K., Roy, S., Etemad, A., Wong, A., Luke, S. \emph{Prompt Compression with Context-Aware Sentence Encoding for Fast and Improved LLM Inference.} AAAI-25, \emph{Proceedings of the AAAI Conference on Artificial Intelligence}, 39(23):24595--24604, 2025. doi:10.1609/aaai.v39i23.34639. arXiv:2409.01227.
+\bibitem{r42} Schroeder, L. G., Desai, A., Cuadron, A., Chu, K., Liu, S., Zhao, M., Krusche, S., Kemper, A., Zaharia, M., Gonzalez, J. E. \emph{vCache: Verified Semantic Prompt Caching.} ICLR, 2026. arXiv:2502.03771.
 \end{thebibliography}
 
 \end{document}

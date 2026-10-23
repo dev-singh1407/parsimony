@@ -6,115 +6,157 @@
 **Guide.** Dr Sathya K
 **Prepared.** 23 October 2026
 
-The survey in [`10-literature-survey.md`](10-literature-survey.md) covers forty papers. Two of
-them are *base papers* in the strict sense: the work is built on them, inherits their design,
-and sets out to test a claim each of them leaves unexamined. One for each of the two
-load-bearing modules. They are stated here with what is taken from each, what is changed, and
-which experiment in the paper reports the outcome.
+Two base papers, one for each of the project's two load-bearing modules. Both are recent —
+AAAI 2025 and ICLR 2026 — and both are closer to what this project actually built than the
+2023 papers that founded the field. The full PDFs accompany this note.
 
 ---
 
 ## Base Paper 1 — the compression side
 
-> **LLMLingua: Compressing Prompts for Accelerated Inference of Large Language Models**
-> Huiqiang Jiang, Qianhui Wu, Chin-Yew Lin, Yuqing Yang, Lili Qiu (Microsoft)
-> *Proceedings of EMNLP 2023.* arXiv:2310.05736
-> <https://arxiv.org/abs/2310.05736> · <https://aclanthology.org/2023.emnlp-main.825/>
+> **Prompt Compression with Context-Aware Sentence Encoding for Fast and Improved LLM Inference**
+> Barys Liskavets, Maxim Ushakov, Konstantin Yastrebov, Shuvendu Roy, Ali Etemad, Alexander Wong, Shane Luke
+> **AAAI-25** — *Proceedings of the AAAI Conference on Artificial Intelligence*, **39(23), 24595–24604**
+> DOI [10.1609/aaai.v39i23.34639](https://doi.org/10.1609/aaai.v39i23.34639) · arXiv **[2409.01227](https://arxiv.org/abs/2409.01227)**
+> **arXiv v1 2 Sep 2024 · last revised Dec 2024 · published 2025**
+> File: `papers/base/CPC-AAAI2025-Liskavets-arXiv-2409.01227.pdf` (6 pp)
 
-**What it establishes.** That a prompt can be shortened *before* a black-box model reads it,
-and the three-part shape every later system inherits: a **budget controller**, a
-**compression step**, and an **alignment** between the small model doing the compressing and
-the large one doing the answering. It reports up to 20× compression with little loss on
-GSM8K, BBH, ShareGPT and Arxiv-March23.
+**What it establishes.** *Context-aware prompt compression* (CPC): compression at **sentence
+granularity**, driven by a **sentence encoder that scores each sentence's relevance to the
+question being asked**. The encoder is trained contrastively — positives are sentences
+relevant to the question, negatives are irrelevant context. CPC reports inference **up to
+10.93× faster than the best token-level method**.
 
-**What Parsimony takes.** The problem statement, and the budget controller — which survives
-as module **M5**, the output budgeter.
+**Why this is the base paper and not LLMLingua.** It is the same design decision Parsimony's
+M1 makes, made independently and published at AAAI:
 
-**What Parsimony changes.**
-
-| | LLMLingua | Parsimony M1 |
+| | CPC (AAAI-25) | Parsimony M1 |
 |---|---|---|
-| Granularity | token level | sentence level |
-| Signal | perplexity under a second LM | BM25 blended with a sentence encoder |
-| Query | task-agnostic | **question-aware** |
-| Cost | a second forward pass | no second model; CPU-affordable |
-| Auditability | a shorter string | every sentence's score and reason is shown |
+| Granularity | sentence | sentence |
+| Query | **question-aware** | **question-aware** |
+| Scoring | context-aware sentence encoder | BM25 blended with a sentence encoder |
+| Second LLM needed | no | no |
+| Target | faster inference | faster inference **on CPU** |
 
-**The claim this project tests.** LLMLingua is evaluated in isolation, against an
-uncompressed baseline, on datacentre GPUs. Parsimony asks what happens when compression is
-*composed* with caching, history management and routing, on a CPU.
+CPC's headline — that sentence-level question-aware compression beats token-level methods on
+speed by an order of magnitude — is the empirical justification for the architecture
+Parsimony chose. This project can now cite a 2025 AAAI result where it previously had only
+its own reasoning.
 
-**Where it is answered.** Experiments **E1** (savings are not additive — four modules summing
-to 29.0 pp deliver 27.4), **E2** (prefill is 91.7–98.8 % of CPU inference time, so the cost
-model inverts relative to GPU serving) and **E6** (the *relevance floor*, not the token
-budget, is the binding constraint on multi-hop recall — raising the budget saturates at 85 %
-while lowering the floor reaches 90 %).
+**What Parsimony adds.** Three things CPC does not address.
+
+1. **The binding constraint.** CPC scores sentences; it does not ask which constraint stops
+   selection. Experiment **E6** finds it is the **relevance floor**, not the token budget:
+   raising the budget saturates at 85 % recall while lowering the floor reaches 90 %. Six
+   mechanisms built to *find* second-hop evidence found it and had it discarded below the
+   floor.
+2. **A floor that is read rather than fixed.** Replacing the constant with a reading of the
+   score distribution at its steepest *multiplicative* fall keeps identical evidence on 81
+   held-out items while sending less context (26.6 % against 27.0 %).
+3. **Composition.** CPC is evaluated alone. **E1** measures it stacked with caching, history
+   and routing, and finds savings are **not additive** — four modules summing to 29.0 pp
+   deliver 27.4.
+
+**Foundational ancestor, for the related-work section:** LLMLingua (Jiang et al., EMNLP 2023,
+arXiv:2310.05736) states the problem and contributes the budget controller that survives as
+M5. LongLLMLingua (arXiv:2310.06839) makes compression question-aware but pays for it with
+conditional perplexity under a second language model — the cost a CPU-only deployment cannot
+afford, and the reason CPC's encoder-based approach is the relevant antecedent.
 
 ---
 
 ## Base Paper 2 — the reuse side
 
-> **GPTCache: An Open-Source Semantic Cache for LLM Applications Enabling Faster Answers and Cost Savings**
-> Fu Bang
-> *Proceedings of the 3rd Workshop on Natural Language Processing Open Source Software
-> (NLP-OSS 2023), co-located with EMNLP 2023*, pages 212–218.
-> DOI 10.18653/v1/2023.nlposs-1.24 · <https://aclanthology.org/2023.nlposs-1.24/>
+> **vCache: Verified Semantic Prompt Caching**
+> Luis Gaspar Schroeder, Aditya Desai, Alejandro Cuadron, Kyle Chu, Shu Liu, Mark Zhao,
+> Stephan Krusche, Alfons Kemper, Matei Zaharia, Joseph E. Gonzalez
+> **ICLR 2026** (accepted) · arXiv **[2502.03771](https://arxiv.org/abs/2502.03771)**
+> **arXiv v1 6 Feb 2025 · v5 21 Feb 2026**
+> File: `papers/base/vCache-ICLR2026-Schroeder-arXiv-2502.03771.pdf` (18 pp)
 
-**What it establishes.** The design every semantic cache follows: **embed** the incoming
-query, **compare** it against stored queries, **serve** the stored answer when similarity
-exceeds a threshold. Reports 2–10× faster responses on cache hits against OpenAI's service.
+**What it establishes.** That **a single static similarity threshold gives a semantic cache no
+formal correctness guarantee**, producing unexpected error rates and suboptimal hit rates.
+vCache instead lets the user state an error-rate bound and learns a **separate threshold per
+cached prompt** online. Reported: up to **12.5× higher hit rates** and **26× lower error
+rates** than static-threshold and fine-tuned-embedding baselines.
 
-**What Parsimony takes.** The architecture wholesale — two-tier lookup, embedded keys,
-similarity search — as module **M2**.
+**Why this is the strongest base paper in the set.** It is independent confirmation of this
+project's central cache finding, by a group including Zaharia and Gonzalez, at ICLR 2026.
 
-**What Parsimony changes.** It rejects the sufficiency of the threshold, which is the single
-assumption GPTCache's design rests on.
+> **Parsimony E3** (measured before this paper was read): the false-hit rate is **flat at
+> 51.1 % for every threshold from 0.80 to 0.99**. There is no usable setting, because to an
+> encoder a one-token negation inversion *is* a near-duplicate.
 
-| | GPTCache | Parsimony M2 |
+Both papers reach the same diagnosis and **diverge on the remedy**, which is exactly the
+relationship a base paper should have:
+
+| | vCache (ICLR 2026) | Parsimony M2 |
 |---|---|---|
-| Accept decision | similarity ≥ threshold | similarity gate **then a verifier** |
-| Verifier | — | numbers, entities, negations, operative modifiers, question kind |
-| Safety evidence | not measured adversarially | 45 adversarial near-duplicate pairs |
-| Cost of the verifier | — | microseconds, no second neural pass |
+| Diagnosis | one static threshold cannot be correct | **same** |
+| Remedy | learn a **per-prompt threshold** online | a **non-neural invariant verifier** |
+| Guarantee offered | a statistical error-rate bound | a *categorical* refusal when an invariant differs |
+| Cost | online learning, per-entry state | microseconds; no second neural pass |
+| Suits | high-volume serving | **single-user CPU deployment** |
 
-**The claim this project tests.** Whether *any* similarity threshold can separate a genuine
-paraphrase from a one-token meaning inversion.
+Parsimony's answer is the cheaper one and it is the one a CPU can afford: rather than
+estimating how wrong a threshold is likely to be, compare numbers, entities, negations,
+operative modifiers and the kind of answer wanted, and refuse categorically when any of them
+differ. **Four set comparisons take the false-hit rate to 0.0 % (0/45).**
 
-**Where it is answered.** Experiment **E3**: the false-hit rate is **flat at 51.1 % for every
-threshold from 0.80 to 0.99** — the threshold has no usable setting, because a negation
-inversion is, to an encoder, a near-duplicate. Four set comparisons costing microseconds take
-it to **0.0 % (0/45)**.
+**What Parsimony adds.** vCache raises hit rates under an error bound; it does not measure how
+much *legitimate* reuse a verified cache permits. **E7** does: the verified cache reused only
+**4 of 40** genuinely reworded questions, and five corrections raise that to **31 of 40** with
+the false-serve count **zero throughout**. The published sweep shows 30 of 40 is reachable
+only at the price of two wrong answers — a trade this project declines.
 
-**And the question GPTCache leaves open.** A safe cache is worthless if it never fires.
-Experiment **E7** measures the other side — how much *legitimate* reuse a verified cache
-permits — and finds the verified cache reused only **4 of 40** genuinely reworded questions.
-Correcting the text the encoder is shown, the overlap measure, the comparison of what kind of
-answer is wanted, and two entity-extraction faults raises that to **31 of 40**, with the
-false-serve count at **zero throughout**.
+**Foundational ancestor, for the related-work section:** GPTCache (Bang, NLP-OSS 2023,
+`2023.nlposs-1.24`) established the embed–compare–serve design that both vCache and Parsimony
+inherit and both argue is insufficient as stated.
 
 ---
 
-## Why these two and not others
+## Summary for a title slide
 
-The survey's other strong candidates, and why each is related work rather than a base paper:
-
-| Paper | Relation | Why not a base paper |
-|---|---|---|
-| **[3] LongLLMLingua** (arXiv:2310.06839) | **Closest methodological sibling.** The one prior system that makes compression *question-aware*, as M1 is. | Its mechanism is conditional perplexity under a second language model — the cost a CPU-only deployment cannot pay, and which this work exists to avoid. |
-| **[1] Selective Context** (Li et al., EMNLP 2023, arXiv:2310.06201) | Foundational: self-information to drop low-value units. | Query-agnostic. M1's entire design turns on being question-aware. |
-| **[23] PagedAttention / vLLM** (Kwon et al., SOSP 2023) | M4's prefix-stability work assumes this KV-reuse model. | Infrastructure Parsimony runs *on*, not a technique it extends. |
-| **[28] Lost in the Middle** (Liu et al., TACL 2024) | Supplies one half of the conflict E2 prices. | A finding about model behaviour, not a system this one is built on. |
-
-> If the guide wants the base papers framed strictly around **question-aware compression**,
-> substitute **LongLLMLingua [3]** for **LLMLingua [2]**. LLMLingua is proposed here because
-> it is the canonical statement of the problem and the origin of the budget controller the
-> system actually uses; LongLLMLingua is its extension rather than its foundation.
+> Parsimony sits between **CPC** (AAAI-25) — sentence-level, question-aware compression — and
+> **vCache** (ICLR 2026) — the finding that no static similarity threshold makes cache reuse
+> safe. It composes both on CPU-only hardware, and replaces vCache's learned threshold with a
+> microsecond invariant verifier that refuses categorically rather than statistically.
 
 ---
 
-## One-line summary for a title slide
+## Changes recommended to the project report
 
-> Parsimony composes the prompt-compression idea of **LLMLingua** with the semantic-cache
-> design of **GPTCache**, on CPU-only hardware, and replaces the similarity threshold that
-> GPTCache relies on with an invariant verifier — because no threshold separates a paraphrase
-> from a negation.
+These follow from the two base papers above and from the eleven decisions recorded since the
+report was last built on 11 September. Listed in the order I would make them.
+
+**1. Replace the base-paper framing (§ Literature Review).** The report currently positions
+against LLMLingua and GPTCache, both 2023. Lead with CPC and vCache instead and demote the
+2023 pair to *foundational ancestors*. This is the single highest-value change: it moves the
+project's claimed novelty from "we did something nobody has done" — which is harder to defend
+each year — to "we reached the same diagnosis as ICLR 2026 independently, and chose a cheaper
+remedy for a different deployment". The second claim is stronger **and** easier to defend in a
+viva.
+
+**2. Add the vCache agreement explicitly (§ Discussion → *Agreement and disagreement with
+prior work*).** State that E3's finding was reached before vCache was read, and that vCache
+confirms it on different data at a different scale. Independent convergence is evidence; a
+lone result is an anecdote.
+
+**3. Add the three new experiments (§ Experiments).** Already drafted into `latex/paper.tex`
+as **E6** (the relevance floor is the binding constraint), **E7** (reuse of reworded questions
+rises 4/40 → 31/40 at zero false serves) and **E8** (the fidelity gate admitted 22 of 40
+meaning-changing rewrites; now 3). The report should carry the same three.
+
+**4. Make the methodological lesson explicit (§ Conclusion).** Every component had passed
+every test written for it, and those tests were small — eight examples for the gate, five
+pairs for the cache. The project's own first reading of cache reuse was "4 of 5" when the
+honest figure was 45 %, with two wrong answers being served that nobody had looked for. This
+is the most transferable result in the work and it currently appears nowhere.
+
+**5. Keep the negative results visible.** The three rewrites the gate still admits, the
+fourteen rewordings still refused, and the sweep row showing 30/40 costs two wrong answers.
+An examiner trusts a results section that names its own limits more than one that does not.
+
+**6. Update the dates and counts.** The report is dated September 2026 and quotes 1,251 tests
+and 52 ADRs; the tree is now at **1,346 tests** and **60 ADRs**. The `tools/project_counts.py`
+generator already reads these from source — regenerate rather than edit by hand.
