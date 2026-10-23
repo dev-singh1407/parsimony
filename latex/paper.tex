@@ -110,7 +110,7 @@
   \vspace{0.9cm}
   {\small B.Tech \quad$\cdot$\quad Course Code: BCSE497J \quad$\cdot$\quad Project I}\\[3pt]
   {\small Faculty Guide: Dr Sathya K}\\[3pt]
-  {\small September 2026}
+  {\small October 2026}
 \end{center}
 
 \vspace{0.6cm}
@@ -146,6 +146,30 @@ similarity threshold separates genuine paraphrases from one-token meaning
 inversions --- the false-hit rate is flat at \textbf{51.1\%} for every threshold
 from 0.80 to 0.99 --- whereas four set comparisons costing microseconds take it
 to \textbf{0.0\%} (0/45).
+
+\smallskip
+\noindent Three further results follow from measuring components at a scale
+their earlier tests never reached. In a question-aware compressor the
+\emph{relevance floor} --- not the token budget, and not off-topic detection ---
+is the binding constraint on multi-hop recall: six mechanisms built to find
+second-hop evidence found it and had it discarded below the floor, and lowering
+the floor buys $+10.2$\,pp of evidence recall for $+14.0$\,pp of context where
+raising the budget saturates. Replacing the constant with a floor read from the
+score distribution at its steepest \emph{multiplicative} fall keeps identical
+evidence on 81 held-out items while sending less context, 26.6\% against
+27.0\%. Second, the verified cache of E3 reuses only \textbf{4 of 40} genuinely
+reworded questions; correcting the text the encoder is shown, the overlap
+measure, the comparison of what kind of answer is wanted, and two
+entity-extraction faults raises that to \textbf{31 of 40} with the false-serve
+count at \textbf{zero throughout}, and we publish the sweep showing that 30 of
+40 is reachable only at the price of two wrong answers. Third, the always-on
+fidelity gate --- the property the whole architecture rests on --- admitted
+\textbf{22 of 40} meaning-changing rewrites, because it asked only whether a
+value had been \emph{lost}, and a value never present cannot be missing;
+supplying it the checks the cache verifier already performed takes that to
+\textbf{3 of 40} while refusing \textbf{none} of twelve meaning-preserving
+rewrites. We name the three it still admits rather than report a figure that
+conceals them.
 
 \smallskip
 \noindent\textbf{Keywords:} prompt compression; semantic caching; KV-cache reuse;
@@ -362,6 +386,43 @@ embed, compare, serve above a threshold. Experiment E3
 \textbf{[12] An Empirical Study on Prompt Compression} names two compression
 failure modes and measures their frequency, but proposes no run-time mechanism
 to prevent them. Module M8 is that mechanism, and E3 evaluates it.
+
+\paragraph{The two base papers.} Of the forty surveyed, two are the papers this
+work is built upon rather than merely compared against, one for each of its two
+load-bearing modules.
+
+\textbf{[2] LLMLingua} (Jiang, Wu, Lin, Yang and Qiu; EMNLP 2023) is the base
+paper for the compression side. It establishes the problem --- shorten the prompt
+before a black-box model reads it --- and the three-part shape every later system
+inherits: a budget controller, a compression step, and an alignment between the
+small model doing the compressing and the large one doing the answering.
+Parsimony keeps the first and replaces the second: compression here is
+\emph{extractive and question-aware} at sentence granularity, using BM25 blended
+with a sentence encoder, so that no second language model is needed and the
+decision for every sentence can be shown to a reader. The budget controller
+survives as M5. What LLMLingua measures on datacentre GPUs against an
+uncompressed baseline, Experiments E1, E2 and E6 measure on a CPU against the
+other modules, which is where the budget turns out not to be the binding
+constraint at all.
+
+\textbf{[16] GPTCache} (Bang; NLP-OSS 2023) is the base paper for the reuse
+side, and the one this work contradicts most directly. It establishes the design
+every semantic cache follows --- embed the query, compare against stored queries,
+serve above a similarity threshold --- and reports 2--10$\times$ speedups when the
+cache hits. Parsimony adopts the architecture and rejects the sufficiency of the
+threshold: E3 shows the false-hit rate is flat at 51.1\% for every threshold
+from 0.80 to 0.99, because a one-token meaning inversion is, to an encoder, a
+near-duplicate. The verifier that replaces the threshold is this project's
+principal contribution to caching, and E7 then measures the question GPTCache
+leaves open --- not whether reuse is safe, but how much legitimate reuse a safe
+cache permits.
+
+A third paper, \textbf{[3] LongLLMLingua}, is the closest methodological sibling
+to M1, since it is the one prior system that makes compression
+\emph{question-aware}. It is treated as related work rather than as a base paper
+because its mechanism is conditional perplexity under a second language model,
+which a CPU-only deployment cannot afford and which this work deliberately
+avoids.
 
 % ================================================== 2 RESEARCH GAPS ====
 \section{Research Gaps Identified}
@@ -1438,6 +1499,321 @@ that exact zero is the most important number in the table, because a system that
 was secretly peeking at the test data would have shown a fake gain there. The more
 you repeat, the more it helps, up to about 18\% extra saving.}
 
+\subsection{E6: Which constraint actually binds a question-aware compressor?}
+\label{sec:e6}
+
+\textbf{Baseline:} the context tier as calibrated in E1, with a token budget
+and a constant relevance floor. \textbf{Proposed:} the same tier with each
+constraint swept independently, and with the floor read from the score
+distribution rather than fixed.
+
+Six mechanisms had been added to improve multi-hop evidence recall --- second-hop
+bridging, pronoun inheritance, dependency closure, anchor guarantees, maximal
+marginal relevance and query-term expansion. Every one of them fired correctly on
+the data. None changed recall by a single item. Sweeping the two constraints
+separately explains why.
+
+\begin{table}[htbp]
+\centering
+\caption{E6 --- the token budget saturates; the relevance floor does not.
+Multi-hop evidence recall on the development split.}
+\label{tab:floor-vs-budget}
+\footnotesize
+\begin{tabular}{@{}l r c l r r@{}}
+\toprule
+\textbf{Target ratio} & \textbf{Recall} & & \textbf{Relevance floor} &
+\textbf{Recall} & \textbf{Context sent} \\
+\midrule
+20\%      & 70.0\% & & \textbf{0.15 (shipped)} & \textbf{80.0\%} & \textbf{20.1\%} \\
+30\%      & 80.0\% & & 0.10                    & 80.0\%          & 25.0\% \\
+40\%      & 85.0\% & & 0.05                    & 90.0\%          & 32.7\% \\
+60--80\%  & 85.0\% & & 0.00                    & 90.0\%          & 39.1\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\obs{Raising the budget saturates at 85\%. Lowering the floor reaches 90\%. The
+sentences that six mechanisms were built to \emph{find} were being found and
+then discarded: selection stops when the best remaining candidate scores below
+the floor, and a second hop scores low \emph{against the question} precisely
+because it matches what the first hop said rather than what was asked. The floor
+is not a safety device either --- on the twelve off-topic items, dropping it from
+0.15 to 0.05 moves context only from 4.1\% to 5.2\%, because the protection
+comes from the separate topical check. It is a pure accuracy-against-cost dial,
+and it was the binding constraint all along.}
+
+Confirmed on a split authored before the sweep: $+10.2$ percentage points of
+evidence recall for $+14.0$ points of context, 79.5\% $\rightarrow$ 89.7\%
+across all forty items, consistent across both halves.
+
+\paragraph{Reading the floor instead of fixing it.}
+If no single constant is right, the floor should be a reading of the sorted
+scores rather than a number. The rule finds the steepest \emph{multiplicative}
+fall between adjacent ranks --- a ratio, not a difference. The distinction is the
+finding: a collapse from 0.22 to 0.03 is a subtractive gap of only 0.19, while a
+flat band of strong sentences from 1.00 to 0.75 is a larger one, so differences
+near the top of the range swamp collapses near the bottom. A halving is a
+halving wherever it lands. The threshold was fixed at 2.0$\times$ --- ``the score
+halves'' --- before the held-out split was touched.
+
+\begin{table}[htbp]
+\centering
+\caption{E6 --- a floor read from the distribution against the shipped constant
+and against the constant ADR-050 recommended. Model-free, 81 held-out items.}
+\label{tab:adaptive-floor}
+\footnotesize
+\begin{tabular}{@{}l l r r r@{}}
+\toprule
+\textbf{Split} & \textbf{Floor} & \textbf{Spans kept} &
+\textbf{Items with every span} & \textbf{Context sent} \\
+\midrule
+\multirow{3}{*}{Development, 23 items}
+  & 0.15 (shipped)          & 25/25 & 23/23 & 30.2\% \\
+  & 0.05                    & 25/25 & 23/23 & 34.4\% \\
+  & \textbf{read off the scores} & 25/25 & 23/23 & \textbf{29.7\%} \\
+\midrule
+\multirow{3}{*}{Held out, 81 items}
+  & 0.15 (shipped)          & 100/101 & 80/81 & 27.0\% \\
+  & 0.05                    & 100/101 & 80/81 & 33.8\% \\
+  & \textbf{read off the scores} & 100/101 & 80/81 & \textbf{26.6\%} \\
+\midrule
+\multirow{3}{*}{Off topic, 12 items}
+  & 0.15 (shipped)          & --- & --- & 5.3\% \\
+  & 0.05                    & --- & --- & 6.5\% \\
+  & \textbf{read off the scores} & --- & --- & \textbf{4.2\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\obs{Under the encoder that ships, the rule keeps \emph{exactly the same
+evidence} as the constant on every split while sending slightly less context,
+and on questions the documents cannot answer it sends a fifth less, because
+nothing there produces a cliff worth cutting at. It is nonetheless shipped
+\textbf{off by default}: 0.4 points of context is not a reason to move a default
+that four prior decisions of measurement stand behind. What it replaces is not
+the shipped constant but the \emph{remedy} --- reach for a distribution-read floor
+rather than for the lower constant, which buys nothing here and costs 6.8
+points.}
+
+\paragraph{A rule chosen on principle outlives one chosen on the data.}
+The sweep's best value was 1.5$\times$. The principled value, 2.0$\times$, was
+fixed in advance. On held-out data 1.5$\times$ is the only value that loses an
+answer. This is the clearest instance in the project of pre-registration paying
+for itself.
+
+% =====================================================================
+
+\subsection{E7: Can a cache reuse an answer to the same question asked differently?}
+\label{sec:e7}
+
+\textbf{Baseline:} the verified cache of E3. \textbf{Proposed:} the same cache
+with the text handed to the encoder, the overlap measure, and the question-kind
+comparison each corrected in turn.
+
+E3 established that a verifier rather than a threshold is what makes reuse safe.
+It did not establish how much \emph{legitimate} reuse the verifier permits. A
+cache that refuses everything is perfectly safe and worthless, and the only
+honest way to measure the other side is a set of questions that genuinely mean
+the same thing.
+
+\paragraph{Instrument.} Forty rewordings that should be served and forty near
+misses that must not be, written in one sitting from the evaluation corpus's own
+subject matter before any arm was run, and decided end to end through the real
+pipeline rather than by calling the verifier directly. The near misses are
+deliberately hard: the same subject with a different question, a swapped office,
+a swapped number, an added negation, and the interrogative changed on otherwise
+identical words. They are kept separate from
+\texttt{corpus/interactive\_pairs.jsonl}, which is frozen; adding questions to a
+frozen instrument after seeing a failure is not measurement.
+
+\begin{table}[htbp]
+\centering
+\caption{E7 --- reuse of reworded questions, and the near misses that must never
+be served. Neural encoder throughout.}
+\label{tab:reuse-recall}
+\footnotesize
+\begin{tabular}{@{}l r r r r@{}}
+\toprule
+\textbf{Configuration} & \textbf{Reused} & \textbf{Wrongly served} &
+\textbf{Recall} & \textbf{Precision} \\
+\midrule
+As calibrated in E3                      & 4/40  & 0/40 & 10\% & 100\% \\
+\;+ question embedded as asked           & 11/40 & 0/40 & 28\% & 100\% \\
+\;+ overlap counted semantically         & 24/40 & 0/40 & 60\% & 100\% \\
+\;+ answer-kind comparison               & 26/40 & 0/40 & 65\% & 100\% \\
+\;+ head-of-complement resolution        & 29/40 & 0/40 & 72.5\% & 100\% \\
+\;+ entity comparison corrected          & \textbf{31/40} & \textbf{0/40} &
+\textbf{78\%} & \textbf{100\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\obs{Reuse rises from 4 in 40 to 31 in 40 --- a factor of 7.8 --- with the
+false-serve count at zero at every step. Not one of the five changes moved a
+threshold except the fourth, and that one moved it only as far as a corpus
+authored years earlier allowed. The gain is mechanism, not permissiveness.}
+
+Four of the five corrections are worth stating because each was invisible at the
+scale the component was previously tested at.
+
+\begin{enumerate}
+\item \textbf{The encoder was shown a fragment.} The cache strips the
+interrogative before embedding, on the reasoning that leaving ``where'' in would
+raise the similarity of every pair of where-questions. Under a lexical encoder
+that holds. Under the neural one it leaves a stranded copula --- ``is the annual
+travel budget for the Tallinn office'' --- and contractions shed their verb and
+kept their suffix, so ``What's'' arrived as a bare ``s''. Handing the encoder the
+question as asked lifts rewordings over the candidate gate from 8 in 12 to 11 in
+12 \emph{without moving a single distractor}.
+
+\item \textbf{A word-overlap floor cannot admit a paraphrase.} The verifier
+required 55\% of content words to be identical. Rewordings score 0.20--0.40,
+because \emph{manages} and \emph{manager}, \emph{budget} and \emph{allowance} are
+different strings. Requiring most of the words to match is requiring the question
+not to be reworded. Removing the floor entirely and keeping the four checks that
+are about meaning still refuses 7 of 9 adversarial pairs, so the floor was doing
+almost no safety work; it is now a soft overlap in which two words count as one
+when the encoder places them within a threshold, aligned greedily so that one
+word cannot pay for three.
+
+\item \textbf{``What'' states no kind of its own.} Comparing surface
+interrogatives refuses ``what is the annual travel budget'' against ``how much
+can they spend'' --- the same question, asked twice. Its \emph{subject} states the
+kind: a budget is an amount, a period a duration, a site manager a person. A
+``what'' question is resolved against seven prototype nouns and the resolved
+kinds are compared. Relaxing the check instead, so that ``what'' agrees with
+anything, gains one rewording and serves \emph{all five} controls wrongly.
+
+\item \textbf{The head of the complement states the kind, not the whole
+subject.} ``The headcount of the Porto office'' resolved to \emph{who} and ``the
+booking process for the roof terrace'' to \emph{where}, because the office and
+the terrace outvoted the word carrying the kind. Resolving on the head noun
+phrase scores 16 of 18 labelled questions against 13 for the whole subject --- and
+9 for the first content word alone, which is what establishes that the head is a
+\emph{phrase} rather than that less context is better.
+\end{enumerate}
+
+\paragraph{The ceiling, and what the last 22\% would cost.}
+Both remaining dials were swept jointly against four instruments, two of them
+frozen.
+
+\begin{table}[htbp]
+\centering
+\caption{E7 --- joint sweep of the candidate gate and the overlap floor.
+Rewordings served of 40; a point is admissible only if both frozen corpora are
+unchanged.}
+\label{tab:reuse-ceiling}
+\footnotesize
+\begin{tabular}{@{}l r r r l@{}}
+\toprule
+\textbf{Candidate gate $\tau_{lo}$} & \textbf{Floor 0.33} & \textbf{0.25} &
+\textbf{0.20} & \textbf{Cost} \\
+\midrule
+0.70          & 25 & 25 & 25 & --- \\
+\textbf{0.60} & 25 & \textbf{26} & 26 & \textbf{nothing} \\
+0.55          & 26 & 28 & 28 & one frozen interactive pair \\
+0.50          & 27 & 29 & 30 & that pair, \emph{and 2 wrong answers served} \\
+0.45          & 27 & 29 & 30 & that pair, \emph{and 3 wrong answers served} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\obs{Thirty of forty is available, and it costs two wrong answers and a pair
+from a corpus authored before this work existed. A compressor that trades a
+wrong answer for four points of reuse is not the artefact this project claims to
+be, so the operating point stops where nothing is given up. The row below the
+chosen one is printed so that a reader sees the trade rather than taking the
+number on trust.}
+
+The fourteen rewordings still refused are not behind any threshold: with every
+gate removed they fail the checks that are about meaning, or the two phrasings
+simply do not resemble each other --- ``Why were the Tallinn staff acquired?''
+against ``What was the reason Harlow acquired Rakvere Systems?'' sits at cosine
+0.16. Reaching that requires knowing the two name one acquisition, which is a
+retrieval problem and not a caching one.
+
+% =====================================================================
+
+\subsection{E8: Does the fidelity gate catch what it claims to?}
+\label{sec:e8}
+
+\textbf{Baseline:} the gate as built, checking that no extractable invariant was
+lost. \textbf{Proposed:} the same gate with the checks the semantic cache's
+verifier already performed.
+
+The gate is the property the architecture rests on: a module may only
+\emph{propose}, and the orchestrator commits only what the gate allows. It was
+covered by eight hand-written examples, all passing --- which is the same
+evidential position E7 showed to be worthless.
+
+\paragraph{Instrument.} Forty rewrites that change the meaning and must be
+refused; twelve that preserve it and must be allowed. The second set is not
+decoration: a gate that refuses everything scores perfectly on the first and
+leaves a compressor that compresses nothing, and politeness removal is the
+commonest legitimate edit in the system.
+
+\begin{table}[htbp]
+\centering
+\caption{E8 --- what the fidelity gate admits.}
+\label{tab:gate}
+\footnotesize
+\begin{tabular}{@{}l r r@{}}
+\toprule
+ & \textbf{As built} & \textbf{With meaning checks} \\
+\midrule
+Meaning-changing rewrites let through & \textbf{22/40 (55\%)} & \textbf{3/40 (8\%)} \\
+Meaning-preserving rewrites refused   & 1/12 (8\%)            & \textbf{0/12 (0\%)} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\obs{The gate asked one question --- \emph{was any extractable value lost?} --- and
+a value that was never there cannot be missing. It was therefore blind to
+anything \textbf{added}, and to every class the extractor does not model. Among
+the twenty-two it admitted: ``Visitors must sign in'' $\rightarrow$ ``Visitors
+must \emph{not} sign in''; ``the \emph{maximum} rate'' $\rightarrow$ ``the
+\emph{minimum} rate''; ``laptops \emph{must} be encrypted'' $\rightarrow$
+``laptops \emph{may} be encrypted''; ``up to 140 \emph{pounds}'' $\rightarrow$
+``140 \emph{euros}''; and the deletion of ``only''.}
+
+The remedy required no new research. The semantic cache's verifier already
+compared operative oppositions and morphological negations; those checks had
+been built for M2 and never given to M8, which makes the stronger claim. Four
+are added on the rewrite path alone --- negation must \emph{agree} rather than
+merely survive, no opposition may be used both ways round, a unit may not be
+swapped, and a qualifier may not be dropped. Selection and extraction are
+untouched, since dropping whole turns is the purpose of M3 and dropping whole
+sentences the purpose of M1.
+
+\paragraph{No ablation switch.} Every other behavioural change in this project
+ships behind a flag so that the prior behaviour stays measurable. This one does
+not. The gate is always on and never ablated by design, and a switch that makes
+it weaker again would contradict the single property the architecture
+guarantees.
+
+\paragraph{What it still cannot see.} Three of the forty, recorded rather than
+hidden and pinned by a test that fails if they ever begin to be caught:
+attribution dropped (``the handbook states that $X$'' $\rightarrow$ ``$X$'');
+word order (``designed in Tallinn and built in Leeds'' reversed --- both entities
+are present on both sides, and a set comparison cannot see an order); and a
+qualifying \emph{phrase} rather than a word (``allowed with manager approval''
+$\rightarrow$ ``allowed''). All three need structure the gate does not model.
+
+\paragraph{A failure direction found on the way.} The off-topic rule treated an
+absent encoder as an encoder that had declined to rescue a low-coverage context.
+During an encoder outage the selector therefore discarded whole documents: one
+corpus question fell from eleven sentences and 211 tokens to a single-sentence
+stub containing none of the answer. Every other component in the system fails
+toward the missed saving --- the gate reverts a doubtful edit, the cache refuses
+a doubtful reuse, the soft overlap falls back to exact counting. This was the one
+place that failed toward the wrong answer, and only during an outage, which is
+when it is least likely to be observed. A missing reading is now treated as a
+missing reading. The control holds: a genuinely off-topic question is still
+refused during an outage, because zero term coverage is lexical and owes nothing
+to an encoder.
+
+% =====================================================================
+
 \subsection{Contribution-to-result summary}
 \label{sec:summary}
 
@@ -1614,6 +1990,29 @@ depending only on whether the prompt head stayed byte-stable. And no similarity
 threshold makes cached-answer reuse safe --- the false-hit rate is flat at 51.1\%
 across the entire usable range --- whereas four non-neural set comparisons reduce
 it to zero at a cost of 8.9\,pp of genuine reuse.
+
+Three further results were obtained by measuring components against sets large
+enough to disagree with them, and each corrected a mechanism rather than a
+threshold. The relevance floor, not the token budget, is what bounds multi-hop
+recall in a question-aware compressor, and a floor read from the shape of the
+score distribution keeps identical evidence for less context than any constant
+we tried. The verified cache, which E3 showed to be safe, turned out to reuse
+only 4 of 40 genuinely reworded questions; it now reuses 31, with the
+false-serve count at zero at every intermediate step, and the published sweep
+shows that the remaining gain is available only in exchange for wrong answers.
+And the fidelity gate --- the single property this architecture guarantees ---
+admitted 22 of 40 meaning-changing rewrites, because asking only whether a value
+was \emph{lost} cannot see a value that was \emph{added}; it now admits three,
+which we name.
+
+Those three results share a methodological point that we consider the most
+transferable thing in this paper. Each component had passed every test written
+for it. The tests were small --- eight examples for the gate, five pairs for the
+cache --- and small example sets do not merely under-report a failure rate, they
+report the wrong one with confidence: our own first measurement of cache reuse
+read 4 of 5 where the honest figure was 45\%, and two near misses were being
+served that nobody had thought to look for. A component is not measured until it
+has been given a set written to disagree with it.
 
 The recurring pattern across all five experiments is that published operating
 points are properties of the configuration they were calibrated on. A threshold
