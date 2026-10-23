@@ -123,7 +123,7 @@ Prompt compression, semantic caching, key-value cache reuse, model routing and
 output budgeting are each proposed and evaluated in isolation, against an
 uncompressed baseline, on datacentre GPUs. None of that establishes what happens
 when the techniques are \emph{composed}, nor whether their published operating
-points hold on a CPU-only, single-user deployment. We survey 40 papers, extract
+points hold on a CPU-only, single-user deployment. We survey 42 papers, extract
 the limitation of each with respect to that setting, and derive six research
 gaps. We then build \textbf{Parsimony}, a middleware layer of seven optimisation
 modules and an always-on fidelity gate in which every module \emph{proposes} an
@@ -269,7 +269,7 @@ E5 & Does the tuning work elsewhere? & \textbf{Partly} &
 \section{Literature Review}
 \label{sec:lit}
 
-Forty papers were reviewed across six strands. For each we record the method
+Forty-two papers were reviewed across six strands. For each we record the method
 proposed, its limitation \emph{with respect to a CPU-only, single-user,
 multi-turn deployment in which several techniques are composed}, and the metrics
 it reports. These are not criticisms of the papers on their own terms: most are
@@ -304,6 +304,7 @@ setting this work addresses is precisely the one they do not target.
 {[13]} & Information preservation & Measures 30--50 point groundedness drops; no prevention & groundedness \\
 {[14]} & Financial fidelity & Shows fluent, plausible, decision-changing compression & decision agreement \\
 {[15]} & Compression paradox & \textbf{Does not uniformly reduce energy}; hosted APIs only & energy per request \\
+{[41]} & CPC (AAAI-25) & Sentence-level and question-aware, as M1 is; evaluated alone, and never on CPU & compression, latency, task score \\
 \addlinespace
 \multicolumn{4}{@{}l}{\textit{Strand B --- Semantic caching}}\\
 {[16]} & GPTCache & Single threshold, no verification step, no adversarial validation & hit rate, latency, cost \\
@@ -313,6 +314,7 @@ setting this work addresses is precisely the one they do not target.
 {[20]} & Generative caching & Synthesises rather than reuses; adds generation cost & hit rate, quality \\
 {[21]} & Key-collision attack & Adversarial \emph{search} threat model; ordinary confusable pairs excluded & attack success rate \\
 {[22]} & SAFE-CACHE & Concludes similarity is insufficient; answers with a redesign & robustness, hit rate \\
+{[42]} & vCache (ICLR 2026) & \textbf{Concludes a static threshold cannot be correct}; answers with a learned per-prompt threshold rather than a verifier & hit rate, error rate \\
 \addlinespace
 \multicolumn{4}{@{}l}{\textit{Strand C --- KV cache and prefix reuse}}\\
 {[23]} & PagedAttention / vLLM & GPU serving; application-side cost of an unstable prefix unpriced & throughput, memory waste \\
@@ -2036,44 +2038,44 @@ the prefill coefficient on a second CPU.
 \footnotesize
 \bibitem{r1} Li, Y., Dong, B., Lin, C., Guerin, F. \emph{Compressing Context to Enhance Inference Efficiency of Large Language Models.} EMNLP, 2023. arXiv:2310.06201.
 \bibitem{r2} Jiang, H., Wu, Q., Lin, C.-Y., Yang, Y., Qiu, L. \emph{LLMLingua: Compressing Prompts for Accelerated Inference of Large Language Models.} EMNLP, 2023. arXiv:2310.05736.
-\bibitem{r3} Jiang, H., et al. \emph{LongLLMLingua: Accelerating and Enhancing LLMs in Long Context Scenarios via Prompt Compression.} arXiv:2310.06839.
-\bibitem{r4} \emph{LLMLingua-2: Data Distillation for Efficient and Faithful Task-Agnostic Prompt Compression.} arXiv:2403.12968.
-\bibitem{r5} \emph{Efficient Prompt Compression with Evaluator Heads for Long-Context Transformer Inference.} arXiv:2501.12959.
-\bibitem{r6} \emph{SCOPE: A Generative Approach for LLM Prompt Compression.} arXiv:2508.15813.
-\bibitem{r7} \emph{Long Context In-Context Compression by Getting to the Gist of Gisting.} arXiv:2504.08934.
-\bibitem{r8} \emph{Compressing Lengthy Context With UltraGist.} arXiv:2405.16635.
-\bibitem{r9} \emph{ATACompressor: Adaptive Task-Aware Compression for Efficient Long-Context Processing in LLMs.} arXiv:2602.03226.
-\bibitem{r10} \emph{SARA: Selective and Adaptive Retrieval-augmented Generation with Context Compression.} arXiv:2507.05633.
-\bibitem{r11} \emph{PCToolkit: A Unified Plug-and-Play Prompt Compression Toolkit of Large Language Models.} arXiv:2403.17411.
+\bibitem{r3} Jiang, H., et al. \emph{LongLLMLingua: Accelerating and Enhancing LLMs in Long Context Scenarios via Prompt Compression.} arXiv:2310.06839, October 2023.
+\bibitem{r4} \emph{LLMLingua-2: Data Distillation for Efficient and Faithful Task-Agnostic Prompt Compression.} arXiv:2403.12968, March 2024.
+\bibitem{r5} \emph{Efficient Prompt Compression with Evaluator Heads for Long-Context Transformer Inference.} arXiv:2501.12959, January 2025.
+\bibitem{r6} \emph{SCOPE: A Generative Approach for LLM Prompt Compression.} arXiv:2508.15813, August 2025.
+\bibitem{r7} \emph{Long Context In-Context Compression by Getting to the Gist of Gisting.} arXiv:2504.08934, April 2025.
+\bibitem{r8} \emph{Compressing Lengthy Context With UltraGist.} arXiv:2405.16635, May 2024.
+\bibitem{r9} \emph{ATACompressor: Adaptive Task-Aware Compression for Efficient Long-Context Processing in LLMs.} arXiv:2602.03226, February 2026.
+\bibitem{r10} \emph{SARA: Selective and Adaptive Retrieval-augmented Generation with Context Compression.} arXiv:2507.05633, July 2025.
+\bibitem{r11} \emph{PCToolkit: A Unified Plug-and-Play Prompt Compression Toolkit of Large Language Models.} arXiv:2403.17411, March 2024.
 \bibitem{r12} \emph{An Empirical Study on Prompt Compression for Large Language Models.} ICLR, 2025.
-\bibitem{r13} \emph{Understanding and Improving Information Preservation in Prompt Compression for LLMs.} arXiv:2503.19114.
-\bibitem{r14} \emph{When Summaries Distort Decisions: Information Fidelity in LLM-Compressed Financial Analysis.} arXiv:2606.29251.
-\bibitem{r15} \emph{The Compression Paradox in LLM Inference: Provider-Dependent Energy Effects of Prompt Compression.} arXiv:2603.23528.
+\bibitem{r13} \emph{Understanding and Improving Information Preservation in Prompt Compression for LLMs.} arXiv:2503.19114, March 2025.
+\bibitem{r14} \emph{When Summaries Distort Decisions: Information Fidelity in LLM-Compressed Financial Analysis.} arXiv:2606.29251, June 2026.
+\bibitem{r15} \emph{The Compression Paradox in LLM Inference: Provider-Dependent Energy Effects of Prompt Compression.} arXiv:2603.23528, March 2026.
 \bibitem{r16} Bang, F. \emph{GPTCache: An Open-Source Semantic Cache for LLM Applications.} NLP-OSS at EMNLP, 2023.
-\bibitem{r17} \emph{GPT Semantic Cache: Reducing LLM Costs and Latency via Semantic Embedding Caching.} arXiv:2411.05276.
-\bibitem{r18} \emph{MeanCache: User-Centric Semantic Caching for LLM Web Services.} arXiv:2403.02694.
-\bibitem{r19} \emph{ContextCache: Context-Aware Semantic Cache for Multi-Turn Queries in Large Language Models.} arXiv:2506.22791.
-\bibitem{r20} \emph{A Generative Caching System for Large Language Models.} arXiv:2503.17603.
-\bibitem{r21} \emph{From Similarity to Vulnerability: Key Collision Attack on LLM Semantic Caching.} arXiv:2601.23088.
+\bibitem{r17} \emph{GPT Semantic Cache: Reducing LLM Costs and Latency via Semantic Embedding Caching.} arXiv:2411.05276, November 2024.
+\bibitem{r18} \emph{MeanCache: User-Centric Semantic Caching for LLM Web Services.} arXiv:2403.02694, March 2024.
+\bibitem{r19} \emph{ContextCache: Context-Aware Semantic Cache for Multi-Turn Queries in Large Language Models.} arXiv:2506.22791, June 2025.
+\bibitem{r20} \emph{A Generative Caching System for Large Language Models.} arXiv:2503.17603, March 2025.
+\bibitem{r21} \emph{From Similarity to Vulnerability: Key Collision Attack on LLM Semantic Caching.} arXiv:2601.23088, January 2026.
 \bibitem{r22} \emph{Enhancing Adversarial Resilience in Semantic Caching for Secure Retrieval-Augmented Generation Systems.} Scientific Reports, 2026.
 \bibitem{r23} Kwon, W., et al. \emph{Efficient Memory Management for Large Language Model Serving with PagedAttention.} SOSP, 2023.
 \bibitem{r24} vLLM Project. \emph{Automatic Prefix Caching.} Technical documentation, 2025.
-\bibitem{r25} \emph{ChunkAttention: Efficient Self-Attention with Prefix-Aware KV Cache and Two-Phase Partition.} arXiv:2402.15220.
-\bibitem{r26} \emph{Sparse Prefix Caching for Hybrid and Recurrent LLM Serving.} arXiv:2605.05219.
-\bibitem{r27} \emph{Multi-Segment Attention: Efficient KV-Cache Management for Faster LLM Serving.} arXiv:2606.02964.
+\bibitem{r25} \emph{ChunkAttention: Efficient Self-Attention with Prefix-Aware KV Cache and Two-Phase Partition.} arXiv:2402.15220, February 2024.
+\bibitem{r26} \emph{Sparse Prefix Caching for Hybrid and Recurrent LLM Serving.} arXiv:2605.05219, May 2026.
+\bibitem{r27} \emph{Multi-Segment Attention: Efficient KV-Cache Management for Faster LLM Serving.} arXiv:2606.02964, June 2026.
 \bibitem{r28} Liu, N. F., et al. \emph{Lost in the Middle: How Language Models Use Long Contexts.} TACL, 12:157--173, 2024.
-\bibitem{r29} \emph{Adaptive Focus Memory for Language Models.} arXiv:2511.12712.
-\bibitem{r30} \emph{A Survey on Multi-Turn Interaction Capabilities of Large Language Models.} arXiv:2501.09959.
-\bibitem{r31} \emph{From Human Memory to AI Memory: A Survey on Memory Mechanisms in the Era of LLMs.} arXiv:2504.15965.
-\bibitem{r32} Chen, L., Zaharia, M., Zou, J. \emph{FrugalGPT: How to Use Large Language Models While Reducing Cost and Improving Performance.} arXiv:2305.05176.
-\bibitem{r33} Ong, I., et al. \emph{RouteLLM: Learning to Route LLMs with Preference Data.} arXiv:2406.18665.
-\bibitem{r34} \emph{When to Reason: Semantic Router for vLLM.} arXiv:2510.08731.
-\bibitem{r35} \emph{UCCI: Calibrated Uncertainty for Cost-Optimal LLM Cascade Routing.} arXiv:2605.18796.
-\bibitem{r36} \emph{Confident or Seek Stronger: Uncertainty-Based On-device LLM Routing.} arXiv:2502.04428.
-\bibitem{r37} \emph{Cluster, Route, Escalate: Cascaded Framework for Cost-Aware LLM Serving.} arXiv:2606.27457.
-\bibitem{r38} \emph{Precise Length Control for Large Language Models.} Natural Language Processing Journal, Elsevier.
-\bibitem{r39} \emph{BudgetThinker: Empowering Budget-Aware LLM Reasoning with Control Tokens.} arXiv:2508.17196.
-\bibitem{r40} \emph{An Empirical Study of LLM Reasoning Ability Under Strict Output Length Constraint.} arXiv:2504.14350.
+\bibitem{r29} \emph{Adaptive Focus Memory for Language Models.} arXiv:2511.12712, November 2025.
+\bibitem{r30} \emph{A Survey on Multi-Turn Interaction Capabilities of Large Language Models.} arXiv:2501.09959, January 2025.
+\bibitem{r31} \emph{From Human Memory to AI Memory: A Survey on Memory Mechanisms in the Era of LLMs.} arXiv:2504.15965, April 2025.
+\bibitem{r32} Chen, L., Zaharia, M., Zou, J. \emph{FrugalGPT: How to Use Large Language Models While Reducing Cost and Improving Performance.} arXiv:2305.05176, May 2023.
+\bibitem{r33} Ong, I., et al. \emph{RouteLLM: Learning to Route LLMs with Preference Data.} arXiv:2406.18665, June 2024.
+\bibitem{r34} \emph{When to Reason: Semantic Router for vLLM.} arXiv:2510.08731, October 2025.
+\bibitem{r35} \emph{UCCI: Calibrated Uncertainty for Cost-Optimal LLM Cascade Routing.} arXiv:2605.18796, May 2026.
+\bibitem{r36} \emph{Confident or Seek Stronger: Uncertainty-Based On-device LLM Routing.} arXiv:2502.04428, February 2025.
+\bibitem{r37} \emph{Cluster, Route, Escalate: Cascaded Framework for Cost-Aware LLM Serving.} arXiv:2606.27457, June 2026.
+\bibitem{r38} \emph{Precise Length Control for Large Language Models.} Butcher, B., O'Keefe, M., Titchener, J. Natural Language Processing (Elsevier), 11, 2025. doi:10.1016/j.nlp.2025.100143. arXiv:2412.11937, December 2024.
+\bibitem{r39} \emph{BudgetThinker: Empowering Budget-Aware LLM Reasoning with Control Tokens.} arXiv:2508.17196, August 2025.
+\bibitem{r40} \emph{An Empirical Study of LLM Reasoning Ability Under Strict Output Length Constraint.} arXiv:2504.14350, April 2025.
 \bibitem{r41} Liskavets, B., Ushakov, M., Yastrebov, K., Roy, S., Etemad, A., Wong, A., Luke, S. \emph{Prompt Compression with Context-Aware Sentence Encoding for Fast and Improved LLM Inference.} AAAI-25, \emph{Proceedings of the AAAI Conference on Artificial Intelligence}, 39(23):24595--24604, 2025. doi:10.1609/aaai.v39i23.34639. arXiv:2409.01227.
 \bibitem{r42} Schroeder, L. G., Desai, A., Cuadron, A., Chu, K., Liu, S., Zhao, M., Krusche, S., Kemper, A., Zaharia, M., Gonzalez, J. E. \emph{vCache: Verified Semantic Prompt Caching.} ICLR, 2026. arXiv:2502.03771.
 \end{thebibliography}
