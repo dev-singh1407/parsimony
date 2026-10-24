@@ -417,6 +417,7 @@ module — the same distinction as ADR-028.
 | [`docs/14-project-report.md`](docs/14-project-report.md) | **Project report.** The full report in the school's section order — literature review, six gaps, RQs, contributions, method, architecture, results — with a plain-language layer over every finding. Renders to PDF |
 | [`docs/15-base-papers.md`](docs/15-base-papers.md) | **Base papers.** The two papers this work is built on rather than compared against — LLMLingua for compression, GPTCache for reuse — with what is taken from each, what is changed, and which experiment reports the outcome |
 | [`docs/16-demo-prompts.md`](docs/16-demo-prompts.md) | **Demo prompts.** One prompt per module with the numbers each actually produces, verified against a live server, plus the features and what to say while they run |
+| [`docs/17-viva-questions.md`](docs/17-viva-questions.md) | **Viva questions.** The hard ones — what is new given vCache, why the gate admitted 55% of meaning changes, how we know we did not overfit — each with where the evidence is |
 | [`docs/09-findings.md`](docs/09-findings.md) | **Read this one first.** Every result in plain prose, with the numbers re-derived from live runs |
 
 ## The one-paragraph version
