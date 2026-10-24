@@ -235,7 +235,20 @@ def _reason(trace, delta, cache, cfg) -> str:
             return f"dropped {ev['dropped_sentences']} repeated sentence(s)"
         return "no repeated sentence"
     if name == "m1_tier3":
+        # Same contradiction tier 1 above was fixed for, and missed here:
+        # this branch only ever reported REJECTED edits, so a stage that
+        # applied two rewrites and saved seven tokens still announced "no
+        # wordy phrase worth shortening" beside its own token drop.
+        applied = ev.get("applied") or 0
         rejected = ev.get("negative_yield_rejected") or 0
+        saved = ev.get("tokens_saved") or 0
+        if applied:
+            shortened = f"shortened {applied} wordy phrase(s)"
+            if saved:
+                shortened += f", saving {saved} tokens"
+            if rejected:
+                shortened += f"; {rejected} more rejected for saving nothing"
+            return shortened
         if rejected:
             return f"{rejected} edit(s) rejected for saving nothing"
         return "no wordy phrase worth shortening"
