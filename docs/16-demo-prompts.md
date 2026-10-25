@@ -150,7 +150,7 @@ Handbook attached. Run these **in this order**:
 with how alike they are, and underneath: *different words, judged to be the same question.*
 
 *Say:* step 3 is the new result — 4 of 40 reworded questions were reused before this work,
-31 of 40 now, with **zero** wrong answers served at any point. Step 4 is why that is safe.
+29 of 40 now, with **zero** wrong answers served at any point. Step 4 is why that is safe.
 
 ---
 

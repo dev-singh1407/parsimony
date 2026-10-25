@@ -466,3 +466,49 @@ class TestEntitiesAreComparedByTheirWords:
         ex = RegexInvariantExtractor()
         assert "Rakvere Systems" in ex.extract(
             "Harlow acquired Rakvere Systems in 2019.").entities
+
+
+class TestTwoQuestionsAboutOneEntity:
+    """ADR-061. The shape the eighty-pair set did not contain.
+
+    Two DIFFERENT questions about the SAME entity agree on everything the
+    verifier checks -- same entity, same kind of answer wanted, no numbers, no
+    negation, no opposing modifier -- and their content words overlap at almost
+    exactly the floor. At 0.25 the cache served "what is the annual travel
+    budget for the Leeds office" in answer to "how many people work in the
+    Leeds office".
+
+    Found by a smoke run on the live server, not by the measurement set, which
+    is the whole reason it is pinned here.
+    """
+
+    PAIRS = [
+        ("What is the annual travel budget for the Leeds office?",
+         "How many people work in the Leeds office?"),
+        ("How many people work in the Leeds office?",
+         "What is the annual travel budget for the Leeds office?"),
+        ("A large number of staff would like to book the lab on a regular basis; "
+         "what is the rule?",
+         "In order to book the lab, is it the case that a large number of forms "
+         "are needed?"),
+    ]
+
+    @pytest.mark.parametrize("stored,asked", PAIRS,
+                             ids=["budget-vs-headcount", "headcount-vs-budget",
+                                  "booking-rule-vs-forms"])
+    def test_a_different_question_about_the_same_entity_is_refused(self, stored, asked):
+        from parsimony.infra.providers import MockProvider
+        from parsimony.infra.tokenization import HeuristicTokenizer
+        from parsimony.modules.m2_cache import SemanticCache
+        from parsimony.pipeline.orchestrator import Pipeline
+        from parsimony.pipeline.registry import default_registry
+
+        cfg, _emb = _neural()
+        cache = SemanticCache(cfg.cache.ttl_seconds)
+        pipe = Pipeline(cfg, provider=MockProvider(),
+                        tokenizer=HeuristicTokenizer("test"), cache=cache,
+                        registry=default_registry(cache))
+        pipe.run(stored, (), conversation_id="c", turn_index=0)
+        out = pipe.run(asked, (), conversation_id="c", turn_index=1)
+        assert not out.row.cache_hit, (
+            "served the answer to %r for %r" % (stored, asked))

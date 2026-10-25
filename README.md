@@ -404,7 +404,7 @@ module — the same distinction as ADR-028.
 | [`docs/00-architecture.md`](docs/00-architecture.md) | Layering, core data model, orchestrator, stage ordering, repo layout, cross-cutting concerns |
 | [`docs/01-pipeline-stages.md`](docs/01-pipeline-stages.md) | The eight processing stages, each with objective / inputs / outputs / techniques / libraries / pros / cons / alternatives / recommendation / integration |
 | [`docs/02-module-specs.md`](docs/02-module-specs.md) | M1–M8 internals and ablation wiring |
-| [`docs/03-decision-log.md`](docs/03-decision-log.md) | 60 ADRs with justification and consequences. **The intellectual core** — several record where measurement contradicted the plan |
+| [`docs/03-decision-log.md`](docs/03-decision-log.md) | 61 ADRs with justification and consequences. **The intellectual core** — several record where measurement contradicted the plan |
 | [`docs/04-roadmap.md`](docs/04-roadmap.md) | Re-planned 12-week schedule, sprint plan, milestone gates, scope-cut order, risks |
 | [`docs/05-evaluation-harness.md`](docs/05-evaluation-harness.md) | The compute budget problem and its fix; sweep runner; four quality measures; statistics; validity threats |
 | [`docs/06-contracts.md`](docs/06-contracts.md) | Complete L0 type and protocol definitions + the ledger schema. **Review this first** |
@@ -419,6 +419,7 @@ module — the same distinction as ADR-028.
 | [`docs/16-demo-prompts.md`](docs/16-demo-prompts.md) | **Demo prompts.** One prompt per module with the numbers each actually produces, verified against a live server, plus the features and what to say while they run |
 | [`docs/17-viva-questions.md`](docs/17-viva-questions.md) | **Viva questions.** The hard ones — what is new given vCache, why the gate admitted 55% of meaning changes, how we know we did not overfit — each with where the evidence is |
 | [`docs/18-site-tour.md`](docs/18-site-tour.md) | **Site tour.** Every tab and every panel of `parsimony web` — what each one is, what it proves, and a ten-minute route through them |
+| [`docs/19-check-it-works.md`](docs/19-check-it-works.md) | **Check it works.** 41 copy-paste prompts with the result each one actually returns on a cold server, including the cases that must be *refused* |
 | [`docs/09-findings.md`](docs/09-findings.md) | **Read this one first.** Every result in plain prose, with the numbers re-derived from live runs |
 
 ## The one-paragraph version

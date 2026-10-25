@@ -41,7 +41,7 @@ Every answer names where the evidence is. If you cannot point at it, do not clai
 >
 > **Three, we measured the side they leave open.** vCache raises hit rate under an error
 > bound. It does not ask how much *legitimate* reuse a safe cache permits. We did: **4 of 40
-> reworded questions, rising to 31 of 40**, with zero wrong answers at every step.
+> reworded questions, rising to 29 of 40**, with zero wrong answers at every step.
 
 *Evidence:* paper §E3, §E7; `docs/15-base-papers.md`.
 
@@ -57,11 +57,13 @@ Every answer names where the evidence is. If you cannot point at it, do not clai
 
 ## B. The cache result
 
-### "78 % reuse — why not higher?"
+### "72.5 % reuse — why not higher?"
 
-> Because the next four points cost two wrong answers, and we publish the table that shows
-> it. At `tau_lo` 0.50 reuse goes to 30 of 40 and two near-misses get served. We stopped at
-> the last operating point that gives up nothing.
+> Because the points above it cost wrong answers, and we publish the tables that show it.
+> At `tau_lo` 0.50 reuse reaches 30 of 40 and two near-misses get served. We also lowered
+> the overlap floor once, for one extra rewording, and put it back when a smoke run found
+> three pairs it served that it should not — two *different* questions about the same
+> office. Two points of reuse for three wrong answers removed (ADR-061).
 
 *Evidence:* paper §E7, the joint sweep table.
 

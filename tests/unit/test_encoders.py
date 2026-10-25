@@ -109,7 +109,7 @@ class TestTheNeuralEncoder:
         # threshold belongs to the encoder it was set for, and because moving
         # one without re-running that sweep is how a calibration rots.
         assert cfg.cache.tau_lo == 0.60
-        assert cfg.cache.soft_jaccard_min == 0.25
+        assert cfg.cache.soft_jaccard_min == 0.33
         assert cfg.cache.word_tau == 0.50
 
     def test_it_is_safe_and_reuses_more_at_its_own_calibration(self, embedder):

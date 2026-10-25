@@ -105,7 +105,7 @@ differ. **Four set comparisons take the false-hit rate to 0.0 % (0/45).**
 
 **What Parsimony adds.** vCache raises hit rates under an error bound; it does not measure how
 much *legitimate* reuse a verified cache permits. **E7** does: the verified cache reused only
-**4 of 40** genuinely reworded questions, and five corrections raise that to **31 of 40** with
+**4 of 40** genuinely reworded questions, and the corrections raise that to **29 of 40** with
 the false-serve count **zero throughout**. The published sweep shows 30 of 40 is reachable
 only at the price of two wrong answers — a trade this project declines.
 
@@ -144,7 +144,7 @@ lone result is an anecdote.
 
 **3. Add the three new experiments (§ Experiments).** Already drafted into `latex/paper.tex`
 as **E6** (the relevance floor is the binding constraint), **E7** (reuse of reworded questions
-rises 4/40 → 31/40 at zero false serves) and **E8** (the fidelity gate admitted 22 of 40
+rises 4/40 → 29/40 at zero false serves) and **E8** (the fidelity gate admitted 22 of 40
 meaning-changing rewrites; now 3). The report should carry the same three.
 
 **4. Make the methodological lesson explicit (§ Conclusion).** Every component had passed

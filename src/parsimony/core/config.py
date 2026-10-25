@@ -234,8 +234,15 @@ class CacheConfig:
     # A third of the content has to correspond. The gap on the measured set
     # runs 0.25 to 0.43, so the development-optimal value would be 0.34; the
     # round third is taken on principle instead (ADR-053).
+    #
+    # ADR-056 lowered this to 0.25 for one extra rewording. ADR-061 put it back:
+    # a smoke run found three pairs that 0.25 serves and 0.33 refuses, all of
+    # the same shape -- two DIFFERENT questions about the same entity, which
+    # agree on entity, kind, numbers and negation and land exactly on 0.25.
+    # "What is the annual travel budget for the Leeds office?" was served for
+    # "How many people work in the Leeds office?".
     soft_overlap: bool = False
-    soft_jaccard_min: float = 0.25
+    soft_jaccard_min: float = 0.33
     #: How close two words must be to count as the same word.
     word_tau: float = 0.50
     #: Treat a modifier difference as an inversion only when both sides use

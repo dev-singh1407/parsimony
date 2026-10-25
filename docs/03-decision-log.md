@@ -3074,3 +3074,61 @@ caught:
 
 All three need structure the gate does not model. Naming them is worth more than a number that pretends
 they are not there.
+
+---
+
+### ADR-061 — The floor goes back to a third, because a smoke run found what the set could not
+
+**Status.** `soft_jaccard_min` 0.25 → 0.33, reversing half of ADR-056. 25 October 2026.
+
+**Context.** ADR-056 swept the candidate gate and the overlap floor jointly and chose
+`tau_lo = 0.60` with a floor of `0.25`, on the grounds that it was the furthest either could
+move while both frozen corpora stayed unchanged. It gained one reworded question.
+
+Building a check-list for the live server — forty prompts to confirm the system is behaving on
+the day — surfaced three pairs the cache **serves and should not**:
+
+> *"What is the annual travel budget for the Leeds office?"* answered
+> *"How many people work in the Leeds office?"*
+
+**Why nothing caught it.** The pair is a shape the eighty-pair set does not contain. Its forty
+near misses vary one thing at a time — a swapped office, a swapped number, an added negation,
+the interrogative changed on identical words. This pair varies *nothing the verifier checks*:
+
+| check | budget-for-Leeds vs headcount-of-Leeds |
+|---|---|
+| entity | **Leeds = Leeds** |
+| kind of answer wanted | **quantity = quantity** |
+| numbers | none either side |
+| negation | none either side |
+| operative modifiers | none opposing |
+| soft overlap | `{annual, travel, budget, leeds, office}` against `{many, people, work, leeds, office}` — **exactly 0.25** |
+
+Two *different* questions about the *same* entity, agreeing on every categorical check, landing
+precisely on the floor ADR-056 lowered. At 0.33 the same pair is refused.
+
+**Decision.** The floor returns to a third. Measured cost and benefit:
+
+| floor | rewordings served | 80-pair false serves | these three | adversarial | interactive |
+|---|---|---|---|---|---|
+| 0.25 (ADR-056) | 31/40 | 0/40 | **3/3 served** | 0 | 0 |
+| 0.30 | 29/40 | 0/40 | 1/3 served | 0 | 0 |
+| **0.33** | **29/40** | **0/40** | **0/3** | **0** | **0** |
+| 0.40 | 25/40 | 0/40 | 0/3 | 0 | 0 |
+
+**Two percentage points of reuse for three wrong answers removed.** The headline figure for
+E7 falls from 31 of 40 to **29 of 40**, and every document quoting 78 % now says 72.5 %.
+
+**What this says about the method, which matters more than the number.** ADR-056 claimed its
+values were development-optimal on a set written for the purpose, with the frozen corpora as
+the guard, and said so. That was honest and it was not sufficient: a set that varies one
+dimension at a time cannot produce a pair that varies *none* of them. The failure was not in
+the thresholds but in the **shape space** of the distractors, and no amount of sweeping would
+have revealed it.
+
+What did reveal it was running the thing. The three pairs are now pinned by test — not added
+to the frozen corpora, because they were found after a failure and that is not measurement,
+but kept where a future change that re-serves them fails immediately.
+
+**ADR-056's reasoning stands for `tau_lo`.** Only the floor moved back. The gate remains at
+0.60, which the same sweep still supports and which no pair here depends on.

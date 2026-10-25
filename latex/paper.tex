@@ -160,7 +160,7 @@ evidence on 81 held-out items while sending less context, 26.6\% against
 27.0\%. Second, the verified cache of E3 reuses only \textbf{4 of 40} genuinely
 reworded questions; correcting the text the encoder is shown, the overlap
 measure, the comparison of what kind of answer is wanted, and two
-entity-extraction faults raises that to \textbf{31 of 40} with the false-serve
+entity-extraction faults raises that to \textbf{29 of 40} with the false-serve
 count at \textbf{zero throughout}, and we publish the sweep showing that 30 of
 40 is reachable only at the price of two wrong answers. Third, the always-on
 fidelity gate --- the property the whole architecture rests on --- admitted
@@ -1648,8 +1648,9 @@ As calibrated in E3                      & 4/40  & 0/40 & 10\% & 100\% \\
 \;+ overlap counted semantically         & 24/40 & 0/40 & 60\% & 100\% \\
 \;+ answer-kind comparison               & 26/40 & 0/40 & 65\% & 100\% \\
 \;+ head-of-complement resolution        & 29/40 & 0/40 & 72.5\% & 100\% \\
-\;+ entity comparison corrected          & \textbf{31/40} & \textbf{0/40} &
-\textbf{78\%} & \textbf{100\%} \\
+\;+ entity comparison corrected          & 31/40 & 0/40 & 78\% & 100\% \\
+\;+ overlap floor restored (ADR-061)     & \textbf{29/40} & \textbf{0/40} &
+\textbf{72.5\%} & \textbf{100\%} \\
 \bottomrule
 \end{tabular}
 \end{table}
