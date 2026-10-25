@@ -3132,3 +3132,62 @@ but kept where a future change that re-serves them fails immediately.
 
 **ADR-056's reasoning stands for `tau_lo`.** Only the floor moved back. The gate remains at
 0.60, which the same sweep still supports and which no pair here depends on.
+
+---
+
+### ADR-062 — Two different questions about one subject: a weakness, named rather than patched
+
+**Status.** Open weakness, measured and recorded. No fix shipped. 25 October 2026.
+
+**Context.** ADR-061 raised the overlap floor to 0.33 after a smoke run found the cache serving
+*"what is the annual travel budget for the Leeds office"* in answer to *"how many people work in
+the Leeds office"*. Building the same check into the page (the **Check** tab) immediately found
+a second instance **above the new floor**:
+
+> *"How many parking spaces does the Leeds office have?"* served for
+> *"What is the headcount of the Leeds office?"* — overlap **0.40**.
+
+Raising the floor a second time would be tuning against examples. So the shape was given a set.
+
+**The shape.** Both questions name the same subject, both want the same *kind* of answer, and the
+words that distinguish them correspond to nothing on the other side. Everything the verifier
+compares agrees, and the overlap they do have is the **subject**, which the entity check has
+already compared separately.
+
+**Measured on ten such pairs: seven clear the shipped floor.** This is systematic, not an
+example.
+
+| overlap | pair |
+|---|---|
+| 0.50 | *how long is the equipment loan period* / *who approves an equipment loan* |
+| 0.40 | *how many parking spaces …Leeds* / *what is the headcount …Leeds* |
+| 0.40 | *when did the Leeds office open* / *how many people does it employ* |
+| 0.40 | *who is the Porto site manager* / *how many people work at the Porto site* |
+| 0.33 | *how many people work in Porto* / *what is the travel budget for Porto* |
+
+**The obvious rule was measured and rejected.** Strip the words both questions share; if what
+remains on each side corresponds to nothing on the other, refuse. It refuses **9 of the 10** —
+and also refuses **16 of the 40 genuine rewordings**, taking reuse from 29 of 40 to 13. It
+trades four points of safety on one shape for forty points of the thing the cache is for. Not
+shipped.
+
+**Why this is recorded rather than fixed.** The two remedies that would work are both larger
+than a threshold:
+
+* compare what is being **asked about** separately from what is being **asked** — the subject
+  against the subject, the question against the question. The head-of-complement work in
+  ADR-057 is the start of this, applied to only one half of the problem.
+* or let the verifier see that *parking spaces* and *headcount* are different **attributes of**
+  the same entity, which is a relation the extractor does not model.
+
+Neither is a sweep, and a third threshold nudge would have hidden the problem rather than
+solved it.
+
+**What is true today**, and what the paper and the viva sheet now say: the cache is safe against
+every adversarial shape it was built against — swapped entity, swapped number, added negation,
+inverted modifier, changed interrogative — and is **not** reliably safe against two different
+questions about one subject. The in-page **Check** tab carries the case that does refuse; this
+record carries the ones that do not.
+
+**How it was found** is the part worth keeping. Not by the eighty-pair set, which cannot generate
+a pair that varies nothing it varies. By building the check into the product and running it.

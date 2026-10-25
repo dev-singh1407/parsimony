@@ -37,6 +37,10 @@
       <span class="nl">Totals</span>
       <span class="nd">the totals so far, in big numbers</span>
     </button>
+    <button id="tab-check" aria-selected="false">
+      <span class="nl">Check</span>
+      <span class="nd">does it still do what it claims?</span>
+    </button>
   </nav>
   <div class="sidefoot">
     <div class="srow"><span class="sk">model</span>
@@ -629,6 +633,31 @@
     <div class="note" id="demo-basis"></div>
     <div class="note" id="demo-extra"></div>
   </div>
+</section>
+
+<!-- ════════════════════════════ CHECK ═══════════════════════════ -->
+<section class="view" id="view-check" hidden>
+  <p class="lede">Every claim this page makes, run against the system itself. Each row
+    carries the behaviour it must produce; pressing <b>Run</b> asks the question for real and
+    says whether it did. Nothing here is a recording &mdash; if a row goes red, the system has
+    changed.</p>
+
+  <div class="panel">
+    <h2>Run the check <span class="hint">about three minutes, because the model really
+      answers</span></h2>
+    <div class="row">
+      <div class="narrow"><button class="go" id="check-run">Run every check</button></div>
+      <div class="narrow"><button class="ghost" id="check-clear">Clear</button></div>
+      <div><span class="checkstat" id="check-stat">not run yet</span></div>
+    </div>
+    <div class="note">The cache is real, so the order matters and the rows run top to bottom:
+      the repeats in &ldquo;Memory&rdquo; depend on the questions above them having been asked.
+      <b>Clear</b> only clears the results on this page &mdash; to start from a cold cache,
+      restart the server.</div>
+    <div class="note" id="check-note"></div>
+  </div>
+
+  <div id="check-groups"></div>
 </section>
 
 </main>

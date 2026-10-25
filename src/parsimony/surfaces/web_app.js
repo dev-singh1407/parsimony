@@ -30,7 +30,7 @@ const token = (name, fallback) =>
 
 /* ══════════════════════════ tabs ══════════════════════════════════ */
 const TABS = { arch: "view-arch", pipe: "view-pipe", map: "view-map",
-               ab: "view-ab", demo: "view-demo" };
+               ab: "view-ab", demo: "view-demo", check: "view-check" };
 function show(which) {
   for (const [k, v] of Object.entries(TABS)) {
     $("tab-" + k).setAttribute("aria-selected", String(k === which));
@@ -38,6 +38,10 @@ function show(which) {
   }
   if (which === "demo") refreshSession();
   if (which === "ab") drawChart();
+  if (which === "check" && !$("check-groups").children.length) {
+    drawChecks();
+    wireCheckButtons();
+  }
   const label = $("tab-" + which).querySelector(".nl");
   $("viewtitle").textContent = label ? label.textContent : which;
 }
@@ -1629,3 +1633,282 @@ function renderAbTable(arms) {
 
 refreshSession();
 setInterval(() => { if (!$("view-demo").hidden) refreshSession(); }, 2000);
+
+/* ══════════════════════════ the check ═════════════════════════════
+   Each row is a claim about behaviour, not about a token count: counts move
+   with a tokenizer, and a check that fails on a rounding difference trains
+   people to ignore it. What is asserted is what either happens or does not --
+   the model was skipped, the answer was reused, the gate reverted an edit.
+
+   Order is load-bearing. The cache is real, so the repeats in group I and the
+   rewordings in group J only mean anything after the questions above them
+   have been asked. Running a row on its own is allowed and will say so. */
+const CHECKS = [
+  ["Calculator — answered with no model at all", false, [
+    ["What is 17 * 4?",        {noModel: true}, "no model call"],
+    ["What is 256 / 8?",       {noModel: true}, "no model call"],
+    ["What is 1234 + 5678?",   {noModel: true}, "no model call"],
+    ["What is 15% of 200?",    {noModel: true}, "no model call"],
+  ]],
+  ["Politeness and filler removed", false, [
+    ["Hello! Could you please tell me, what is recursion? Thanks!",
+     {applied: "Politeness remover"}, "politeness removed"],
+    ["Hi there, I was just wondering what a hash table is. Thanks in advance!",
+     {applied: "Politeness remover"}, "politeness removed"],
+  ]],
+  ["Repeated sentence dropped", false, [
+    ["The budget is 84000 pounds. The budget is 84000 pounds. What is the budget?",
+     {applied: "Repeat remover"}, "repeat dropped"],
+  ]],
+  ["Wordy phrasing shortened", false, [
+    ["A large number of staff would like to book the lab on a regular basis; what is the rule?",
+     {applied: "Wordiness trimmer"}, "phrases shortened"],
+    ["The majority of visitors are able to sign in prior to the meeting, is that right?",
+     {applied: "Wordiness trimmer"}, "phrases shortened"],
+  ]],
+  ["The gate refusing a saving", true, [
+    ["Explain the deadline. The deadline is 15 March. The deadline is 16 March.",
+     {reverted: true}, "an edit is reverted"],
+    ["Explain the limit. The limit is 7 days. The limit is 14 days.",
+     {reverted: true}, "an edit is reverted"],
+  ]],
+  ["Answer-length budget", false, [
+    ["What is the capital of France?", {budget: 128}, "128 tokens"],
+    ["Write a Python function that reverses a linked list.", {budget: 512}, "512 tokens"],
+    ["Why do small language models spend most of their time on prefill rather than decode?",
+     {budget: 640}, "640 tokens"],
+  ]],
+  ["The document — sentences selected for the question", false, [
+    ["What is the annual travel budget for the Leeds office?", {doc: true, selects: true}, "some kept, some dropped"],
+    ["How many people work in the Porto office?",              {doc: true, selects: true}, "some kept, some dropped"],
+    ["What is the daily meal allowance?",                      {doc: true, selects: true}, "some kept, some dropped"],
+    ["How long is a standard equipment loan?",                 {doc: true, selects: true}, "some kept, some dropped"],
+  ]],
+  ["Off topic — the document cannot answer", false, [
+    ["What is the capital of Peru?",   {doc: true, offTopic: true}, "judged off topic"],
+    ["Who won the 1998 World Cup?",    {doc: true, offTopic: true}, "judged off topic"],
+  ]],
+  ["Memory — the same question again", false, [
+    ["What is the daily meal allowance?", {doc: true, reused: true}, "reused, word for word"],
+    ["What is the capital of France?",    {reused: true},            "reused, word for word"],
+  ]],
+  ["Memory — the same question, different words", false, [
+    ["How much do staff get for meals each day?",       {doc: true, reused: true}, "reused"],
+    ["What is the headcount of the Porto office?",      {doc: true, reused: true}, "reused"],
+    ["What is the loan period for standard equipment?", {doc: true, reused: true}, "reused"],
+  ]],
+  ["MUST REFUSE — a different question that looks similar", true, [
+    // The Leeds headcount question lives in the next group, where it is asked
+    // for the first time. Asking it here too made the next group an exact
+    // repeat, which is a legitimate hit -- the check failed on its own
+    // ordering rather than on anything the cache did.
+    ["What is the annual travel budget for the Tallinn office?", {doc: true, reused: false}, "NOT reused"],
+    ["What is the nightly hotel limit?",                         {doc: true, reused: false}, "NOT reused"],
+  ]],
+  ["MUST REFUSE — two questions about the same office", true, [
+    ["What is the annual travel budget for the Leeds office?", {doc: true}, "answered"],
+    ["How many people work in the Leeds office?", {doc: true, reused: false},
+     "NOT reused (ADR-061)"],
+  ]],
+];
+
+function checkRows() {
+  const out = [];
+  CHECKS.forEach((group, gi) => {
+    const [title, critical, rows] = group;
+    rows.forEach((row, ri) => out.push({gi, ri, title, critical,
+                                        q: row[0], want: row[1], wantText: row[2]}));
+  });
+  return out;
+}
+
+function drawChecks() {
+  const host = $("check-groups");
+  host.innerHTML = CHECKS.map(([title, critical, rows], gi) =>
+    `<div class="chkgroup${critical ? " critical" : ""}">`
+    + `<h3>${esc(title)}</h3>`
+    + rows.map((r, ri) =>
+        `<div class="chkrow">`
+        + `<div class="chkq" id="chkq-${gi}-${ri}">${esc(r[0])}</div>`
+        + `<div class="chkwant">must: ${esc(r[2])}</div>`
+        + `<div class="chkgot" id="chkgot-${gi}-${ri}"></div>`
+        + `<div class="chkdo">`
+        +   `<button class="ghost tiny" data-copy="${gi}-${ri}">copy</button>`
+        +   `<button class="ghost tiny" data-ask="${gi}-${ri}">ask this</button>`
+        + `</div>`
+        + `<div class="chkmark idle" id="chkmark-${gi}-${ri}">—</div>`
+        + `</div>`).join("")
+    + `</div>`).join("");
+}
+
+/* What the run actually did, in the same words the layer table uses. */
+/* Copy puts the prompt on the clipboard. Ask this loads it into the Pipeline
+   tab, attaches the handbook when the row needs one, and runs it there -- so
+   the layers are watched in the normal view rather than reduced to a verdict. */
+function wireCheckButtons() {
+  const host = $("check-groups");
+  host.onclick = async (e) => {
+    const btn = e.target.closest("button[data-copy], button[data-ask]");
+    if (!btn) return;
+    const key = btn.dataset.copy || btn.dataset.ask;
+    const [gi, ri] = key.split("-").map(Number);
+    const row = CHECKS[gi][2][ri];
+    const prompt = row[0];
+    if (btn.dataset.copy) {
+      try {
+        await navigator.clipboard.writeText(prompt);
+        const was = btn.textContent;
+        btn.textContent = "copied";
+        setTimeout(() => { btn.textContent = was; }, 1200);
+      } catch (err) {
+        // Clipboard is blocked on some setups; selecting the text still works.
+        const node = $(`chkq-${gi}-${ri}`);
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        btn.textContent = "selected";
+      }
+      return;
+    }
+    if (row[1].doc) {
+      if (!HANDBOOK_TEXT) {
+        try {
+          const sample = await (await fetch("/api/sample")).json();
+          HANDBOOK_TEXT = sample.text || "";
+        } catch (err) { HANDBOOK_TEXT = ""; }
+      }
+      $("pipe-text").value = HANDBOOK_TEXT;
+      sizeContext();
+    } else {
+      $("pipe-text").value = "";
+      sizeContext();
+    }
+    $("pq").value = prompt;
+    show("pipe");
+    window.scrollTo(0, 0);
+    $("run-pipe").click();
+  };
+}
+
+function checkVerdict(want, d) {
+  const layers = d.layers || [];
+  const by = (label) => layers.find((l) => l.label === label);
+  const reused = Boolean(d.cache && d.cache.hit);
+  const noModel = Boolean(d.served_without_model);
+  const reverted = layers.some((l) => l.outcome === "reverted");
+  const ctx = by("Context selector");
+  const limiter = by("Answer limiter");
+
+  if (want.noModel !== undefined) {
+    return [noModel === want.noModel,
+            noModel ? "the model was never called" : "the model ran"];
+  }
+  if (want.reused !== undefined) {
+    const how = reused ? ((by("Memory") || {}).why || "reused") : "answered normally";
+    return [reused === want.reused, how];
+  }
+  if (want.reverted) {
+    const r = layers.find((l) => l.outcome === "reverted");
+    return [reverted, r ? `${r.label} reverted` : "nothing was reverted"];
+  }
+  if (want.budget) {
+    const why = (limiter || {}).why || "";
+    const m = why.match(/(\d+)\s*tokens/);
+    const got = m ? Number(m[1]) : null;
+    return [got === want.budget, why || "no budget reported"];
+  }
+  if (want.offTopic) {
+    const why = (ctx || {}).why || "";
+    return [/off topic|off-topic/i.test(why) || (ctx && ctx.removed >= 40),
+            why || "the context tier did not run"];
+  }
+  if (want.selects) {
+    const why = (ctx || {}).why || "";
+    const m = why.match(/kept (\d+) of (\d+)/);
+    const ok = Boolean(m) && Number(m[1]) > 0 && Number(m[1]) < Number(m[2]);
+    return [ok, why || "the context tier did not run"];
+  }
+  return [true, `${fmt(d.tokens.original)} → ${fmt(d.tokens.final)} tokens`];
+}
+
+function runOneCheck(row) {
+  return new Promise((resolve) => {
+    const mark = $(`chkmark-${row.gi}-${row.ri}`);
+    const got = $(`chkgot-${row.gi}-${row.ri}`);
+    mark.className = "chkmark busy";
+    mark.textContent = "running";
+    got.textContent = "";
+    const text = row.want.doc ? (HANDBOOK_TEXT || "") : "";
+    const url = "/api/pipeline?question=" + encodeURIComponent(row.q)
+              + "&text=" + encodeURIComponent(text);
+    const es = new EventSource(url);
+    es.addEventListener("done", (e) => {
+      es.close();
+      const d = JSON.parse(e.data);
+      const [ok, how] = checkVerdict(row.want, d);
+      mark.className = "chkmark " + (ok ? "pass" : "fail");
+      mark.textContent = ok ? "pass" : "FAIL";
+      got.textContent = how;
+      resolve(ok);
+    });
+    es.addEventListener("failed", (e) => {
+      es.close();
+      mark.className = "chkmark fail";
+      mark.textContent = "FAIL";
+      got.textContent = JSON.parse(e.data).error;
+      resolve(false);
+    });
+    es.onerror = () => {
+      es.close();
+      mark.className = "chkmark fail";
+      mark.textContent = "FAIL";
+      got.textContent = "the server stopped answering";
+      resolve(false);
+    };
+  });
+}
+
+/* The handbook, fetched once, because half the checks need it attached. */
+let HANDBOOK_TEXT = "";
+
+$("check-run").onclick = async () => {
+  const btn = $("check-run");
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>running';
+  $("check-note").textContent = "";
+  if (!HANDBOOK_TEXT) {
+    try {
+      // /api/sample answers with {text, question}, not the document itself.
+      // Attaching the JSON would have made every document check compress a
+      // blob of JSON and still pass, which is worse than failing.
+      const sample = await (await fetch("/api/sample")).json();
+      HANDBOOK_TEXT = sample.text || "";
+    } catch (e) { HANDBOOK_TEXT = ""; }
+  }
+  const rows = checkRows();
+  let passed = 0, failedCritical = 0;
+  for (let i = 0; i < rows.length; i++) {
+    $("check-stat").textContent = `${i + 1} of ${rows.length}…`;
+    const ok = await runOneCheck(rows[i]);
+    if (ok) passed++;
+    else if (rows[i].critical) failedCritical++;
+  }
+  $("check-stat").textContent = `${passed} of ${rows.length} passed`;
+  $("check-note").innerHTML = failedCritical
+    ? `<b class="drop">${failedCritical} check(s) in a MUST REFUSE group failed.</b> `
+      + "That is a wrong answer being served. Do not demonstrate this build."
+    : (passed === rows.length
+       ? "Everything the page claims, it still does."
+       : "Some rows failed outside the MUST REFUSE groups &mdash; read the right-hand column.");
+  btn.disabled = false;
+  btn.textContent = "Run every check";
+};
+
+$("check-clear").onclick = () => {
+  drawChecks();
+  wireCheckButtons();
+  $("check-stat").textContent = "not run yet";
+  $("check-note").textContent = "";
+};
