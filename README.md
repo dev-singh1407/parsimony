@@ -418,6 +418,7 @@ module — the same distinction as ADR-028.
 | [`docs/15-base-papers.md`](docs/15-base-papers.md) | **Base papers.** The two papers this work is built on rather than compared against — LLMLingua for compression, GPTCache for reuse — with what is taken from each, what is changed, and which experiment reports the outcome |
 | [`docs/16-demo-prompts.md`](docs/16-demo-prompts.md) | **Demo prompts.** One prompt per module with the numbers each actually produces, verified against a live server, plus the features and what to say while they run |
 | [`docs/17-viva-questions.md`](docs/17-viva-questions.md) | **Viva questions.** The hard ones — what is new given vCache, why the gate admitted 55% of meaning changes, how we know we did not overfit — each with where the evidence is |
+| [`docs/18-site-tour.md`](docs/18-site-tour.md) | **Site tour.** Every tab and every panel of `parsimony web` — what each one is, what it proves, and a ten-minute route through them |
 | [`docs/09-findings.md`](docs/09-findings.md) | **Read this one first.** Every result in plain prose, with the numbers re-derived from live runs |
 
 ## The one-paragraph version
