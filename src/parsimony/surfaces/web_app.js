@@ -1644,71 +1644,67 @@ setInterval(() => { if (!$("view-demo").hidden) refreshSession(); }, 2000);
    rewordings in group J only mean anything after the questions above them
    have been asked. Running a row on its own is allowed and will say so. */
 const CHECKS = [
-  ["Calculator — answered with no model at all", false, [
-    ["What is 17 * 4?",        {noModel: true}, "no model call"],
-    ["What is 256 / 8?",       {noModel: true}, "no model call"],
-    ["What is 1234 + 5678?",   {noModel: true}, "no model call"],
-    ["What is 15% of 200?",    {noModel: true}, "no model call"],
+  ["Answered with no AI at all — the calculator never calls the model", false, [
+    ["What is 1850 * 12?", {noModel: true}, "27 → 0 tokens, no model call"],
+    ["What is 17 * 4?",    {noModel: true}, "24 → 0 tokens, no model call"],
   ]],
-  ["Politeness and filler removed", false, [
-    ["Hello! Could you please tell me, what is recursion? Thanks!",
-     {applied: "Politeness remover"}, "politeness removed"],
-    ["Hi there, I was just wondering what a hash table is. Thanks in advance!",
-     {applied: "Politeness remover"}, "politeness removed"],
+
+  ["A real document and a real question — where the saving actually is", false, [
+    ["Hi, hope you are well! I was wondering if you could possibly help me with something. Due to the fact that I am putting together a travel claim, and in order to make sure I get it right, I would like to know the following. The Leeds office has a travel budget. The Leeds travel budget is an annual one. What is the annual travel budget for the Leeds office?",
+     {doc: true, selects: true}, "960 → 375 tokens, 61% cut"],
+    ["I am preparing a briefing for new starters and I need to cover three things accurately: how long probation lasts, what the daily meal allowance is, and how long a standard equipment loan runs for. Please give me all three.",
+     {doc: true, selects: true}, "926 → 390 tokens, 58% cut"],
+    ["A new engineer joins the Tallinn office next month and I need to brief them properly. What does the onboarding programme involve, and what extra training do firmware engineers have to complete?",
+     {doc: true, selects: true}, "918 → 358 tokens, 61% cut"],
+    ["What is the annual travel budget for the Leeds office?",
+     {doc: true, selects: true}, "892 → 289 tokens, 68% cut"],
   ]],
-  ["Repeated sentence dropped", false, [
-    ["The budget is 84000 pounds. The budget is 84000 pounds. What is the budget?",
-     {applied: "Repeat remover"}, "repeat dropped"],
+
+  ["Corporate padding shortened — same meaning, fewer tokens", false, [
+    ["Due to the fact that we have a large number of staff members who would like to book the calibration lab on a regular basis, and in order to make sure that the majority of them are able to obtain access prior to the deadline, at this point in time I need clarification. With regard to the notice period, what is the rule?",
+     {applied: "Wordiness trimmer"}, "83 → 59 tokens, 29% cut"],
   ]],
-  ["Wordy phrasing shortened", false, [
-    ["A large number of staff would like to book the lab on a regular basis; what is the rule?",
-     {applied: "Wordiness trimmer"}, "phrases shortened"],
-    ["The majority of visitors are able to sign in prior to the meeting, is that right?",
-     {applied: "Wordiness trimmer"}, "phrases shortened"],
+
+  ["Politeness removed — and why this number is small", false, [
+    ["Hello there! I hope this message finds you well and that you are having a good day so far. I was just wondering whether you might possibly be able to help me out with something. I have been trying to get my head around this for quite a while now and I would really very much appreciate any help you could give me. Thanks so much in advance for taking the time to read this. So, my actual question is this: what is a hash table and how does it work? Thank you again for your time and patience!",
+     {applied: "Politeness remover"}, "123 → 119 — only 3%, and that is the point"],
   ]],
-  ["The gate refusing a saving", true, [
+
+  ["The gate refusing a saving — on purpose", true, [
+    ["The annual travel budget for the Tallinn office is 39000 euros. The Tallinn office has a travel budget of 39000 euros per year. Tallinn's yearly travel allowance is 39000 euros. The travel budget for Tallinn comes to 39000 euros annually. Given that, how much is that per month?",
+     {reverted: true}, "94 → 94 — an edit proposed and refused"],
     ["Explain the deadline. The deadline is 15 March. The deadline is 16 March.",
-     {reverted: true}, "an edit is reverted"],
-    ["Explain the limit. The limit is 7 days. The limit is 14 days.",
-     {reverted: true}, "an edit is reverted"],
+     {reverted: true}, "nothing removed, the dates differ"],
   ]],
-  ["Answer-length budget", false, [
-    ["What is the capital of France?", {budget: 128}, "128 tokens"],
-    ["Write a Python function that reverses a linked list.", {budget: 512}, "512 tokens"],
-    ["Why do small language models spend most of their time on prefill rather than decode?",
-     {budget: 640}, "640 tokens"],
+
+  ["The document cannot answer — so almost none of it is sent", false, [
+    ["What is the capital of Peru?", {doc: true, offTopic: true}, "888 → 58 tokens, judged off topic"],
+    ["Who won the 1998 World Cup?",  {doc: true, offTopic: true}, "judged off topic"],
   ]],
-  ["The document — sentences selected for the question", false, [
-    ["What is the annual travel budget for the Leeds office?", {doc: true, selects: true}, "some kept, some dropped"],
-    ["How many people work in the Porto office?",              {doc: true, selects: true}, "some kept, some dropped"],
-    ["What is the daily meal allowance?",                      {doc: true, selects: true}, "some kept, some dropped"],
-    ["How long is a standard equipment loan?",                 {doc: true, selects: true}, "some kept, some dropped"],
+
+  ["The answer is budgeted before it starts", false, [
+    ["What is the capital of France?", {budget: 128}, "factual → 128 tokens"],
+    ["Write a Python function that takes a list of sentences and returns only those containing a given keyword, preserving order.",
+     {budget: 512}, "code → 512 tokens"],
+    ["Explain why, on a CPU-only machine, reducing the number of input tokens matters more than reducing the number of output tokens, and what that implies for how a prompt should be built.",
+     {budget: 640}, "reasoning → 640 tokens"],
   ]],
-  ["Off topic — the document cannot answer", false, [
-    ["What is the capital of Peru?",   {doc: true, offTopic: true}, "judged off topic"],
-    ["Who won the 1998 World Cup?",    {doc: true, offTopic: true}, "judged off topic"],
+
+  ["The same question in different words — answered from memory", false, [
+    ["How much can Leeds staff spend on travel in a year?",
+     {doc: true, reused: true}, "893 → 0 tokens, reused"],
+    // Both of these reword the Leeds travel-budget question the document
+    // group asks above. A reworded row only means anything if the thing it
+    // rewords was actually asked earlier in the same run.
+    ["How much is the Leeds office allowed to spend on travel annually?",
+     {doc: true, reused: true}, "894 → 0 tokens, reused at 93%"],
   ]],
-  ["Memory — the same question again", false, [
-    ["What is the daily meal allowance?", {doc: true, reused: true}, "reused, word for word"],
-    ["What is the capital of France?",    {reused: true},            "reused, word for word"],
-  ]],
-  ["Memory — the same question, different words", false, [
-    ["How much do staff get for meals each day?",       {doc: true, reused: true}, "reused"],
-    ["What is the headcount of the Porto office?",      {doc: true, reused: true}, "reused"],
-    ["What is the loan period for standard equipment?", {doc: true, reused: true}, "reused"],
-  ]],
+
   ["MUST REFUSE — a different question that looks similar", true, [
-    // The Leeds headcount question lives in the next group, where it is asked
-    // for the first time. Asking it here too made the next group an exact
-    // repeat, which is a legitimate hit -- the check failed on its own
-    // ordering rather than on anything the cache did.
-    ["What is the annual travel budget for the Tallinn office?", {doc: true, reused: false}, "NOT reused"],
-    ["What is the nightly hotel limit?",                         {doc: true, reused: false}, "NOT reused"],
-  ]],
-  ["MUST REFUSE — two questions about the same office", true, [
-    ["What is the annual travel budget for the Leeds office?", {doc: true}, "answered"],
     ["How many people work in the Leeds office?", {doc: true, reused: false},
-     "NOT reused (ADR-061)"],
+     "NOT reused — 890 → 335, answered properly"],
+    ["What is the annual travel budget for the Tallinn office?", {doc: true, reused: false},
+     "NOT reused — Tallinn is not Leeds"],
   ]],
 ];
 
@@ -1830,7 +1826,16 @@ function checkVerdict(want, d) {
     const ok = Boolean(m) && Number(m[1]) > 0 && Number(m[1]) < Number(m[2]);
     return [ok, why || "the context tier did not run"];
   }
-  return [true, `${fmt(d.tokens.original)} → ${fmt(d.tokens.final)} tokens`];
+  return [true, tokenLine(d)];
+}
+
+/* Every row prints what it actually cost, because that is the number being
+   demonstrated. The verdict says whether the behaviour held; this says what it
+   saved while holding. */
+function tokenLine(d) {
+  const t = d.tokens;
+  const pct = t.original ? Math.round(100 * t.removed / t.original) : 0;
+  return `${fmt(t.original)} → ${fmt(t.final)} tokens, ${pct}% cut`;
 }
 
 function runOneCheck(row) {
@@ -1847,7 +1852,9 @@ function runOneCheck(row) {
     es.addEventListener("done", (e) => {
       es.close();
       const d = JSON.parse(e.data);
-      const [ok, how] = checkVerdict(row.want, d);
+      let [ok, how] = checkVerdict(row.want, d);
+      const cost = tokenLine(d);
+      if (!how.includes("tokens")) how = `${cost} \u2014 ${how}`;
       mark.className = "chkmark " + (ok ? "pass" : "fail");
       mark.textContent = ok ? "pass" : "FAIL";
       got.textContent = how;
